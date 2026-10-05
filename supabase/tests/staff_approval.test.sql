@@ -57,6 +57,9 @@ begin
   perform set_config('request.jwt.claim.sub',v_partner_user::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_partner_user,'role','authenticated')::text,true);
   if public.is_partner_user(v_partner) then raise exception 'Revoked partner still has company access';end if;
+  if not exists(select 1 from public.staff_applications where id=v_partner_application and status='revoked') then raise exception 'Revoked application status was not recorded';end if;
+  perform public.request_staff_access('partner','Test Partner');
+  if not exists(select 1 from public.staff_applications where id=v_partner_application and status='pending') then raise exception 'Revoked applicant could not request review again';end if;
 end $$;
 
 select set_config('request.jwt.claim.sub',(select manager_id::text from staff_security_fixture),true);
