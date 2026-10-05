@@ -41,8 +41,13 @@ begin
 
   perform set_config('request.jwt.claim.sub',v_operations_id::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_operations_id,'role','authenticated')::text,true);
-  v_partner_one := public.create_logistics_partner('Test Partner One','Partner One Contact','+2348000000010','partner-one@example.test','Lagos','Lagos',array['Lagos'],'partner-one-'||v_partner_one_user_id::text||'@example.test');
-  v_partner_two := public.create_logistics_partner('Test Partner Two','Partner Two Contact','+2348000000020','partner-two@example.test','Ibadan','Oyo',array['Ibadan'],'partner-two-'||v_partner_two_user_id::text||'@example.test');
+  v_partner_one := public.create_logistics_partner('Test Partner One','Partner One Contact','+2348000000010','partner-one@example.test','Lagos','Lagos',array['Lagos']);
+  v_partner_two := public.create_logistics_partner('Test Partner Two','Partner Two Contact','+2348000000020','partner-two@example.test','Ibadan','Oyo',array['Ibadan']);
+  -- Fixtures represent Partner access already approved by a Super Admin.
+  insert into public.partner_users(partner_id,user_id) values
+    ((v_partner_one->>'partner_id')::uuid,v_partner_one_user_id),
+    ((v_partner_two->>'partner_id')::uuid,v_partner_two_user_id);
+  insert into public.user_roles(user_id,role) values(v_partner_one_user_id,'partner'),(v_partner_two_user_id,'partner') on conflict do nothing;
   v_first_assignment_id := (public.assign_job_to_partner(v_job_id,(v_partner_one->>'partner_id')::uuid)->>'assignment_id')::uuid;
   begin
     perform public.assign_job_to_partner(v_job_id,(v_partner_two->>'partner_id')::uuid);

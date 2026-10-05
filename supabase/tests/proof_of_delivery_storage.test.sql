@@ -20,7 +20,7 @@ begin
     (v_partner_user,'00000000-0000-0000-0000-000000000000','authenticated','authenticated','pod-partner-'||v_partner_user::text||'@example.test','',now(),'{}','{}',now(),now()),
     (v_other_user,'00000000-0000-0000-0000-000000000000','authenticated','authenticated','pod-other-'||v_other_user::text||'@example.test','',now(),'{}','{}',now(),now()),
     (v_operations_user,'00000000-0000-0000-0000-000000000000','authenticated','authenticated','pod-operations-'||v_operations_user::text||'@example.test','',now(),'{}','{}',now(),now());
-  insert into public.user_roles(user_id,role) values(v_operations_user,'operations');
+  insert into public.user_roles(user_id,role) values(v_operations_user,'operations'),(v_partner_user,'partner');
   insert into public.customers(id,company_name,customer_type,contact_person,email,phone,created_by)
     values(v_customer,'POD test customer','business','Test contact','pod-customer@example.test','+2348000000000',v_customer_user);
   insert into public.customer_users(customer_id,user_id) values(v_customer,v_customer_user);

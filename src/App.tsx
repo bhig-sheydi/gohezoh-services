@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { getSupabaseClient } from './lib/supabase'
 import WarehouseConsole from './WarehouseConsole'
+import AdminConsole from './AdminConsole'
 import './App.css'
 
 type Customer = { id: string; company_name: string; status: string }
@@ -34,6 +35,7 @@ const jobStatusLabels: Record<string, string> = {
 const formatStatus = (status: string) => jobStatusLabels[status] ?? status.replaceAll('_', ' ')
 const requestStatusLabels: Record<string, string> = { submitted: 'Received', under_review: 'Under review', approved: 'Approved', rejected: 'Not accepted', converted: 'Order confirmed', cancelled: 'Cancelled' }
 const formatRequestStatus = (status: string) => requestStatusLabels[status] ?? status.replaceAll('_', ' ')
+const siteUrl = 'https://gohezoh-services.vercel.app/'
 type Service = { id: string; code: string; name: string; description: string | null }
 type CustomerNotification = { id: string; job_id: string | null; event_type: string; title: string; body: string; created_at: string; read_at: string | null; payload: Record<string, unknown> }
 type FinanceJob = {
@@ -56,7 +58,7 @@ function App() {
   const [authReady, setAuthReady] = useState(false)
   const [roles, setRoles] = useState<string[]>([])
   const [rolesForUserId, setRolesForUserId] = useState('')
-  const [rolePreview, setRolePreview] = useState<'account' | 'customer' | 'operations' | 'partner' | 'finance' | 'bdo' | 'warehouse'>('account')
+  const [workspace, setWorkspace] = useState<'account' | 'operations' | 'finance' | 'bdo' | 'warehouse'>('account')
   const [recovery, setRecovery] = useState(false)
   const [customer, setCustomer] = useState<Customer | null>(null)
   const [loadingProfile, setLoadingProfile] = useState(false)
@@ -70,11 +72,13 @@ function App() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session)
+      if (data.session && new URLSearchParams(window.location.search).get('setup') === '1') setRecovery(true)
       setAuthReady(true)
     })
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, nextSession) => {
       setSession(nextSession)
       if (event === 'PASSWORD_RECOVERY') setRecovery(true)
+      if (nextSession && new URLSearchParams(window.location.search).get('setup') === '1') setRecovery(true)
       if (event === 'SIGNED_OUT') {
         setRecovery(false)
         setCustomer(null)
@@ -91,15 +95,18 @@ function App() {
     if (!session?.user) return
 
     let active = true
-    supabase.from('user_roles').select('role').eq('user_id', session.user.id)
+    const refresh = () => { void supabase.from('user_roles').select('role').eq('user_id', session.user.id)
       .then(({ data, error: roleError }) => {
         if (!active) return
         if (roleError) setError(roleError.message)
         setRoles((data ?? []).map((entry) => String(entry.role)))
         setRolesForUserId(session.user.id)
-      })
+      }) }
+    refresh()
+    const timer = window.setInterval(refresh, 30000)
+    window.addEventListener('focus', refresh)
 
-    return () => { active = false }
+    return () => { active = false; window.clearInterval(timer); window.removeEventListener('focus', refresh) }
   }, [session, supabase])
 
   const loadCustomer = useCallback(async () => {
@@ -228,7 +235,7 @@ function App() {
     setBusy(true); setError('')
     const { error: updateError } = await supabase.auth.updateUser({ password })
     if (updateError) setError(updateError.message)
-    else { setRecovery(false); setNotice('Password updated. You are signed in.') }
+    else { setRecovery(false); window.history.replaceState({}, '', window.location.pathname); setNotice('Password updated. You are signed in.') }
     setBusy(false)
   }
 
@@ -247,23 +254,24 @@ function App() {
   const warehouseAccess = roles.some((role) => ['warehouse','operations','admin','management'].includes(role))
   const customerAccess = roles.includes('customer')
   const customerInventoryAccess = customerAccess && !roles.some((role)=>['warehouse','operations','partner','finance','admin','management','bdo'].includes(role))
-  const operationsScreen = rolePreview === 'operations' || (rolePreview === 'account' && operationsAccess)
+  const superAdmin = roles.includes('admin') && ['admin@gohezohservices.org','info@gohezoservices.org'].includes(session?.user.email?.toLowerCase() ?? '')
+  const adminScreen = superAdmin && workspace === 'account'
+  const operationsScreen = workspace === 'operations' && operationsAccess || workspace === 'account' && !superAdmin && operationsAccess
   const partnerAccess = roles.includes('partner')
-  const partnerScreen = rolePreview === 'partner' || (rolePreview === 'account' && partnerAccess && !operationsAccess)
-  const customerScreen = rolePreview === 'customer' || (rolePreview === 'account' && customerAccess && !partnerAccess)
-  const financeScreen = rolePreview === 'finance' || (rolePreview === 'account' && financeAccess && !operationsAccess)
-  const bdoScreen = rolePreview === 'bdo' || (rolePreview === 'account' && roles.includes('bdo') && !financeAccess && !operationsAccess && !partnerAccess)
-  const warehouseScreen = rolePreview === 'warehouse' || (rolePreview === 'account' && roles.includes('warehouse') && !financeAccess && !operationsAccess && !partnerAccess && !roles.includes('bdo'))
-  const previewingRole = import.meta.env.DEV && rolePreview !== 'account'
+  const partnerScreen = workspace === 'account' && partnerAccess && !operationsAccess
+  const customerScreen = workspace === 'account' && customerAccess && !partnerAccess && !operationsAccess && !financeAccess && !bdoAccess && !roles.includes('warehouse')
+  const financeScreen = workspace === 'finance' && financeAccess || workspace === 'account' && financeAccess && !operationsAccess
+  const bdoScreen = workspace === 'bdo' && bdoAccess || workspace === 'account' && bdoAccess && !financeAccess && !operationsAccess && !partnerAccess
+  const warehouseScreen = workspace === 'warehouse' && (warehouseAccess || customerInventoryAccess) || workspace === 'account' && roles.includes('warehouse') && !financeAccess && !operationsAccess && !partnerAccess && !roles.includes('bdo')
 
   return (
     <main className="app-shell">
       <header className="topbar">
         <a className="brand" href="/" aria-label="Gohezoh home"><span className="brand-mark">G</span><span><strong>GOHEZOH</strong><small>INTEGRATED SERVICES</small></span></a>
-        {session && <div className="signed-in">{import.meta.env.DEV && <label className="dev-role-switcher"><span>TEST VIEW</span><select aria-label="Preview portal screen" value={rolePreview} onChange={(event) => setRolePreview(event.target.value as typeof rolePreview)}><option value="account">My account</option><option value="customer">Customer screen</option><option value="operations">Operations screen</option><option value="partner">Partner screen</option><option value="finance">Finance screen</option><option value="bdo">Business Development</option><option value="warehouse">Warehouse & Fulfillment</option></select></label>}{financeAccess && !financeScreen && <button className="text-button" onClick={() => setRolePreview('finance')}>Finance</button>}{bdoAccess && !bdoScreen && <button className="text-button" onClick={() => setRolePreview('bdo')}>Business Development</button>}{warehouseAccess && !warehouseScreen && <button className="text-button" onClick={() => setRolePreview('warehouse')}>Warehouse</button>}{customerInventoryAccess && !warehouseScreen && <button className="text-button" onClick={() => setRolePreview('warehouse')}>Inventory & fulfillment</button>}{(rolePreview === 'finance' || rolePreview === 'bdo' || rolePreview === 'warehouse') && <button className="text-button" onClick={() => setRolePreview('account')}>Back to portal</button>}<span>{session.user.email}</span><button className="text-button" onClick={signOut}>Sign out</button></div>}
+        {session && <div className="signed-in">{superAdmin && workspace !== 'account' && <button className="text-button" onClick={() => setWorkspace('account')}>Super Admin</button>}{operationsAccess && !operationsScreen && <button className="text-button" onClick={() => setWorkspace('operations')}>Operations</button>}{financeAccess && !financeScreen && <button className="text-button" onClick={() => setWorkspace('finance')}>Finance</button>}{bdoAccess && !bdoScreen && <button className="text-button" onClick={() => setWorkspace('bdo')}>Business Development</button>}{warehouseAccess && !warehouseScreen && <button className="text-button" onClick={() => setWorkspace('warehouse')}>Warehouse</button>}{customerInventoryAccess && !warehouseScreen && <button className="text-button" onClick={() => setWorkspace('warehouse')}>Inventory & fulfillment</button>}{!superAdmin && workspace !== 'account' && <button className="text-button" onClick={() => setWorkspace('account')}>Back to portal</button>}<span>{session.user.email}</span><button className="text-button" onClick={signOut}>Sign out</button></div>}
       </header>
-      {previewingRole && <div className="role-preview-banner">Preview only: your Supabase role and access have not changed. Operations updates still require an Operations role.</div>}
-      {!authReady ? <div className="loading">Preparing your secure workspace...</div> : !session ? <AuthPanel supabase={supabase} onError={setError} onNotice={setNotice} busy={busy} setBusy={setBusy} /> : rolesForUserId !== session.user.id ? <div className="loading">Checking your account access...</div> : recovery ? <section className="form-card narrow"><p className="eyebrow">ACCOUNT SECURITY</p><h1>Choose a new password</h1><form className="form-grid" onSubmit={updatePassword}><Field label="New password" name="password" type="password" minLength={8} required /><Field label="Confirm password" name="confirm_password" type="password" minLength={8} required /><button className="primary-button" disabled={busy}>{busy ? 'Saving...' : 'Update password'}</button></form></section> : warehouseScreen ? <WarehouseConsole supabase={supabase} isCustomer={roles.includes('customer')&&!roles.some((role)=>['warehouse','operations','admin','management'].includes(role))} canReceive={warehouseAccess} canPick={roles.some((role)=>['warehouse','management','admin'].includes(role))} canRelease={operationsAccess} canManage={roles.some((role)=>['admin','management'].includes(role))} onError={setError} onNotice={setNotice}/> : bdoScreen ? <BusinessDevelopmentConsole supabase={supabase} userId={session.user.id} canManage={roles.some((role) => ['management','admin'].includes(role))} isBdo={roles.includes('bdo')} onError={setError} onNotice={setNotice} /> : financeScreen ? <FinanceConsole supabase={supabase} userId={session.user.id} canRecord={financeAccess} canApprove={roles.some((role) => ['management','admin'].includes(role))} canPay={financeAccess} onError={setError} onNotice={setNotice} /> : operationsScreen ? <OperationsConsole supabase={supabase} onError={setError} onNotice={setNotice} canUpdateJobs={operationsAccess} /> : partnerScreen ? <PartnerPortal supabase={supabase} userId={session.user.id} canRespond={partnerAccess} onError={setError} onNotice={setNotice} /> : !customerScreen ? <section className="form-card narrow"><p className="eyebrow">ACCOUNT ACCESS</p><h1>This account has no portal access yet.</h1><p className="section-intro">Ask a Gohezoh administrator to assign the appropriate role.</p></section> : loadingProfile ? <div className="loading">Loading your customer workspace...</div> : !customer ? <section className="form-card narrow"><p className="eyebrow">CUSTOMER SETUP</p><h1>Tell us about your business.</h1><p className="section-intro">We will use these details to prepare and track your delivery requests.</p><form className="form-grid" onSubmit={submitProfile}><Field label="Business or customer name" name="company_name" required /><label className="field"><span>Customer type</span><select name="customer_type"><option value="individual">Individual</option><option value="business">Business</option></select></label><Field label="Contact person" name="contact_person" required /><Field label="Phone number" name="phone" type="tel" required /><Field label="Address" name="address" /><div className="field-row"><Field label="City" name="city" /><Field label="State" name="state" /></div><button className="primary-button" disabled={busy}>{busy ? 'Saving profile...' : 'Save customer profile'}</button></form></section> : <Dashboard customer={customer} services={services} requests={requests} notifications={notifications} busy={busy} onSubmit={submitRequest} onMarkRead={markNotificationRead} onRefresh={loadCustomer} />}
+
+      {!authReady ? <div className="loading">Preparing your secure workspace...</div> : !session ? <AuthPanel supabase={supabase} onError={setError} onNotice={setNotice} busy={busy} setBusy={setBusy} /> : rolesForUserId !== session.user.id ? <div className="loading">Checking your account access...</div> : recovery ? <section className="form-card narrow"><p className="eyebrow">ACCOUNT SECURITY</p><h1>Choose a new password</h1><form className="form-grid" onSubmit={updatePassword}><Field label="New password" name="password" type="password" minLength={8} required /><Field label="Confirm password" name="confirm_password" type="password" minLength={8} required /><button className="primary-button" disabled={busy}>{busy ? 'Saving...' : 'Update password'}</button></form></section> : adminScreen ? <AdminConsole supabase={supabase} onError={setError} onNotice={setNotice} /> : warehouseScreen ? <WarehouseConsole supabase={supabase} isCustomer={roles.includes('customer')&&!roles.some((role)=>['warehouse','operations','admin','management'].includes(role))} canReceive={warehouseAccess} canPick={roles.some((role)=>['warehouse','management','admin'].includes(role))} canRelease={operationsAccess} canManage={roles.some((role)=>['admin','management'].includes(role))} onError={setError} onNotice={setNotice}/> : bdoScreen ? <BusinessDevelopmentConsole supabase={supabase} userId={session.user.id} canManage={roles.some((role) => ['management','admin'].includes(role))} isBdo={roles.includes('bdo')} onError={setError} onNotice={setNotice} /> : financeScreen ? <FinanceConsole supabase={supabase} userId={session.user.id} canRecord={financeAccess} canApprove={roles.some((role) => ['management','admin'].includes(role))} canPay={financeAccess} onError={setError} onNotice={setNotice} /> : operationsScreen ? <OperationsConsole supabase={supabase} onError={setError} onNotice={setNotice} canUpdateJobs={operationsAccess} /> : partnerScreen ? <PartnerPortal supabase={supabase} userId={session.user.id} canRespond={partnerAccess} onError={setError} onNotice={setNotice} /> : !customerScreen ? <section className="form-card narrow"><p className="eyebrow">ACCOUNT ACCESS</p><h1>Staff access pending.</h1><p className="section-intro">Your account is awaiting Super Admin review. Confirm your email, then sign back in to check approval.</p></section> : loadingProfile ? <div className="loading">Loading your customer workspace...</div> : !customer ? <section className="form-card narrow"><p className="eyebrow">CUSTOMER SETUP</p><h1>Tell us about your business.</h1><p className="section-intro">We will use these details to prepare and track your delivery requests.</p><form className="form-grid" onSubmit={submitProfile}><Field label="Business or customer name" name="company_name" required /><label className="field"><span>Customer type</span><select name="customer_type"><option value="individual">Individual</option><option value="business">Business</option></select></label><Field label="Contact person" name="contact_person" required /><Field label="Phone number" name="phone" type="tel" required /><Field label="Address" name="address" /><div className="field-row"><Field label="City" name="city" /><Field label="State" name="state" /></div><button className="primary-button" disabled={busy}>{busy ? 'Saving profile...' : 'Save customer profile'}</button></form></section> : <Dashboard customer={customer} services={services} requests={requests} notifications={notifications} busy={busy} onSubmit={submitRequest} onMarkRead={markNotificationRead} onRefresh={loadCustomer} />}
       {(error || notice) && <div className={`toast ${error ? 'toast-error' : 'toast-success'}`} role="status">{error || notice}<button onClick={() => { setError(''); setNotice('') }} aria-label="Dismiss message">x</button></div>}
       <footer className="page-footer"><span>GOHEZOH INTEGRATED SERVICES LTD.</span><span>LOGISTICS  |  FULFILLMENT  |  PARTNERSHIP</span></footer>
     </main>
@@ -418,7 +426,7 @@ function OperationsConsole({ supabase, onError, onNotice, canUpdateJobs }: {
       p_base_city: String(form.get('base_city')).trim() || null,
       p_base_state: String(form.get('base_state')).trim() || null,
       p_service_areas: String(form.get('service_areas')).split(',').map((area) => area.trim()).filter(Boolean),
-      p_portal_user_email: String(form.get('portal_user_email')).trim() || null,
+      p_portal_user_email: null,
     })
     if (error) onError(error.message)
     else {
@@ -561,8 +569,7 @@ function OperationsConsole({ supabase, onError, onNotice, canUpdateJobs }: {
         <div className="field-row"><Field label="Phone number" name="phone" type="tel" required /><Field label="Business email" name="email" type="email" /></div>
         <div className="field-row"><Field label="Base city" name="base_city" /><Field label="Base state" name="base_state" /></div>
         <Field label="Service areas" name="service_areas" placeholder="Lagos, Ibadan, Abuja" />
-        <Field label="Partner portal account email (optional)" name="portal_user_email" type="email" placeholder="Use an account that has already signed up" />
-        <p className="form-footnote">Linking an existing account gives it the Partner role and access to assigned jobs.</p>
+        <p className="form-footnote">A partner account can request portal access during signup. Super Admin approval is required before it can see assigned jobs.</p>
         <button className="primary-button" disabled={!canUpdateJobs || partnerFormBusy}>{partnerFormBusy ? 'Saving partner...' : 'Add logistics partner'}</button>
       </form>
       {partners.length > 0 && <div className="partner-roster">{partners.map((partner) => <div key={partner.id}><strong>{partner.partner_name}</strong><span>{partner.partner_number} | Active</span></div>)}</div>}
@@ -746,6 +753,7 @@ function AuthPanel({ supabase, onError, onNotice, busy, setBusy }: {
   supabase: ReturnType<typeof getSupabaseClient>; onError: (message: string) => void; onNotice: (message: string) => void; busy: boolean; setBusy: (value: boolean) => void
 }) {
   const [mode, setMode] = useState<'signin' | 'signup' | 'forgot' | 'otp'>('signin')
+  const [accountKind, setAccountKind] = useState<'customer' | 'staff'>('customer')
   const [email, setEmail] = useState('')
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -757,10 +765,17 @@ function AuthPanel({ supabase, onError, onNotice, busy, setBusy }: {
       const { error } = await supabase.auth.signInWithPassword({ email: submittedEmail, password })
       if (error) onError(error.message)
     } else if (mode === 'signup') {
-      const { data, error } = await supabase.auth.signUp({ email: submittedEmail, password, options: { data: { full_name: String(form.get('full_name')).trim() } } })
+      const { data, error } = await supabase.auth.signUp({
+        email: submittedEmail, password,
+        options: { emailRedirectTo: siteUrl, data: {
+          full_name: String(form.get('full_name')).trim(), account_kind: accountKind,
+          requested_role: accountKind === 'staff' ? String(form.get('requested_role')) : null,
+          organization_name: accountKind === 'staff' ? String(form.get('organization_name') ?? '').trim() : null,
+        } },
+      })
       if (error) onError(error.message)
-      else if (!data.session) onNotice('Check your email to confirm your account, then sign in here.')
-      else onNotice('Account created. Complete your customer profile to continue.')
+      else if (!data.session) onNotice(`Check your email to confirm your account. The link opens ${siteUrl}`)
+      else onNotice(accountKind === 'staff' ? 'Your application is awaiting Super Admin approval.' : 'Account created. Complete your customer profile to continue.')
     } else if (mode === 'forgot') {
       const { error } = await supabase.auth.resetPasswordForEmail(submittedEmail)
       if (error) onError(error.message)
@@ -777,8 +792,14 @@ function AuthPanel({ supabase, onError, onNotice, busy, setBusy }: {
     setBusy(false)
   }
   const heading = mode === 'signup' ? 'Create your account.' : mode === 'forgot' ? 'Reset your password.' : mode === 'otp' ? 'Enter your code.' : 'Welcome back.'
-  const intro = mode === 'signup' ? 'Set up access to request and follow deliveries.' : mode === 'forgot' ? 'We will send a one-time code to your email address.' : mode === 'otp' ? `Enter the 8-digit code sent to ${email}. You will set a new password here next.` : 'Sign in to request and manage your deliveries.'
-  return <section className="auth-layout"><div className="hero-copy"><p className="eyebrow">LOGISTICS, WITH A HUMAN TOUCH</p><h1>Good business<br />keeps <em>moving.</em></h1><p className="hero-description">Request a delivery, keep track of what's moving, and stay in the loop from pickup to arrival.</p><div className="flow-note"><span>01</span><div><strong>One clear place for your deliveries</strong><p>Submit a request and follow its progress with Gohezoh.</p></div></div></div><section className="form-card auth-card"><p className="eyebrow">CUSTOMER PORTAL</p><h2>{heading}</h2><p className="section-intro">{intro}</p><form className="form-grid" onSubmit={submit}>{mode === 'signup' && <Field label="Your full name" name="full_name" autoComplete="name" required />}{mode !== 'otp' && <label className="field"><span>Email address</span><input name="email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>}{(mode === 'signin' || mode === 'signup') && <Field label="Password" name="password" type="password" autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} minLength={8} required />}{mode === 'otp' && <label className="field"><span>8-digit verification code</span><input name="token" type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{8}" maxLength={8} minLength={8} placeholder="00000000" required autoFocus /></label>}<button className="primary-button" disabled={busy}>{busy ? 'Please wait...' : mode === 'signup' ? 'Create account' : mode === 'forgot' ? 'Send verification code' : mode === 'otp' ? 'Verify code' : 'Sign in'}</button></form><div className="auth-links">{mode === 'signin' ? <><button className="text-button" onClick={() => setMode('forgot')}>Forgot password?</button><span>New to Gohezoh? <button className="text-button" onClick={() => setMode('signup')}>Create account</button></span></> : mode === 'otp' ? <><button className="text-button" onClick={() => { setMode('forgot'); onError(''); onNotice('') }}>Change email</button><button className="text-button" onClick={() => { setMode('forgot'); onError(''); onNotice('') }}>Send a new code</button><button className="text-button" onClick={() => setMode('signin')}>Back to sign in</button></> : <button className="text-button" onClick={() => setMode('signin')}>Back to sign in</button>}</div></section></section>
+  const intro = mode === 'signup' ? 'Customers can start right away. Staff and partner access requires Super Admin approval.' : mode === 'forgot' ? 'We will send a one-time code to your email address.' : mode === 'otp' ? `Enter the 8-digit code sent to ${email}. You will set a new password here next.` : 'Sign in to your Gohezoh workspace.'
+  return <section className="auth-layout"><div className="hero-copy"><p className="eyebrow">LOGISTICS, WITH A HUMAN TOUCH</p><h1>Good business<br />keeps <em>moving.</em></h1><p className="hero-description">Request a delivery, keep track of what's moving, and stay in the loop from pickup to arrival.</p><div className="flow-note"><span>01</span><div><strong>One clear place for your deliveries</strong><p>Submit a request and follow its progress with Gohezoh.</p></div></div></div><section className="form-card auth-card"><p className="eyebrow">GOHEZOH ACCOUNT</p><h2>{heading}</h2><p className="section-intro">{intro}</p><form className="form-grid" onSubmit={submit}>
+    {mode === 'signup' && <><Field label="Your full name" name="full_name" autoComplete="name" required /><label className="field"><span>Sign up as</span><select name="account_kind" value={accountKind} onChange={(event) => setAccountKind(event.target.value as 'customer' | 'staff')}><option value="customer">Customer</option><option value="staff">Staff or logistics partner</option></select></label>{accountKind === 'staff' && <><label className="field"><span>Requested category</span><select name="requested_role" required><option value="operations">Operations</option><option value="warehouse">Warehouse</option><option value="finance">Finance</option><option value="bdo">Business Development</option><option value="partner">Logistics Partner</option><option value="management">Management</option></select></label><Field label="Organization or partner name" name="organization_name" /></>}</>}
+    {mode !== 'otp' && <label className="field"><span>Email address</span><input name="email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>}
+    {(mode === 'signin' || mode === 'signup') && <Field label="Password" name="password" type="password" autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} minLength={8} required />}
+    {mode === 'otp' && <label className="field"><span>8-digit verification code</span><input name="token" type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{8}" maxLength={8} minLength={8} placeholder="00000000" required autoFocus /></label>}
+    <button className="primary-button" disabled={busy}>{busy ? 'Please wait...' : mode === 'signup' ? 'Create account' : mode === 'forgot' ? 'Send verification code' : mode === 'otp' ? 'Verify code' : 'Sign in'}</button>
+  </form><div className="auth-links">{mode === 'signin' ? <><button className="text-button" onClick={() => setMode('forgot')}>Forgot password?</button><span>New to Gohezoh? <button className="text-button" onClick={() => setMode('signup')}>Create account</button></span></> : mode === 'otp' ? <><button className="text-button" onClick={() => { setMode('forgot'); onError(''); onNotice('') }}>Change email</button><button className="text-button" onClick={() => { setMode('forgot'); onError(''); onNotice('') }}>Send a new code</button><button className="text-button" onClick={() => setMode('signin')}>Back to sign in</button></> : <button className="text-button" onClick={() => setMode('signin')}>Back to sign in</button>}</div></section></section>
 }
 
 function DeliveryTimeline({ request }: { request: DeliveryRequest }) {

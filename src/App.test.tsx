@@ -6,6 +6,7 @@ import App from './App'
 const mockState = vi.hoisted(() => {
   const state: {
     roles: string[]
+    session: { user: { id: string; email: string } } | null
     partners: Array<{ id: string; partner_number: string; partner_name: string; status: string }>
     customerRequests: Array<Record<string, unknown>>
     customerOrders: Array<Record<string, unknown>>
@@ -33,6 +34,7 @@ const mockState = vi.hoisted(() => {
     client: Record<string, unknown>
   } = {
     roles: [],
+    session: { user: { id: 'user-1', email: 'tester@example.test' } },
     partners: [],
     customerRequests: [],
     customerOrders: [],
@@ -81,9 +83,11 @@ const mockState = vi.hoisted(() => {
 
   state.client = {
     auth: {
-      getSession: vi.fn(async () => ({ data: { session: { user: { id: 'user-1', email: 'tester@example.test' } } } })),
+      getSession: vi.fn(async () => ({ data: { session: state.session } })),
       onAuthStateChange: vi.fn(() => ({ data: { subscription: { unsubscribe: vi.fn() } } })),
       signOut: vi.fn(async () => ({ error: null })),
+      signUp: vi.fn(async () => ({ data: { session: null }, error: null })),
+      signInWithPassword: vi.fn(async () => ({ error: null })),
     },
     from: (table: string) => builder(table),
     storage: { from: () => ({
@@ -97,6 +101,45 @@ const mockState = vi.hoisted(() => {
   return state
 })
 
+describe('account access', () => {
+  it('submits a staff application and sends confirmation back to the live site', async () => {
+    mockState.session = null
+    render(<App />)
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Create account' }))
+    await user.type(screen.getByLabelText('Your full name'), 'Ada Staff')
+    await user.selectOptions(screen.getByLabelText('Sign up as'), 'staff')
+    await user.selectOptions(screen.getByLabelText('Requested category'), 'warehouse')
+    await user.type(screen.getByLabelText('Email address'), 'ada@example.test')
+    await user.type(screen.getByLabelText('Password'), 'strong-password-123')
+    fireEvent.submit(screen.getByRole('button', { name: 'Create account' }).closest('form')!)
+    await waitFor(() => expect((mockState.client.auth as { signUp: ReturnType<typeof vi.fn> }).signUp).toHaveBeenCalledWith(expect.objectContaining({
+      email: 'ada@example.test',
+      options: expect.objectContaining({
+        emailRedirectTo: 'https://gohezoh-services.vercel.app/',
+        data: expect.objectContaining({ account_kind: 'staff', requested_role: 'warehouse' }),
+      }),
+    })))
+  })
+
+  it('routes a named Super Admin to approval controls without a test switcher', async () => {
+    mockState.roles = ['admin', 'customer']
+    mockState.session = { user: { id: 'admin-1', email: 'admin@gohezohservices.org' } }
+    mockState.rpc.mockImplementation(async (name: string) => {
+      if (name === 'list_staff_applications') return { data: [{ id: 'application-1', user_id: 'staff-1', email: 'staff@example.test', full_name: 'Ada Staff', requested_role: 'warehouse', organization_name: null, status: 'pending', email_confirmed: true, created_at: '2026-10-05T10:00:00Z' }], error: null }
+      if (name === 'list_staff_access') return { data: [], error: null }
+      return { data: {}, error: null }
+    })
+    render(<App />)
+    expect(await screen.findByRole('heading', { name: 'Access control' })).toBeInTheDocument()
+    expect(screen.queryByText('TEST VIEW')).not.toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve' }))
+    await waitFor(() => expect(mockState.rpc).toHaveBeenCalledWith('review_staff_application', {
+      p_application_id: 'application-1', p_approve: true, p_partner_id: null,
+    }))
+  })
+})
+
 vi.mock('./lib/supabase', () => ({ getSupabaseClient: () => mockState.client }))
 
 const partner = { id: 'partner-1', partner_number: 'PRT-0001', partner_name: 'Test Logistics', status: 'active' }
@@ -108,6 +151,7 @@ const jobFixture = () => ({
 
 beforeEach(() => {
   mockState.roles = ['management']
+  mockState.session = { user: { id: 'user-1', email: 'tester@example.test' } }
   mockState.partners = []
   mockState.customerRequests = []
   mockState.customerOrders = []
