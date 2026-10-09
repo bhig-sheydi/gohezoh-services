@@ -142,6 +142,24 @@ describe('account access', () => {
 
 vi.mock('./lib/supabase', () => ({ getSupabaseClient: () => mockState.client }))
 
+it('switches the whole app to dark mode and keeps the choice after remount', async () => {
+  mockState.session = null
+  window.localStorage.removeItem('gohezoh-theme')
+  const user = userEvent.setup()
+  const first = render(<App />)
+  const darkButton = await screen.findByRole('button', { name: 'Switch to dark mode' })
+  await user.click(darkButton)
+  await waitFor(() => expect(document.documentElement).toHaveAttribute('data-theme', 'dark'))
+  expect(window.localStorage.getItem('gohezoh-theme')).toBe('dark')
+  first.unmount()
+  render(<App />)
+  const lightButton = await screen.findByRole('button', { name: 'Switch to light mode' })
+  expect(lightButton).toHaveAttribute('aria-pressed', 'true')
+  await user.click(lightButton)
+  await waitFor(() => expect(document.documentElement).toHaveAttribute('data-theme', 'light'))
+  expect(window.localStorage.getItem('gohezoh-theme')).toBe('light')
+})
+
 const partner = { id: 'partner-1', partner_number: 'PRT-0001', partner_name: 'Test Logistics', status: 'active' }
 const jobFixture = () => ({
   id: 'job-1', job_number: 'JOB-0001', status: 'order_confirmed', customer_id: 'customer-1', partner_id: null,

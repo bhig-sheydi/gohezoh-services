@@ -1,0 +1,172 @@
+.topbar-actions { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:12px; min-width:0; }
+.theme-toggle { flex:none; min-height:36px; padding:7px 12px; border:1px solid #cad7c6; border-radius:9px; color:#284739; background:#eef4e8; font-size:11px; font-weight:750; cursor:pointer; }
+.theme-toggle:hover { border-color:#91ae83; background:#e5f0db; }
+.theme-toggle:focus-visible { outline:3px solid #8cae68; outline-offset:2px; }
+@media(max-width:680px) {
+  .topbar { height:auto; min-height:72px; gap:12px; padding-block:12px; }
+  .topbar-actions { flex:1; }
+  .signed-in { justify-content:flex-end; }
+}
+@media(max-width:420px) {
+  .hero-copy h1 { font-size:clamp(41px,11vw,52px); overflow-wrap:anywhere; }
+  .topbar-actions { gap:7px; }
+}
+
+:root[data-theme='dark'] { color-scheme:dark; background:#101a19; }
+:root[data-theme='dark'] ::selection { color:#102019; background:#c8e883; }
+:root[data-theme='dark'] .app-shell {
+  --ink:#e9f2ea;
+  --muted:#b2c3b7;
+  --paper:#101a19;
+  --lime:#cbe879;
+  --line:#3b5248;
+  background:radial-gradient(ellipse at 78% 24%,rgba(121,160,82,.08),transparent 34%),var(--paper);
+}
+:root[data-theme='dark'] .topbar,
+:root[data-theme='dark'] .page-footer,
+:root[data-theme='dark'] .flow-note,
+:root[data-theme='dark'] .form-card,
+:root[data-theme='dark'] .history-panel,
+:root[data-theme='dark'] .notification-panel,
+:root[data-theme='dark'] .finance-currency-group,
+:root[data-theme='dark'] .operations-summary,
+:root[data-theme='dark'] .admin-row,
+:root[data-theme='dark'] .partner-roster>div,
+:root[data-theme='dark'] .request-item,
+:root[data-theme='dark'] .notification-item,
+:root[data-theme='dark'] .queue-row,
+:root[data-theme='dark'] .job-progress-row,
+:root[data-theme='dark'] .request-references,
+:root[data-theme='dark'] .finance-job-totals,
+:root[data-theme='dark'] .finance-form,
+:root[data-theme='dark'] .finance-record-list,
+:root[data-theme='dark'] .form-divider { border-color:#3b5248; }
+:root[data-theme='dark'] .form-card,
+:root[data-theme='dark'] .history-panel,
+:root[data-theme='dark'] .notification-panel,
+:root[data-theme='dark'] .finance-currency-group,
+:root[data-theme='dark'] .operations-summary,
+:root[data-theme='dark'] .admin-row { background:#1a2925; box-shadow:none; }
+:root[data-theme='dark'] .review-facts,
+:root[data-theme='dark'] .partner-job-route,
+:root[data-theme='dark'] .delivery-timeline,
+:root[data-theme='dark'] .delivery-otp-panel,
+:root[data-theme='dark'] .finance-kpis article,
+:root[data-theme='dark'] .customer-payment-summary,
+:root[data-theme='dark'] .queue-row-selected { background:#243730; }
+:root[data-theme='dark'] .delivery-otp-panel { border-color:#3b5248; }
+:root[data-theme='dark'] .queue-row-selected { color:var(--ink); }
+:root[data-theme='dark'] .brand-mark { color:#102019; background:#cbe879; }
+:root[data-theme='dark'] .theme-toggle { border-color:#577563; color:#e9f3dc; background:#2a4438; }
+:root[data-theme='dark'] .theme-toggle:hover { background:#365743; }
+:root[data-theme='dark'] .signed-in,
+:root[data-theme='dark'] .auth-links,
+:root[data-theme='dark'] .page-footer,
+:root[data-theme='dark'] .field,
+:root[data-theme='dark'] .field small,
+:root[data-theme='dark'] .hero-copy h1 em,
+:root[data-theme='dark'] .eyebrow,
+:root[data-theme='dark'] .form-divider,
+:root[data-theme='dark'] .form-footnote,
+:root[data-theme='dark'] .request-item p,
+:root[data-theme='dark'] .request-item small,
+:root[data-theme='dark'] .request-references,
+:root[data-theme='dark'] .request-references strong,
+:root[data-theme='dark'] .empty-state p,
+:root[data-theme='dark'] .queue-route,
+:root[data-theme='dark'] .queue-route span,
+:root[data-theme='dark'] .queue-service,
+:root[data-theme='dark'] .queue-empty p,
+:root[data-theme='dark'] .review-facts small,
+:root[data-theme='dark'] .review-facts span,
+:root[data-theme='dark'] .review-route small,
+:root[data-theme='dark'] .review-route p,
+:root[data-theme='dark'] .review-extras small,
+:root[data-theme='dark'] .review-extras p,
+:root[data-theme='dark'] .operations-summary p,
+:root[data-theme='dark'] .partner-job-route small,
+:root[data-theme='dark'] .partner-job-route p,
+:root[data-theme='dark'] .partner-roster span,
+:root[data-theme='dark'] .notification-copy p,
+:root[data-theme='dark'] .notification-copy small,
+:root[data-theme='dark'] .notification-empty,
+:root[data-theme='dark'] .finance-kpis span,
+:root[data-theme='dark'] .finance-job-heading p:not(.eyebrow),
+:root[data-theme='dark'] .finance-job-totals span,
+:root[data-theme='dark'] .finance-record-list p,
+:root[data-theme='dark'] .finance-empty,
+:root[data-theme='dark'] .customer-payment-summary,
+:root[data-theme='dark'] .customer-payment-summary small,
+:root[data-theme='dark'] .admin-row small,
+:root[data-theme='dark'] .timeline-current>span,
+:root[data-theme='dark'] .timeline-step,
+:root[data-theme='dark'] .timeline-step small,
+:root[data-theme='dark'] .job-progress-copy>span,
+:root[data-theme='dark'] .progress-empty,
+:root[data-theme='dark'] .pod-saved-message { color:#b1c5b7; }
+:root[data-theme='dark'] .notification-copy strong,
+:root[data-theme='dark'] .notification-unread .notification-title-row strong,
+:root[data-theme='dark'] .finance-kpis strong,
+:root[data-theme='dark'] .finance-job-margin strong,
+:root[data-theme='dark'] .finance-job-totals strong,
+:root[data-theme='dark'] .finance-record-list p strong,
+:root[data-theme='dark'] .customer-payment-summary>strong,
+:root[data-theme='dark'] .partner-job-route strong,
+:root[data-theme='dark'] .admin-row strong { color:#e8f2e9; }
+:root[data-theme='dark'] .eyebrow,
+:root[data-theme='dark'] .hero-copy h1 em,
+:root[data-theme='dark'] .text-button,
+:root[data-theme='dark'] .finance-edit-details summary,
+:root[data-theme='dark'] .pod-customer-link { color:#c6e27e; }
+:root[data-theme='dark'] .field input,
+:root[data-theme='dark'] .field select,
+:root[data-theme='dark'] .field textarea,
+:root[data-theme='dark'] .admin-actions select { border-color:#466355; color:#edf5ed; background:#11211c; }
+:root[data-theme='dark'] .field input::placeholder,
+:root[data-theme='dark'] .field textarea::placeholder { color:#a7bcae; }
+:root[data-theme='dark'] .field input:focus,
+:root[data-theme='dark'] .field select:focus,
+:root[data-theme='dark'] .field textarea:focus,
+:root[data-theme='dark'] .admin-actions select:focus-visible { border-color:#a7ce79; box-shadow:0 0 0 3px rgba(167,206,121,.24); }
+:root[data-theme='dark'] .primary-button { color:#102019; background:#cbe879; }
+:root[data-theme='dark'] .primary-button:hover:not(:disabled) { background:#d9f29a; }
+:root[data-theme='dark'] .secondary-button { border-color:#557362; color:#e5f1e7; background:#263b31; }
+:root[data-theme='dark'] .secondary-button:hover:not(:disabled) { border-color:#8eae87; background:#314b3d; }
+:root[data-theme='dark'] .reject-button { border-color:#915b58; color:#ffd2c8; background:#452d2b; }
+:root[data-theme='dark'] .reject-button:hover:not(:disabled) { background:#573735; }
+:root[data-theme='dark'] .role-preview-banner { border-color:#9b8150; color:#ffe0a1; background:#493c25; }
+:root[data-theme='dark'] .toast { border-color:#54785c; color:#e6f5e7; background:#24412d; }
+:root[data-theme='dark'] .toast-error { border-color:#99635d; color:#ffe0d8; background:#4b302e; }
+:root[data-theme='dark'] .request-count,
+:root[data-theme='dark'] .empty-icon,
+:root[data-theme='dark'] .summary-count { color:#e2f4c9; background:#34503b; }
+:root[data-theme='dark'] .profile-status,
+:root[data-theme='dark'] .request-status,
+:root[data-theme='dark'] .job-status-label { border-color:#64816d; color:#e9f4db; background:#304d3d; }
+:root[data-theme='dark'] .request-status.status-submitted,
+:root[data-theme='dark'] .request-status.status-under_review,
+:root[data-theme='dark'] .assignment-status,
+:root[data-theme='dark'] .finance-status { border-color:#b49352; color:#ffe2a1; background:#554227; }
+:root[data-theme='dark'] .request-status.status-approved,
+:root[data-theme='dark'] .request-status.status-converted,
+:root[data-theme='dark'] .assignment-accepted,
+:root[data-theme='dark'] .finance-status-paid,
+:root[data-theme='dark'] .job-status-label.status-delivered,
+:root[data-theme='dark'] .job-status-label.status-closed,
+:root[data-theme='dark'] .notification-new { border-color:#5ca77c; color:#d7f7de; background:#24513a; }
+:root[data-theme='dark'] .request-status.status-rejected,
+:root[data-theme='dark'] .request-status.status-cancelled,
+:root[data-theme='dark'] .finance-status-cancelled,
+:root[data-theme='dark'] .job-status-label.status-exception,
+:root[data-theme='dark'] .job-status-label.status-cancelled { border-color:#b77971; color:#ffe1dc; background:#573733; }
+:root[data-theme='dark'] .job-status-label.status-in_transit,
+:root[data-theme='dark'] .job-status-label.status-out_for_delivery { color:#d9edff; background:#254d68; }
+:root[data-theme='dark'] .timeline-step:not(:last-child)::after { background:#4a6253; }
+:root[data-theme='dark'] .timeline-step-complete:not(:last-child)::after { background:#80b78b; }
+:root[data-theme='dark'] .timeline-dot { border-color:#6d8876; color:#e9f2ea; background:#243730; }
+:root[data-theme='dark'] .timeline-step-complete .timeline-dot { border-color:#77b285; color:#102019; background:#a5d4a5; }
+:root[data-theme='dark'] .timeline-step-complete { color:#dbf1da; }
+:root[data-theme='dark'] .pod-upload-panel h3,
+:root[data-theme='dark'] .customer-payment-summary>strong { color:#e8f2e9; }
+:root[data-theme='dark'] .finance-cancel,
+:root[data-theme='dark'] .timeline-alert { color:#ffc49c; }
