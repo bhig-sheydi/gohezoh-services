@@ -14,7 +14,8 @@ begin
   insert into public.customer_users(customer_id,user_id) values(v_customer,v_customer_user);
   insert into public.warehouses(name,code,address,city,state) values('Lagos Test Warehouse','LAG-TEST','1 Warehouse Road','Lagos','Lagos') returning id into v_warehouse;
   perform set_config('request.jwt.claim.sub',v_warehouse_user::text,true);perform set_config('request.jwt.claims',jsonb_build_object('sub',v_warehouse_user,'role','authenticated')::text,true);
-  v_received:=public.receive_inventory(v_warehouse,v_customer,'SKU-001','Test Product',12,'A-01',null,'box',5000,1.2,'10x10x10 cm','Bubble wrap','Keep dry');v_item:=(v_received->>'item_id')::uuid;
+  v_received:=public.receive_inventory(v_warehouse,v_customer,'SKU-001','Test Product',12,'A-01',null,'box',5000,0.000001,'10x10x10 cm','Bubble wrap','Keep dry');v_item:=(v_received->>'item_id')::uuid;
+  if (select weight_kg from public.inventory_items where id=v_item) <> 0.000001 then raise exception 'milligram weight was rounded in inventory'; end if;
   perform set_config('request.jwt.claim.sub',v_customer_user::text,true);perform set_config('request.jwt.claims',jsonb_build_object('sub',v_customer_user,'role','authenticated')::text,true);
   v_order:=public.create_fulfillment_order(v_warehouse,jsonb_build_array(jsonb_build_object('item_id',v_item,'quantity',3)),'2 Delivery Road','Ibadan','Oyo','Test Recipient','08000000002','Leave with reception');v_fulfillment:=(v_order->>'fulfillment_id')::uuid;
   if not exists(select 1 from public.warehouse_inventory where warehouse_id=v_warehouse and inventory_item_id=v_item and quantity_on_hand=12 and quantity_reserved=3) then raise exception 'Fulfillment request did not reserve inventory';end if;

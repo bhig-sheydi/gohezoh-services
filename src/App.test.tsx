@@ -261,6 +261,28 @@ describe('partner assignment and delivery screens', () => {
     expect(screen.getByRole('heading', { name: 'Inventory by warehouse' })).toBeInTheDocument()
   })
 
+  it('converts a received product weight from milligrams before saving', async () => {
+    mockState.roles = ['warehouse']
+    const baseQuery = mockState.query.getMockImplementation() as (table: string, filters: Record<string, unknown>, one: boolean, insert?: unknown) => unknown
+    mockState.query.mockImplementation((table: string, filters: Record<string, unknown>, one: boolean, insert?: unknown) =>
+      table === 'warehouses'
+        ? { data: [{ id: 'warehouse-1', warehouse_number: 'WH-0001', name: 'Lagos Warehouse', code: 'LAG', address: '1 Road', city: 'Lagos', state: 'Lagos' }], error: null }
+        : baseQuery(table, filters, one, insert))
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Receive customer inventory' })
+    await screen.findByRole('option', { name: 'Test Customer' })
+    await user.selectOptions(screen.getByLabelText('Customer'), 'customer-1')
+    await user.selectOptions(screen.getByLabelText('Warehouse'), 'warehouse-1')
+    await user.type(screen.getByLabelText('SKU'), 'SKU-001')
+    await user.type(screen.getByLabelText('Product name'), 'Sample')
+    await user.type(screen.getByLabelText('Quantity received'), '1')
+    await user.type(screen.getByLabelText('Weight'), '1')
+    await user.selectOptions(screen.getByLabelText('Weight unit'), 'mg')
+    await user.click(screen.getByRole('button', { name: 'Record goods received' }))
+    await waitFor(() => expect(mockState.rpc).toHaveBeenCalledWith('receive_inventory', expect.objectContaining({ p_weight_kg: 0.000001 })))
+  })
+
   it('lets warehouse staff confirm the picked quantity for an order line', async () => {
     mockState.roles=['warehouse']
     mockState.warehouseOrders=[{id:'fulfillment-1',fulfillment_number:'FUL-00001',customer_id:'customer-1',warehouse_id:'warehouse-1',status:'picking',delivery_address:'2 Delivery Road',delivery_city:'Ibadan',delivery_state:'Oyo',recipient_name:'Ada Recipient',recipient_phone:'08000000001',customer_note:null,created_at:'2026-10-02T10:00:00Z',service_request_id:null}]
@@ -427,8 +449,9 @@ describe('partner assignment and delivery screens', () => {
     for (const [label,value] of Object.entries({
       'Pickup contact':'Ada','Pickup phone':'08000000001','Pickup address':'1 Lagos Road','Pickup city':'Lagos',
       'Recipient name':'Bola','Recipient phone':'08000000002','Delivery address':'2 Lagos Road','Delivery city':'Lagos',
-      'Parcel description':'Books','Quantity':'2','Weight (kg)':'1.25',
+      'Parcel description':'Books','Quantity':'2','Weight':'1250',
     })) fireEvent.change(screen.getByLabelText(label),{target:{value}})
+    await user.selectOptions(screen.getByLabelText('Weight unit'), 'g')
     await user.click(screen.getByRole('button',{name:'Submit delivery request'}))
     await waitFor(() => expect(mockState.inserts).toContainEqual(expect.objectContaining({
       table:'service_requests',
