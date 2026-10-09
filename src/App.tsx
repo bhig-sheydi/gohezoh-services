@@ -255,7 +255,7 @@ function App() {
   const warehouseAccess = roles.some((role) => ['warehouse','operations','admin','management'].includes(role))
   const customerAccess = roles.includes('customer')
   const customerInventoryAccess = customerAccess && !roles.some((role)=>['warehouse','operations','partner','finance','admin','management','bdo'].includes(role))
-  const superAdmin = roles.includes('admin') && ['admin@gohezohservices.org','info@gohezoservices.org'].includes(session?.user.email?.toLowerCase() ?? '')
+  const superAdmin = roles.includes('admin') && ['admin@gohezohservices.org','info@gohezohservices.org'].includes(session?.user.email?.toLowerCase() ?? '')
   const adminScreen = superAdmin && workspace === 'account'
   const operationsScreen = workspace === 'operations' && operationsAccess || workspace === 'account' && !superAdmin && operationsAccess
   const partnerAccess = roles.includes('partner')
