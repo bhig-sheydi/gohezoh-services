@@ -102,6 +102,22 @@ const mockState = vi.hoisted(() => {
 })
 
 describe('account access', () => {
+  it('reveals and hides the sign-in password without submitting the form', async () => {
+    mockState.session = null
+    const user = userEvent.setup()
+    render(<App />)
+    const password = await screen.findByLabelText('Password') as HTMLInputElement
+    await user.type(password, 'private-password')
+    expect(password.type).toBe('password')
+    await user.click(screen.getByRole('button', { name: 'Show password' }))
+    expect(password.type).toBe('text')
+    expect(password.value).toBe('private-password')
+    expect(screen.getByRole('button', { name: 'Hide password' })).toHaveAttribute('aria-pressed', 'true')
+    await user.click(screen.getByRole('button', { name: 'Hide password' }))
+    expect(password.type).toBe('password')
+    expect((mockState.client.auth as { signInWithPassword: ReturnType<typeof vi.fn> }).signInWithPassword).not.toHaveBeenCalled()
+  })
+
   it('submits a staff application and sends confirmation back to the live site', async () => {
     mockState.session = null
     render(<App />)
@@ -112,6 +128,8 @@ describe('account access', () => {
     await user.selectOptions(screen.getByLabelText('Requested category'), 'warehouse')
     await user.type(screen.getByLabelText('Email address'), 'ada@example.test')
     await user.type(screen.getByLabelText('Password'), 'strong-password-123')
+    await user.click(screen.getByRole('button', { name: 'Show password' }))
+    expect((screen.getByLabelText('Password') as HTMLInputElement).type).toBe('text')
     fireEvent.submit(screen.getByRole('button', { name: 'Create account' }).closest('form')!)
     await waitFor(() => expect((mockState.client.auth as { signUp: ReturnType<typeof vi.fn> }).signUp).toHaveBeenCalledWith(expect.objectContaining({
       email: 'ada@example.test',
@@ -120,6 +138,29 @@ describe('account access', () => {
         data: expect.objectContaining({ account_kind: 'staff', requested_role: 'warehouse' }),
       }),
     })))
+    const notice = await screen.findByRole('status')
+    expect(notice).toHaveClass('toast-email')
+    expect(notice).toHaveTextContent('Check your email to confirm your account')
+    await user.click(screen.getByRole('button', { name: 'Dismiss message' }))
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('provides independent eye controls for new and confirmed passwords', async () => {
+    window.history.replaceState({}, '', '/?setup=1')
+    mockState.roles = ['customer']
+    const user = userEvent.setup()
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Choose a new password' })
+    const password = screen.getByLabelText('New password') as HTMLInputElement
+    const confirmation = screen.getByLabelText('Confirm password') as HTMLInputElement
+    await user.type(password, 'new-private-password')
+    await user.click(screen.getByRole('button', { name: 'Show new password' }))
+    expect(password.type).toBe('text')
+    expect(confirmation.type).toBe('password')
+    await user.click(screen.getByRole('button', { name: 'Show confirm password' }))
+    expect(confirmation.type).toBe('text')
+    expect(password.value).toBe('new-private-password')
+    window.history.replaceState({}, '', '/')
   })
 
   it('routes a named Super Admin to approval controls without a test switcher', async () => {

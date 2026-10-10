@@ -137,6 +137,10 @@
 :root[data-theme='dark'] .role-preview-banner { border-color:#9b8150; color:#ffe0a1; background:#493c25; }
 :root[data-theme='dark'] .toast { border-color:#54785c; color:#e6f5e7; background:#24412d; }
 :root[data-theme='dark'] .toast-error { border-color:#99635d; color:#ffe0d8; background:#4b302e; }
+:root[data-theme='dark'] .toast-email { border-color:#93c898; color:#ecffed; background:#1d5037; box-shadow:0 18px 45px rgba(0,0,0,.45); }
+:root[data-theme='dark'] .toast-email-icon { color:#153622; background:#c4e993; }
+:root[data-theme='dark'] .password-visibility { color:#e1f4cf; background:#355640; }
+:root[data-theme='dark'] .password-visibility:hover { background:#426b4f; }
 :root[data-theme='dark'] .request-count,
 :root[data-theme='dark'] .empty-icon,
 :root[data-theme='dark'] .summary-count { color:#e2f4c9; background:#34503b; }
