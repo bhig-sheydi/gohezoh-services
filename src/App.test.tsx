@@ -30,6 +30,7 @@ const mockState = vi.hoisted(() => {
     upload: ReturnType<typeof vi.fn>
     remove: ReturnType<typeof vi.fn>
     createSignedUrls: ReturnType<typeof vi.fn>
+    createSignedUrl: ReturnType<typeof vi.fn>
     podInsertError: boolean
     client: Record<string, unknown>
   } = {
@@ -58,6 +59,7 @@ const mockState = vi.hoisted(() => {
     upload: vi.fn(),
     remove: vi.fn(),
     createSignedUrls: vi.fn(async (paths: string[]) => ({ data: paths.map((path) => ({ path, signedUrl: 'https://signed.example.test/proof' })), error: null })),
+    createSignedUrl: vi.fn(async () => ({ data: { signedUrl: 'https://signed.example.test/document' }, error: null })),
     podInsertError: false,
     client: {},
   }
@@ -94,6 +96,7 @@ const mockState = vi.hoisted(() => {
       upload: (...args: unknown[]) => (state.upload as (...values: unknown[]) => unknown)(...args),
       remove: (...args: unknown[]) => (state.remove as (...values: unknown[]) => unknown)(...args),
       createSignedUrls: (...args: unknown[]) => (state.createSignedUrls as (...values: unknown[]) => unknown)(...args),
+      createSignedUrl: (...args: unknown[]) => (state.createSignedUrl as (...values: unknown[]) => unknown)(...args),
     }) },
     rpc: (...args: unknown[]) => (state.rpc as (...values: unknown[]) => unknown)(...args),
     functions: { invoke: (...args: unknown[]) => (state.invoke as (...values: unknown[]) => unknown)(...args) },
@@ -145,6 +148,21 @@ describe('account access', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
+  it('tells partner applicants when to submit verification documents', async () => {
+    mockState.session = null
+    render(<App />)
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Create account' }))
+    await user.type(screen.getByLabelText('Your full name'), 'Partner Applicant')
+    await user.selectOptions(screen.getByLabelText('Sign up as'), 'staff')
+    await user.selectOptions(screen.getByLabelText('Requested category'), 'partner')
+    expect(screen.getByText(/sign in here to upload your NIN or CAC registration document/i)).toBeInTheDocument()
+    await user.type(screen.getByLabelText('Email address'), 'partner@example.test')
+    await user.type(screen.getByLabelText('Password'), 'strong-password-123')
+    fireEvent.submit(screen.getByRole('button', { name: 'Create account' }).closest('form')!)
+    expect(await screen.findByRole('status')).toHaveTextContent('Then sign in to upload your NIN or CAC document.')
+  })
+
   it('provides independent eye controls for new and confirmed passwords', async () => {
     window.history.replaceState({}, '', '/?setup=1')
     mockState.roles = ['customer']
@@ -178,6 +196,28 @@ describe('account access', () => {
     await waitFor(() => expect(mockState.rpc).toHaveBeenCalledWith('review_staff_application', {
       p_application_id: 'application-1', p_approve: true, p_partner_id: null,
     }))
+  })
+
+  it('shows submitted partner documents to the Super Admin', async () => {
+    mockState.roles = ['admin']
+    mockState.session = { user: { id: 'admin-1', email: 'admin@gohezohservices.org' } }
+    mockState.rpc.mockImplementation(async (name: string) => {
+      if (name === 'list_staff_applications') return { data: [{ id: 'application-1', user_id: 'partner-1', email: 'partner@example.test', full_name: 'Partner Applicant', requested_role: 'partner', organization_name: 'Partner Company', status: 'pending', email_confirmed: true, created_at: '2026-10-10T10:00:00Z' }], error: null }
+      if (name === 'list_staff_access') return { data: [], error: null }
+      return { data: {}, error: null }
+    })
+    const originalQuery = mockState.query.getMockImplementation()! as (...args: unknown[]) => unknown
+    mockState.query.mockImplementation((...args: unknown[]) => args[0] === 'staff_applications'
+      ? { data: [{ id: 'application-1', partner_document_type: 'cac', partner_document_path: 'partner-1/application-1/registration.pdf' }], error: null }
+      : originalQuery(...args))
+    const tab = { opener: null, location: { replace: vi.fn() }, close: vi.fn() }
+    const open = vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window)
+    render(<App />)
+    expect(await screen.findByText('CAC document submitted')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'View document' }))
+    await waitFor(() => expect(mockState.createSignedUrl).toHaveBeenCalledWith('partner-1/application-1/registration.pdf', 300))
+    expect(tab.location.replace).toHaveBeenCalledWith('https://signed.example.test/document')
+    open.mockRestore()
   })
 })
 

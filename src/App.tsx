@@ -774,6 +774,7 @@ function AuthPanel({ supabase, onError, onNotice, busy, setBusy }: {
 }) {
   const [mode, setMode] = useState<'signin' | 'signup' | 'forgot' | 'otp'>('signin')
   const [accountKind, setAccountKind] = useState<'customer' | 'staff'>('customer')
+  const [requestedRole, setRequestedRole] = useState('operations')
   const [email, setEmail] = useState('')
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -794,8 +795,8 @@ function AuthPanel({ supabase, onError, onNotice, busy, setBusy }: {
         } },
       })
       if (error) onError(error.message)
-      else if (!data.session) onNotice(`Check your email to confirm your account. The link opens ${siteUrl}`)
-      else onNotice(accountKind === 'staff' ? 'Your application is awaiting Super Admin approval.' : 'Account created. Complete your customer profile to continue.')
+      else if (!data.session) onNotice(`Check your email to confirm your account. The link opens ${siteUrl}${accountKind === 'staff' && requestedRole === 'partner' ? ' Then sign in to upload your NIN or CAC document.' : ''}`)
+      else onNotice(accountKind === 'staff' ? requestedRole === 'partner' ? 'Sign in and upload your NIN or CAC document for Super Admin review.' : 'Your application is awaiting Super Admin approval.' : 'Account created. Complete your customer profile to continue.')
     } else if (mode === 'forgot') {
       const { error } = await supabase.auth.resetPasswordForEmail(submittedEmail)
       if (error) onError(error.message)
@@ -814,7 +815,7 @@ function AuthPanel({ supabase, onError, onNotice, busy, setBusy }: {
   const heading = mode === 'signup' ? 'Create your account.' : mode === 'forgot' ? 'Reset your password.' : mode === 'otp' ? 'Enter your code.' : 'Welcome back.'
   const intro = mode === 'signup' ? 'Customers can start right away. Staff and partner access requires Super Admin approval.' : mode === 'forgot' ? 'We will send a one-time code to your email address.' : mode === 'otp' ? `Enter the 8-digit code sent to ${email}. You will set a new password here next.` : 'Sign in to your Gohezoh workspace.'
   return <section className="auth-layout"><div className="hero-copy"><p className="eyebrow">LOGISTICS, WITH A HUMAN TOUCH</p><h1>Good business<br />keeps <em>moving.</em></h1><p className="hero-description">Request a delivery, keep track of what's moving, and stay in the loop from pickup to arrival.</p><div className="flow-note"><span>01</span><div><strong>One clear place for your deliveries</strong><p>Submit a request and follow its progress with Gohezoh.</p></div></div></div><section className="form-card auth-card"><p className="eyebrow">GOHEZOH ACCOUNT</p><h2>{heading}</h2><p className="section-intro">{intro}</p><form className="form-grid" onSubmit={submit}>
-    {mode === 'signup' && <><Field label="Your full name" name="full_name" autoComplete="name" required /><label className="field"><span>Sign up as</span><select name="account_kind" value={accountKind} onChange={(event) => setAccountKind(event.target.value as 'customer' | 'staff')}><option value="customer">Customer</option><option value="staff">Staff or logistics partner</option></select></label>{accountKind === 'staff' && <><label className="field"><span>Requested category</span><select name="requested_role" required><option value="operations">Operations</option><option value="warehouse">Warehouse</option><option value="finance">Finance</option><option value="bdo">Business Development</option><option value="partner">Logistics Partner</option><option value="management">Management</option></select></label><Field label="Organization or partner name" name="organization_name" /></>}</>}
+    {mode === 'signup' && <><Field label="Your full name" name="full_name" autoComplete="name" required /><label className="field"><span>Sign up as</span><select name="account_kind" value={accountKind} onChange={(event) => setAccountKind(event.target.value as 'customer' | 'staff')}><option value="customer">Customer</option><option value="staff">Staff or logistics partner</option></select></label>{accountKind === 'staff' && <><label className="field"><span>Requested category</span><select name="requested_role" value={requestedRole} onChange={(event) => setRequestedRole(event.target.value)} required><option value="operations">Operations</option><option value="warehouse">Warehouse</option><option value="finance">Finance</option><option value="bdo">Business Development</option><option value="partner">Logistics Partner</option><option value="management">Management</option></select></label><Field label="Organization or partner name" name="organization_name" />{requestedRole === 'partner' && <p className="form-footnote">After confirming your email, sign in here to upload your NIN or CAC registration document for Super Admin review.</p>}</>}</>}
     {mode !== 'otp' && <label className="field"><span>Email address</span><input name="email" type="email" autoComplete="email" required value={email} onChange={(event) => setEmail(event.target.value)} /></label>}
     {(mode === 'signin' || mode === 'signup') && <Field key={mode} label="Password" name="password" type="password" autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} minLength={8} required />}
     {mode === 'otp' && <label className="field"><span>8-digit verification code</span><input name="token" type="text" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{8}" maxLength={8} minLength={8} placeholder="00000000" required autoFocus /></label>}

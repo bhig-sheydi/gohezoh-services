@@ -5,7 +5,7 @@ do $$
 declare
   v_admin uuid;v_manager uuid:=gen_random_uuid();v_staff uuid:=gen_random_uuid();
   v_partner_user uuid:=gen_random_uuid();v_partner uuid:=gen_random_uuid();
-  v_application uuid;v_partner_application uuid;
+  v_application uuid;v_partner_application uuid;v_document_path text;
 begin
   select id into v_admin from auth.users where lower(email)='admin@gohezohservices.org' limit 1;
   if v_admin is null then
@@ -35,6 +35,9 @@ begin
     perform public.review_staff_application(v_application,true);
     raise exception 'Management approved sensitive access';
   exception when insufficient_privilege then null;end;
+  if public.partner_document_upload_allowed(v_partner_user::text||'/'||v_partner_application::text||'/test.pdf') then
+    raise exception 'Unrelated staff could upload a partner document';
+  end if;
   begin
     perform public.revoke_staff_access(v_admin,'warehouse');
     raise exception 'Management revoked access';
@@ -45,6 +48,27 @@ begin
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_admin,'role','authenticated')::text,true);
   perform public.review_staff_application(v_application,true);
   if not public.has_role(v_staff,'warehouse') then raise exception 'Approved staff role missing';end if;
+  begin
+    perform public.review_staff_application(v_partner_application,true,v_partner);
+    raise exception 'Partner approved without verification document';
+  exception when check_violation then null;end;
+  v_document_path:=v_partner_user::text||'/'||v_partner_application::text||'/test.pdf';
+  insert into storage.objects(bucket_id,name,owner_id,metadata)
+    values('partner-verification',v_document_path,v_partner_user::text,'{"mimetype":"application/pdf","size":100}'::jsonb);
+  perform set_config('request.jwt.claim.sub',v_partner_user::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_partner_user,'role','authenticated')::text,true);
+  if not public.partner_document_upload_allowed(v_document_path) then raise exception 'Pending partner could not upload document';end if;
+  begin
+    perform public.submit_partner_document(v_application,'cac',v_document_path);
+    raise exception 'Partner submitted document to another application';
+  exception when insufficient_privilege then null;end;
+  begin
+    perform public.submit_partner_document(v_partner_application,'invalid',v_document_path);
+    raise exception 'Invalid document type accepted';
+  exception when check_violation then null;end;
+  perform public.submit_partner_document(v_partner_application,'cac',v_document_path);
+  perform set_config('request.jwt.claim.sub',v_admin::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_admin,'role','authenticated')::text,true);
   perform public.review_staff_application(v_partner_application,true,v_partner);
   perform set_config('request.jwt.claim.sub',v_partner_user::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_partner_user,'role','authenticated')::text,true);
@@ -60,6 +84,7 @@ begin
   if not exists(select 1 from public.staff_applications where id=v_partner_application and status='revoked') then raise exception 'Revoked application status was not recorded';end if;
   perform public.request_staff_access('partner','Test Partner');
   if not exists(select 1 from public.staff_applications where id=v_partner_application and status='pending') then raise exception 'Revoked applicant could not request review again';end if;
+  if exists(select 1 from public.staff_applications where id=v_partner_application and partner_document_path is not null) then raise exception 'Reapplication retained old verification document';end if;
 end $$;
 
 select set_config('request.jwt.claim.sub',(select manager_id::text from staff_security_fixture),true);
