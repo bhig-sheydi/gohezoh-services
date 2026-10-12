@@ -1,11 +1,11 @@
 # Corrective specification delivery status
 
-Implemented: six initial interstate corridors with controlled coverage; confidential two-hour partner quotes and exception review; direct-cost pricing using the 25% contribution-margin formula; customer quote acceptance; payment or approved credit before partner award; Port Harcourt hub custody and same-job last-mile leg; final-leg recipient OTP; warehouse standard fee references; BDO attribution and commission-plan foundations; browser and WebView-native GPS proximity checks without maps. Existing orders keep their previous workflow. A delivery request enters the quote workflow when Operations publishes its bidding window; after publication, conversion requires customer acceptance of the quote.
+Implemented: seven interstate corridors, including Umuahia to Port Harcourt, with controlled coverage; confidential two-hour partner quotes and exception review; direct-cost pricing using the 25% contribution-margin formula; customer quote acceptance; payment or approved credit before partner award; Port Harcourt hub custody and same-job last-mile leg; final-leg recipient OTP; warehouse standard fee references; BDO attribution and commission-plan foundations; browser and WebView-native GPS proximity checks without maps. Existing orders keep their previous workflow. A delivery request enters the quote workflow when Operations publishes its bidding window; after publication, conversion requires customer acceptance of the quote.
 
 Management decisions required before enabling or extending these parts:
 
 - Set the approved customer-price rounding increment in the Management pricing screen. Until then, a selected partner bid cannot be sent as a final priced quote.
-- Specify exact Umuahia routes. The city is recognized but no Umuahia corridor is enabled.
+- Specify any additional Umuahia routes. Only Umuahia to Port Harcourt is enabled; the reverse direction remains unchanged.
 - Approve an urgent-bid deadline, if a window shorter than two hours is desired.
 - Approve a five-item standard-processing cap, a returns fee, and a partial-month storage rule before charging them.
 - Approve signed BDO rate and eligibility plans and attribution-conflict rules before automated commission accrual or payout.
