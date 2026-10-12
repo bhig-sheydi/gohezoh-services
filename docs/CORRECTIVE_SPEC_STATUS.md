@@ -2,6 +2,8 @@
 
 Implemented: seven interstate corridors, including Umuahia to Port Harcourt, with controlled coverage; confidential two-hour partner quotes and exception review; direct-cost pricing using the 25% contribution-margin formula; customer quote acceptance; payment or approved credit before partner award; Port Harcourt hub custody and same-job last-mile leg; final-leg recipient OTP; warehouse standard fee references; BDO attribution and commission-plan foundations; browser and WebView-native GPS proximity checks without maps. Existing orders keep their previous workflow. A delivery request enters the quote workflow when Operations publishes its bidding window; after publication, conversion requires customer acceptance of the quote.
 
+BDOs can capture partner-site GPS from the device at the premises, with the partner's permission. Coordinates, accuracy and capture time are stored on the partner prospect. Management and Admin reviewers can open the coordinates in Google Maps.
+
 Management decisions required before enabling or extending these parts:
 
 - Set the approved customer-price rounding increment in the Management pricing screen. Until then, a selected partner bid cannot be sent as a final priced quote.

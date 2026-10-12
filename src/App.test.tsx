@@ -459,6 +459,45 @@ describe('partner assignment and delivery screens', () => {
     await waitFor(() => expect(mockState.rpc).toHaveBeenCalledWith('record_business_development_activity', expect.objectContaining({p_activity_type:'meeting',p_subject:'Discovery meeting',p_lead_id:'lead-new'})))
   }, 15000)
 
+  it('captures partner GPS and stores coordinates with a new prospect', async () => {
+    mockState.roles = ['bdo']
+    Object.defineProperty(window, 'GohezohLocation', { configurable: true, value: {
+      requestPosition: (requestId: string) => window.dispatchEvent(new CustomEvent('gohezoh:position', { detail: {
+        type: 'gohezoh:position:result', requestId, latitude: 5.56, longitude: 7.06,
+        accuracyMetres: 12, capturedAt: Date.now(),
+      } })),
+    } })
+    const user = userEvent.setup()
+    render(<App />)
+    const form = (await screen.findByRole('heading', { name: 'Potential logistics partner' })).closest('section')!
+    await user.click(within(form).getByRole('button', { name: 'Capture partner GPS location' }))
+    expect(await within(form).findByText(/Captured 5\.560000, 7\.060000/)).toBeInTheDocument()
+    await user.type(within(form).getByLabelText('Partner or company name'), 'Port Harcourt Carrier')
+    await user.type(within(form).getByLabelText('Contact person'), 'Ada Partner')
+    await user.type(within(form).getByLabelText('Phone'), '08012345678')
+    await user.click(within(form).getByRole('button', { name: 'Add potential partner' }))
+    await waitFor(() => expect(mockState.inserts).toContainEqual(expect.objectContaining({
+      table: 'partner_prospects', data: expect.objectContaining({ latitude: 5.56, longitude: 7.06, location_accuracy_metres: 12 }),
+    })))
+    Reflect.deleteProperty(window, 'GohezohLocation')
+  }, 20000)
+
+  it('shows captured partner GPS to Management with a Google Maps search link', async () => {
+    mockState.bdoProspects = [{
+      id: 'gps-prospect', prospect_number: 'PPR-0002', partner_name: 'Port Harcourt Carrier',
+      contact_person: 'Ada Partner', phone: '08012345678', email: null, city: 'Port Harcourt',
+      state: 'Rivers', service_type: 'Courier', coverage_areas: [], capacity_notes: null,
+      assigned_bdo_id: 'user-2', status: 'ready', next_action: null, follow_up_at: null,
+      notes: null, converted_partner_id: null, latitude: 5.56, longitude: 7.06,
+      location_accuracy_metres: 12, location_captured_at: new Date().toISOString(),
+    }]
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: 'Business Development' }))
+    expect(await screen.findByText('Captured partner location')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Search location in Google Maps' })).toHaveAttribute('href', 'https://www.google.com/maps/search/?api=1&query=5.56,7.06')
+  })
+
   it('lets Operations add a partner and assign an eligible job', async () => {
     const user = userEvent.setup()
     render(<App />)
