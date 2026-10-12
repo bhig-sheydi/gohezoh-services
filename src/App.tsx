@@ -869,6 +869,7 @@ function AuthPanel({ supabase, onError, onNotice, busy, setBusy }: {
         } },
       })
       if (error) onError(error.message)
+      else if (data.user?.identities?.length === 0) onNotice('This email already has an account, so no confirmation email was sent. Sign in, or use Forgot password if you cannot access the account.')
       else if (!data.session) onNotice(`Check your email to confirm your account. The link opens ${siteUrl}${accountKind === 'staff' && requestedRole === 'partner' ? ' Then sign in to upload your NIN or CAC document.' : ''}`)
       else onNotice(accountKind === 'staff' ? requestedRole === 'partner' ? 'Sign in and upload your NIN or CAC document for Super Admin review.' : 'Your application is awaiting Super Admin approval.' : 'Account created. Complete your customer profile to continue.')
     } else if (mode === 'forgot') {

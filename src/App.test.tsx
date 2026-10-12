@@ -152,6 +152,21 @@ describe('account access', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
+  it('explains when signup matched an existing account and no email was sent', async () => {
+    mockState.session = null
+    const signUp = (mockState.client.auth as { signUp: ReturnType<typeof vi.fn> }).signUp
+    signUp.mockResolvedValueOnce({ data: { session: null, user: { identities: [] } }, error: null })
+    render(<App />)
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Create account' }))
+    await user.type(screen.getByLabelText('Your full name'), 'Existing User')
+    await user.type(screen.getByLabelText('Email address'), 'existing@example.test')
+    await user.type(screen.getByLabelText('Password'), 'strong-password-123')
+    fireEvent.submit(screen.getByRole('button', { name: 'Create account' }).closest('form')!)
+    expect(await screen.findByText(/already has an account, so no confirmation email was sent/i)).toBeInTheDocument()
+    expect(screen.queryByText(/check your email to confirm your account/i)).not.toBeInTheDocument()
+  })
+
   it('tells partner applicants when to submit verification documents', async () => {
     mockState.session = null
     render(<App />)
