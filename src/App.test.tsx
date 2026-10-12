@@ -11,6 +11,8 @@ const mockState = vi.hoisted(() => {
     customerRequests: Array<Record<string, unknown>>
     customerOrders: Array<Record<string, unknown>>
     services: Array<Record<string, unknown>>
+    coverageLocations: Array<Record<string, unknown>>
+    coverageCorridors: Array<Record<string, unknown>>
     notifications: Array<Record<string, unknown>>
     financeFinancials: Array<Record<string, unknown>>
     financePayments: Array<Record<string, unknown>>
@@ -40,6 +42,8 @@ const mockState = vi.hoisted(() => {
     customerRequests: [],
     customerOrders: [],
     services: [],
+    coverageLocations: [],
+    coverageCorridors: [],
     notifications: [],
     financeFinancials: [],
     financePayments: [],
@@ -69,7 +73,7 @@ const mockState = vi.hoisted(() => {
     let insertData: unknown
     let single = false
     const queryBuilder: Record<string, unknown> = {}
-    for (const method of ['select', 'eq', 'neq', 'in', 'not', 'order', 'limit']) {
+    for (const method of ['select', 'eq', 'neq', 'in', 'not', 'order', 'limit', 'is', 'ilike', 'gt']) {
       queryBuilder[method] = (...args: unknown[]) => {
         if (method === 'eq' || method === 'neq' || method === 'in' || method === 'not') filters[String(args[0])] = args[1]
         return queryBuilder
@@ -255,6 +259,8 @@ beforeEach(() => {
   mockState.customerRequests = []
   mockState.customerOrders = []
   mockState.services = []
+  mockState.coverageLocations = []
+  mockState.coverageCorridors = []
   mockState.notifications = []
   mockState.financeFinancials = []
   mockState.financePayments = []
@@ -283,6 +289,8 @@ beforeEach(() => {
     if (table === 'inventory_items') return {data:mockState.warehouseItems,error:null}
     if (table === 'service_requests') return { data: mockState.customerRequests, error: null }
     if (table === 'services') return { data: mockState.services, error: null }
+    if (table === 'coverage_locations') return { data: mockState.coverageLocations, error: null }
+    if (table === 'coverage_corridors') return { data: mockState.coverageCorridors, error: null }
     if (table === 'orders') return { data: mockState.customerOrders, error: null }
     if (table === 'notifications') return { data: mockState.notifications, error: null }
     if (table === 'job_financials') return { data: mockState.financeFinancials, error: null }
@@ -541,15 +549,19 @@ describe('partner assignment and delivery screens', () => {
     mockState.roles = ['customer']
     mockState.customerRequests = [{ id: 'request-1', request_number: 'REQ-0001', status: 'submitted', pickup_city: 'Lagos', delivery_city: 'Ibadan', recipient_name: 'Ada', created_at: '2026-10-01T10:00:00Z' }]
     mockState.services = [{id:'service-1',code:'SRV-0001',name:'Local Delivery',description:''}]
+    mockState.coverageLocations = [{ id: 'lagos', name: 'Lagos', state: 'Lagos', is_enabled: true }]
+    mockState.coverageCorridors = [{ id: 'lagos-local', origin_id: 'lagos', destination_id: 'lagos', service_code: 'SRV-0001', is_enabled: true }]
     const user = userEvent.setup()
     render(<App />)
     await screen.findByRole('heading', {name: 'Where should it go?'})
     await user.selectOptions(screen.getByLabelText('Delivery service'), 'service-1')
     for (const [label,value] of Object.entries({
-      'Pickup contact':'Ada','Pickup phone':'08000000001','Pickup address':'1 Lagos Road','Pickup city':'Lagos',
-      'Recipient name':'Bola','Recipient phone':'08000000002','Delivery address':'2 Lagos Road','Delivery city':'Lagos',
+      'Pickup contact':'Ada','Pickup phone':'08000000001','Pickup address':'1 Lagos Road',
+      'Recipient name':'Bola','Recipient phone':'08000000002','Delivery address':'2 Lagos Road',
       'Parcel description':'Books','Quantity':'2','Weight':'1250',
     })) fireEvent.change(screen.getByLabelText(label),{target:{value}})
+    await user.selectOptions(screen.getByLabelText('Pickup city'), 'Lagos')
+    await user.selectOptions(screen.getByLabelText('Delivery city'), 'Lagos')
     await user.selectOptions(screen.getByLabelText('Weight unit'), 'g')
     await user.click(screen.getByRole('button',{name:'Submit delivery request'}))
     await waitFor(() => expect(mockState.inserts).toContainEqual(expect.objectContaining({

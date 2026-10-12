@@ -10,8 +10,8 @@ declare
   v_reject_request_id uuid := gen_random_uuid();
   v_result jsonb;
 begin
-  select id into v_service_id from public.services where code = 'SRV-0001';
-  if v_service_id is null then raise exception 'Expected seeded Local Delivery service'; end if;
+  select id into v_service_id from public.services where code = 'SRV-0003';
+  if v_service_id is null then raise exception 'Expected seeded Warehousing service'; end if;
   insert into auth.users (id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, raw_app_meta_data, raw_user_meta_data, created_at, updated_at)
   values
     (v_operations_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'ops-' || v_operations_id::text || '@example.test', '', now(), '{}', '{}', now(), now()),
