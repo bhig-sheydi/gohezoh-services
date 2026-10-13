@@ -6,7 +6,7 @@ import App from './App'
 const mockState = vi.hoisted(() => {
   const state: {
     roles: string[]
-    session: { user: { id: string; email: string } } | null
+    session: { user: { id: string; email: string; user_metadata?: Record<string, unknown> } } | null
     partners: Array<{ id: string; partner_number: string; partner_name: string; status: string }>
     customerRequests: Array<Record<string, unknown>>
     customerOrders: Array<Record<string, unknown>>
@@ -34,6 +34,7 @@ const mockState = vi.hoisted(() => {
     createSignedUrls: ReturnType<typeof vi.fn>
     createSignedUrl: ReturnType<typeof vi.fn>
     podInsertError: boolean
+    noCustomerMembership: boolean
     client: Record<string, unknown>
   } = {
     roles: [],
@@ -65,6 +66,7 @@ const mockState = vi.hoisted(() => {
     createSignedUrls: vi.fn(async (paths: string[]) => ({ data: paths.map((path) => ({ path, signedUrl: 'https://signed.example.test/proof' })), error: null })),
     createSignedUrl: vi.fn(async () => ({ data: { signedUrl: 'https://signed.example.test/document' }, error: null })),
     podInsertError: false,
+    noCustomerMembership: false,
     client: {},
   }
 
@@ -152,6 +154,56 @@ describe('account access', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
+  it('locks marketer signup to an invitation and passes its token to server validation', async () => {
+    mockState.session = null
+    const token = 'a'.repeat(64)
+    window.history.replaceState({}, '', `/?marketer_invite=${token}`)
+    render(<App />)
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Create account' }))
+    expect(screen.getByLabelText('Sign up as')).toBeDisabled()
+    expect(screen.getByLabelText('Requested category')).toHaveValue('marketer')
+    await user.type(screen.getByLabelText('Your full name'), 'Ada Marketer')
+    await user.type(screen.getByLabelText('Email address'), 'invited@example.test')
+    await user.type(screen.getByLabelText('Password'), 'strong-password-123')
+    fireEvent.submit(screen.getByRole('button', { name: 'Create account' }).closest('form')!)
+    await waitFor(() => expect((mockState.client.auth as { signUp: ReturnType<typeof vi.fn> }).signUp).toHaveBeenCalledWith(expect.objectContaining({
+      email: 'invited@example.test',
+      options: expect.objectContaining({ data: expect.objectContaining({
+        account_kind: 'staff', requested_role: 'marketer', marketer_invite: token,
+      }) }),
+    })))
+    expect(await screen.findByText(/A Super Admin must approve/i)).toBeInTheDocument()
+  })
+
+  it('carries a referral code into customer signup so the database can attribute the account', async () => {
+    mockState.session = null
+    window.history.replaceState({}, '', '/?ref=ABC123DEF456')
+    render(<App />)
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Create account' }))
+    await user.type(screen.getByLabelText('Your full name'), 'Ada Customer')
+    await user.type(screen.getByLabelText('Phone number'), '08012345678')
+    await user.type(screen.getByLabelText('Email address'), 'ada@example.test')
+    await user.type(screen.getByLabelText('Password'), 'strong-password-123')
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+    await waitFor(() => expect((mockState.client.auth as { signUp: ReturnType<typeof vi.fn> }).signUp).toHaveBeenCalledWith(expect.objectContaining({
+      options: expect.objectContaining({ data: expect.objectContaining({
+        referral_code: 'ABC123DEF456', phone: '08012345678', full_name: 'Ada Customer',
+      }) }),
+    })))
+    expect(await screen.findByText(/Referral link applied/i)).toBeInTheDocument()
+  })
+
+  it('creates a customer profile automatically from signup details', async () => {
+    mockState.roles = ['customer']
+    mockState.noCustomerMembership = true
+    mockState.session = { user: { id: 'customer-user', email: 'ada@example.test', user_metadata: { full_name: 'Ada Customer', phone: '08012345678' } } }
+    render(<App />)
+    expect(await screen.findByRole('heading', { name: 'Where should it go?' })).toBeInTheDocument()
+    expect(mockState.rpc).toHaveBeenCalledWith('ensure_customer_profile')
+  })
+
   it('explains when signup matched an existing account and no email was sent', async () => {
     mockState.session = null
     const signUp = (mockState.client.auth as { signUp: ReturnType<typeof vi.fn> }).signUp
@@ -217,6 +269,20 @@ describe('account access', () => {
     }))
   })
 
+  it('routes any account granted the admin role to approval controls', async () => {
+    window.localStorage.removeItem('gohezoh-workspace')
+    mockState.roles = ['admin', 'management']
+    mockState.session = { user: { id: 'admin-2', email: 'vevakporgodsanointed@gmail.com' } }
+    mockState.rpc.mockImplementation(async (name: string) => {
+      if (name === 'list_staff_applications') return { data: [{ id: 'bdo-application', user_id: 'bdo-1', email: 'bdo@example.test', full_name: 'BDO Applicant', requested_role: 'bdo', organization_name: null, status: 'pending', email_confirmed: true, created_at: '2026-10-13T10:00:00Z' }], error: null }
+      if (name === 'list_staff_access') return { data: [], error: null }
+      return { data: {}, error: null }
+    })
+    render(<App />)
+    expect(await screen.findByRole('heading', { name: 'Access control' })).toBeInTheDocument()
+    expect(await screen.findByText(/bdo@example\.test/)).toBeInTheDocument()
+  })
+
   it('shows submitted partner documents to the Super Admin', async () => {
     mockState.roles = ['admin']
     mockState.session = { user: { id: 'admin-1', email: 'admin@gohezohservices.org' } }
@@ -268,6 +334,8 @@ const jobFixture = () => ({
 })
 
 beforeEach(() => {
+  window.history.replaceState({}, '', '/')
+  window.localStorage.removeItem('gohezoh-workspace')
   mockState.roles = ['management']
   mockState.session = { user: { id: 'user-1', email: 'tester@example.test' } }
   mockState.partners = []
@@ -289,15 +357,20 @@ beforeEach(() => {
   mockState.inserts = []
   mockState.assignmentStatus = 'assigned'
   mockState.podInsertError = false
+  mockState.noCustomerMembership = false
   mockState.job = jobFixture()
   mockState.query.mockImplementation((table: string, filters: Record<string, unknown>, single: boolean, insert?: Record<string, unknown>) => {
     if (insert && table !== 'proof_of_delivery') {
       mockState.inserts.push({table,data:insert})
       if (table === 'leads_opportunities') mockState.bdoLeads = [...mockState.bdoLeads,{...insert,id:'lead-new',lead_number:'LED-0001',stage:'lead',updated_at:'2026-10-02T10:00:00Z'}]
       if (table === 'partner_prospects') mockState.bdoProspects = [...mockState.bdoProspects,{...insert,id:'prospect-new',prospect_number:'PPR-0001',status:'identified',coverage_areas:[],updated_at:'2026-10-02T10:00:00Z'}]
+      if (table === 'partner_prospects' && single) return {data:{id:'prospect-new'},error:null}
       return {data:null,error:null}
     }
-    if (table === 'user_roles') return { data: mockState.roles.map((role) => ({ role })), error: null }
+    if (table === 'user_roles') {
+      if (filters.role === 'bdo') return { data: [{ user_id: 'bdo-user' }], error: null }
+      return { data: mockState.roles.map((role) => ({ role })), error: null }
+    }
     if (table === 'routes') return {data:mockState.routes,error:null}
     if (table === 'fulfillment_orders') return {data:mockState.warehouseOrders,error:null}
     if (table === 'fulfillment_order_items') return {data:mockState.warehouseLines,error:null}
@@ -315,10 +388,10 @@ beforeEach(() => {
     if (table === 'partner_prospects') return {data:mockState.bdoProspects,error:null}
     if (table === 'business_development_activities') return {data:[],error:null}
     if (table === 'business_development_reports') return {data:[],error:null}
-    if (table === 'customer_users') return { data: single ? { customer_id: 'customer-1' } : [{ customer_id: 'customer-1' }], error: null }
+    if (table === 'customer_users') return { data: mockState.noCustomerMembership ? null : single ? { customer_id: 'customer-1' } : [{ customer_id: 'customer-1' }], error: null }
     if (table === 'customers') {
       if (single) return { data: { id: 'customer-1', company_name: 'Test Customer', status: 'active' }, error: null }
-      return { data: [{ id: 'customer-1', company_name: 'Test Customer' }], error: null }
+      return { data: [{ id: 'customer-1', customer_number: 'CUS-0001', company_name: 'Test Customer', assigned_bdo_id: 'user-1', status: 'active', referred_by_marketer_id: null, created_at: '2026-10-01T12:00:00Z' }], error: null }
     }
     if (table === 'jobs') {
       if (mockState.roles.includes('partner') && filters.id) {
@@ -360,8 +433,11 @@ beforeEach(() => {
     }
     if (name === 'mark_customer_notification_read') return { data: '2026-10-01T12:30:00.000Z', error: null }
     if (name === 'finance_dashboard_totals') return { data: [{ currency: 'NGN', customer_revenue: 10000, received: 0, outstanding: 10000, partner_cost: 4000, direct_cost: 500, gross_profit: 5500, settlements_due: 0 }], error: null }
-    if (name === 'list_my_customer_payments') return { data: [{ job_id: 'job-1', payment_number: 'PAY-00001', amount: 4000, currency: 'NGN', method: 'bank_transfer', received_at: '2026-10-01T12:00:00Z', status: 'received' }], error: null }
+    if (name === 'list_my_customer_payments') return { data: [{ job_id: 'job-1', payment_number: 'PAY-00001', method: 'bank_transfer', amount: 4000, currency: 'NGN', received_at: '2026-10-01T12:00:00Z', status: 'received' }], error: null }
     if (name === 'business_development_dashboard') return {data:[{assigned_leads:1,followups_due:0,meetings_this_week:0,proposals:0,won_opportunities:0,assigned_customers:0,partner_prospects:0,activities_this_week:0,won_opportunity_value:0}],error:null}
+    if (name === 'get_my_bdo_referral_code') return {data:'ABC123DEF456',error:null}
+    if (name === 'create_partner_prospect_invite') return {data:'12345678-1234-4234-8234-123456789abc',error:null}
+    if (name === 'ensure_customer_profile') return {data:'customer-1',error:null}
     if (name === 'record_business_development_activity') return {data:{activity_number:'BDA-00001'},error:null}
     if (name === 'create_delivery_route') return {data:{route_id:'route-created',route_number:'RTE-0002'},error:null}
     if (name === 'assign_job_route') {mockState.job={...mockState.job,route_id:args.p_route_id};return {data:{route_id:args.p_route_id,route_number:'RTE-0001'},error:null}}
@@ -374,6 +450,13 @@ beforeEach(() => {
 })
 
 describe('partner assignment and delivery screens', () => {
+  it('shows Kwik-Parsel with its Gohezo product credit', async () => {
+    mockState.session = null
+    render(<App />)
+    expect(await screen.findByRole('link', { name: 'Kwik-Parsel by Gohezo Integrated Services' })).toBeInTheDocument()
+    expect(screen.getByText('Kwik-Parsel is a product by Gohezo Integrated Services.')).toBeInTheDocument()
+  })
+
   it('routes warehouse staff into the scoped warehouse and fulfillment desk', async () => {
     mockState.roles = ['warehouse']
     render(<App />)
@@ -418,6 +501,30 @@ describe('partner assignment and delivery screens', () => {
     await waitFor(()=>expect(mockState.rpc).toHaveBeenCalledWith('confirm_fulfillment_pick',{p_fulfillment_id:'fulfillment-1',p_inventory_item_id:'item-1',p_picked_quantity:2}))
   },15000)
 
+  it('prints a pick manifest with the warehouse bin and fulfillment details', async () => {
+    mockState.roles=['warehouse']
+    mockState.warehouseOrders=[{id:'fulfillment-1',fulfillment_number:'FUL-00001',customer_id:'customer-1',warehouse_id:'warehouse-1',status:'picking',delivery_address:'2 Delivery Road',delivery_city:'Ibadan',delivery_state:'Oyo',recipient_name:'Ada Recipient',recipient_phone:'08000000001',customer_note:'Keep upright',created_at:'2026-10-02T10:00:00Z',service_request_id:null}]
+    mockState.warehouseLines=[{fulfillment_order_id:'fulfillment-1',inventory_item_id:'item-1',quantity:2,picked_quantity:0}]
+    mockState.warehouseItems=[{id:'item-1',customer_id:'customer-1',sku:'SKU-1',name:'Test Product',unit:'carton'}]
+    const baseQuery=mockState.query.getMockImplementation() as (table:string,filters:Record<string,unknown>,one:boolean,insert?:unknown)=>unknown
+    mockState.query.mockImplementation((table:string,filters:Record<string,unknown>,one:boolean,insert?:unknown)=>{
+      if(table==='warehouses')return {data:[{id:'warehouse-1',warehouse_number:'WH-0001',name:'Lagos Warehouse',code:'LAG',address:'1 Road',city:'Lagos',state:'Lagos'}],error:null}
+      if(table==='warehouse_inventory')return {data:[{warehouse_id:'warehouse-1',inventory_item_id:'item-1',location_code:'A-04',quantity_on_hand:4,quantity_reserved:2}],error:null}
+      return baseQuery(table,filters,one,insert)
+    })
+    const print=vi.spyOn(window,'print').mockImplementation(()=>undefined)
+    const user=userEvent.setup()
+    const {container}=render(<App />)
+
+    await user.click(await screen.findByRole('button',{name:'Print pick manifest'}))
+    await waitFor(()=>expect(print).toHaveBeenCalled())
+    const manifest=container.querySelector('.print-manifest.is-print-target')
+    expect(manifest).toHaveTextContent('FUL-00001')
+    expect(manifest).toHaveTextContent('A-04')
+    expect(manifest).toHaveTextContent('Keep upright')
+    print.mockRestore()
+  },15000)
+
   it('lets Operations create a route and assign a matching route to a job', async () => {
     mockState.routes=[{id:'route-1',route_number:'RTE-0001',route_name:'Lagos to Ibadan',origin_city:'Lagos',destination_city:'Ibadan',partner_id:null,is_active:true}]
     const user=userEvent.setup()
@@ -441,8 +548,10 @@ describe('partner assignment and delivery screens', () => {
 
     expect(await screen.findByRole('heading', { name: 'BDO workspace' })).toBeInTheDocument()
     expect(await screen.findByText('Assigned leads')).toBeInTheDocument()
-    await user.type(screen.getByLabelText('Business name'), 'Harbor Foods')
-    const leadForm = screen.getByRole('heading', { name: 'Add a lead' }).closest('section')!
+    expect(await screen.findByLabelText('Personal referral link')).toHaveValue('https://gohezoh-services.vercel.app/?ref=ABC123DEF456')
+    await user.click(screen.getByText('Add a lead'))
+    await user.type(await screen.findByLabelText('Business name'), 'Harbor Foods')
+    const leadForm = screen.getByText('Add a lead').closest('details')!
     await user.type(within(leadForm).getByLabelText('Contact person'), 'Ada Contact')
     await user.type(within(leadForm).getByLabelText('Phone'), '08012345678')
     await user.click(screen.getByRole('button', { name: 'Add lead' }))
@@ -450,13 +559,21 @@ describe('partner assignment and delivery screens', () => {
       table: 'leads_opportunities', data: expect.objectContaining({business_name:'Harbor Foods',assigned_bdo_id:'user-1',created_by:'user-1'}),
     })))
 
+    const followUp = screen.getByText('Adjust follow-up').closest('details')!
+    await user.click(screen.getByText('Adjust follow-up'))
+    expect(within(followUp).queryByRole('textbox')).not.toBeInTheDocument()
+    await user.selectOptions(within(followUp).getByLabelText('Next action'), 'email')
+    await user.selectOptions(within(followUp).getByLabelText('Remind me in'), '14')
+    await user.click(within(followUp).getByRole('button', { name: 'Save follow-up' }))
+    await waitFor(() => expect(mockState.rpc).toHaveBeenCalledWith('update_business_lead', expect.objectContaining({p_lead_id:'lead-new',p_next_action:'email',p_follow_up_at:expect.any(String)})))
+
     await user.selectOptions(await screen.findByLabelText('Stage for LED-0001'), 'qualified')
     await waitFor(() => expect(mockState.rpc).toHaveBeenCalledWith('update_business_lead', expect.objectContaining({p_lead_id:'lead-new',p_stage:'qualified'})))
+    await user.click(screen.getByText('Record an interaction'))
     await user.selectOptions(screen.getByLabelText('Related lead, customer, or partner'), 'lead:lead-new')
     await user.selectOptions(screen.getByLabelText('Activity type'), 'meeting')
-    await user.type(screen.getByLabelText('Subject'), 'Discovery meeting')
     await user.click(screen.getByRole('button', { name: 'Record activity' }))
-    await waitFor(() => expect(mockState.rpc).toHaveBeenCalledWith('record_business_development_activity', expect.objectContaining({p_activity_type:'meeting',p_subject:'Discovery meeting',p_lead_id:'lead-new'})))
+    await waitFor(() => expect(mockState.rpc).toHaveBeenCalledWith('record_business_development_activity', expect.objectContaining({p_activity_type:'meeting',p_subject:'meeting: LED-0001 - Harbor Foods',p_lead_id:'lead-new'})))
   }, 15000)
 
   it('captures partner GPS and stores coordinates with a new prospect', async () => {
@@ -469,7 +586,9 @@ describe('partner assignment and delivery screens', () => {
     } })
     const user = userEvent.setup()
     render(<App />)
-    const form = (await screen.findByRole('heading', { name: 'Potential logistics partner' })).closest('section')!
+    await screen.findByRole('heading', { name: 'BDO workspace' })
+    await user.click(screen.getByText('Potential logistics partner'))
+    const form = screen.getByText('Potential logistics partner').closest('details')!
     await user.click(within(form).getByRole('button', { name: 'Capture partner GPS location' }))
     expect(await within(form).findByText(/Captured 5\.560000, 7\.060000/)).toBeInTheDocument()
     await user.type(within(form).getByLabelText('Partner or company name'), 'Port Harcourt Carrier')
@@ -479,8 +598,33 @@ describe('partner assignment and delivery screens', () => {
     await waitFor(() => expect(mockState.inserts).toContainEqual(expect.objectContaining({
       table: 'partner_prospects', data: expect.objectContaining({ latitude: 5.56, longitude: 7.06, location_accuracy_metres: 12 }),
     })))
+    expect(await screen.findByLabelText('Partner signup link for Port Harcourt Carrier')).toHaveValue('https://gohezoh-services.vercel.app/?partner_prospect_invite=12345678-1234-4234-8234-123456789abc')
     Reflect.deleteProperty(window, 'GohezohLocation')
   }, 20000)
+
+  it('shows a referred partner application progress and Super Admin decision to the BDO', async () => {
+    mockState.roles = ['bdo']
+    mockState.bdoProspects = [{
+      id: 'referred-prospect', prospect_number: 'PPR-0042', partner_name: 'Abia Express',
+      contact_person: 'Ada Partner', phone: '08012345678', email: 'partner@example.test', city: 'Umuahia',
+      state: 'Abia', service_type: 'interstate_transport', coverage_areas: [], capacity_notes: null,
+      assigned_bdo_id: 'user-1', status: 'ready', next_action: null, follow_up_at: null,
+      notes: null, converted_partner_id: null, latitude: null, longitude: null,
+      location_accuracy_metres: null, location_captured_at: null,
+    }]
+    mockState.notifications = [{ id: 'partner-approved', event_type: 'bdo_partner_application_review', title: 'Partner application approved', body: 'Abia Express has been approved and linked to the partner network.', created_at: '2026-10-13T10:00:00Z' }]
+    const defaultRpc = mockState.rpc.getMockImplementation() as (name: string, args: Record<string, unknown>) => Promise<unknown>
+    mockState.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
+      if (name === 'list_my_partner_prospect_progress') return { data: [{ partner_prospect_id: 'referred-prospect', application_status: 'pending', email_confirmed: true, verification_document_submitted: true }], error: null }
+      return defaultRpc(name, args)
+    })
+    render(<App />)
+    await screen.findByRole('heading', { name: 'BDO workspace' })
+    expect(await screen.findByText(/Application progress:/)).toBeInTheDocument()
+    expect(screen.getByText('Awaiting Super Admin review')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Partner application updates' })).toBeInTheDocument()
+    expect(screen.getByText('Abia Express has been approved and linked to the partner network.')).toBeInTheDocument()
+  })
 
   it('shows captured partner GPS to Management with a Google Maps search link', async () => {
     mockState.bdoProspects = [{
@@ -540,6 +684,21 @@ describe('partner assignment and delivery screens', () => {
     expect(screen.getByRole('option', { name: 'Pickup scheduled' })).toBeInTheDocument()
     await user.selectOptions(recovery, 'pickup_scheduled')
     await waitFor(() => expect(mockState.rpc).toHaveBeenCalledWith('update_job_status', { p_job_id: 'job-1', p_new_status: 'pickup_scheduled' }))
+  })
+
+  it('lets a partner find an assigned shipment by scanning or entering its parcel code', async () => {
+    mockState.roles=['partner']
+    mockState.assignmentStatus='accepted'
+    mockState.job={...jobFixture(),partner_id:partner.id,status:'in_transit',job_parcels:[{tracking_code:'KWP-P-00000042',parcel_number:1,description:'Books',quantity:2}]}
+    const user=userEvent.setup()
+    render(<App />)
+    expect(await screen.findByRole('img',{name:'Barcode KWP-P-00000042'})).toBeInTheDocument()
+    const lookup=screen.getByLabelText('Find parcel by ID or scan its barcode')
+    await user.type(lookup,'KWP-P-00000042')
+    expect(screen.getByText('Books · 2 items in this parcel')).toBeInTheDocument()
+    await user.clear(lookup)
+    await user.type(lookup,'KWP-P-99999999')
+    expect(await screen.findByRole('heading',{name:'No parcel found'})).toBeInTheDocument()
   })
 
   it('requires the sent recipient code before partner delivery can be confirmed', async () => {
@@ -635,6 +794,19 @@ describe('partner assignment and delivery screens', () => {
     await user.click(screen.getByRole('button', { name: 'Mark as read' }))
     await waitFor(() => expect(mockState.rpc).toHaveBeenCalledWith('mark_customer_notification_read', { p_notification_id: 'notification-1' }))
     expect(screen.queryByRole('button', { name: 'Mark as read' })).not.toBeInTheDocument()
+  })
+
+  it('shows delivery exception alerts to internal staff and lets them mark an alert reviewed', async () => {
+    mockState.roles = ['operations']
+    mockState.notifications = [{ id: 'exception-alert-1', job_id: 'job-1', event_type: 'job_exception_escalated', title: 'Delivery exception needs review', body: 'Job JOB-0001 has been marked as an exception.', created_at: '2026-10-13T10:00:00Z', read_at: null, payload: { job_number: 'JOB-0001' } }]
+    const user = userEvent.setup()
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: 'Delivery exceptions' })).toBeInTheDocument()
+    expect(await screen.findByText('Job JOB-0001 has been marked as an exception.')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Mark reviewed' }))
+    await waitFor(() => expect(mockState.rpc).toHaveBeenCalledWith('mark_customer_notification_read', { p_notification_id: 'exception-alert-1' }))
+    expect(screen.queryByRole('button', { name: 'Mark reviewed' })).not.toBeInTheDocument()
   })
 
   it('lets Finance save job costs and record customer receipts and partner settlements', async () => {

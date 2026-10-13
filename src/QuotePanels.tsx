@@ -28,7 +28,7 @@ export function CustomerQuotePanel({ supabase, requestIds, onError, onNotice, on
     setBusy(requestId)
     const { error } = await supabase.rpc('accept_customer_delivery_quote', { p_request_id: requestId })
     if (error) onError(error.message)
-    else { onNotice('Quote accepted. Gohezoh will confirm payment and award the delivery.'); await load(); onRefresh() }
+    else { onNotice('Quote accepted. Kwik-Parsel will confirm payment and award the delivery.'); await load(); onRefresh() }
     setBusy('')
   }
   return <>{requestIds.map((requestId) => {

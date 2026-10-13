@@ -18,6 +18,7 @@ export default function WarehouseConsole({supabase,isCustomer,canReceive,canPick
   const [orderLines,setOrderLines]=useState<FulfillmentLine[]>([])
   const [customers,setCustomers]=useState<Array<{id:string;company_name:string}>>([])
   const [selectedWarehouseId,setSelectedWarehouseId]=useState('')
+  const [printOrderId,setPrintOrderId]=useState<string|null>(null)
   const [busy,setBusy]=useState(false)
   const [loading,setLoading]=useState(true)
   const load=useCallback(async()=>{
@@ -67,6 +68,8 @@ export default function WarehouseConsole({supabase,isCustomer,canReceive,canPick
     if(error)onError(error.message);else{onNotice(`Picked count saved for ${order.fulfillment_number}.`);await load()}setBusy(false)
   }
   const formatQty=(n:number)=>n.toLocaleString('en-NG')
+  function printManifest(orderId:string){setPrintOrderId(orderId);window.setTimeout(()=>window.print(),100)}
+  useEffect(()=>{const clearPrintTarget=()=>setPrintOrderId(null);window.addEventListener('afterprint',clearPrintTarget);return()=>window.removeEventListener('afterprint',clearPrintTarget)},[])
   return <main className="dashboard warehouse-page">
     <div className="dashboard-heading"><div><p className="eyebrow">PHASE 7 · WAREHOUSE & FULFILLMENT</p><h1>{isCustomer?'My inventory & fulfillment':'Warehouse desk'}</h1><p className="section-intro">Customer-owned stock is tracked by warehouse and bin. Fulfillment reserves available units, records picking and packing, then sends a delivery request to Operations.</p></div><button className="secondary-button" onClick={()=>void load()} disabled={loading}>Refresh inventory</button></div>
     {canManage&&<section className="history-panel"><p className="eyebrow">WAREHOUSE SETUP</p><h2>Add warehouse</h2><form className="form-grid warehouse-create" onSubmit={async(event)=>{event.preventDefault();const formElement=event.currentTarget;const form=new FormData(formElement);setBusy(true);const {error}=await supabase.from('warehouses').insert({name:String(form.get('name')),code:String(form.get('code')).toUpperCase(),address:String(form.get('address')),city:String(form.get('city')),state:String(form.get('state')||'')||null});if(error)onError(error.message);else{onNotice('Warehouse added.');formElement.reset();await load()}setBusy(false)}}><label className="field"><span>Name</span><input name="name" required/></label><label className="field"><span>Code</span><input name="code" required/></label><label className="field"><span>Address</span><input name="address" required/></label><label className="field"><span>City</span><input name="city" required/></label><label className="field"><span>State</span><input name="state"/></label><button className="primary-button" disabled={busy}>Add warehouse</button></form></section>}
@@ -83,6 +86,7 @@ export default function WarehouseConsole({supabase,isCustomer,canReceive,canPick
           const lines=orderLines.filter((line)=>line.fulfillment_order_id===order.id)
           const allPicked=lines.length>0&&lines.every((line)=>line.picked_quantity===line.quantity)
           const customer=customers.find((entry)=>entry.id===order.customer_id)
+          const warehouse=warehouses.find((entry)=>entry.id===order.warehouse_id)
           return <article className="request-item" key={order.id}>
             <div className="request-item-top"><strong>{order.fulfillment_number} · {order.recipient_name}</strong><span className={`finance-status finance-status-${order.status}`}>{order.status.replaceAll('_',' ')}</span></div>
             <p>{customer?.company_name?customer.company_name+' · ':''}{order.delivery_address}, {order.delivery_city}{order.delivery_state?', '+order.delivery_state:''} · {order.recipient_phone}</p>
@@ -102,11 +106,19 @@ export default function WarehouseConsole({supabase,isCustomer,canReceive,canPick
             </div>
             {order.service_request_id&&<small>Delivery request sent to Operations for review. Stock remains reserved until delivery.</small>}
             <div className="bdo-record-actions">
+              {canPick&&<button className="secondary-button" disabled={lines.length===0} onClick={()=>printManifest(order.id)}>Print pick manifest</button>}
               {canPick&&order.status==='submitted'&&<button className="secondary-button" disabled={busy} onClick={()=>void transition(order,'start_picking')}>Start picking</button>}
               {canPick&&order.status==='picking'&&<button className="secondary-button" disabled={busy||!allPicked} onClick={()=>void transition(order,'pack')}>Confirm packed</button>}
               {canRelease&&order.status==='packed'&&<button className="primary-button" disabled={busy} onClick={()=>void transition(order,'release')}>Send to Operations for delivery</button>}
               {order.status==='submitted'&&<button className="text-button finance-cancel" disabled={busy} onClick={()=>void transition(order,'cancel')}>Cancel order</button>}
             </div>
+            <section className={`print-manifest ${printOrderId===order.id?'is-print-target':''}`} aria-label={`Pick manifest ${order.fulfillment_number}`}>
+              <header><p>KWIK-PARSEL · WAREHOUSE PICK MANIFEST</p><h1>{order.fulfillment_number}</h1><span>Generated {new Date().toLocaleString('en-NG')}</span></header>
+              <div className="manifest-meta"><p><strong>Warehouse</strong><br/>{warehouse?.name||'Warehouse'} · {warehouse?.code||''}</p><p><strong>Delivery to</strong><br/>{customer?.company_name||'Customer'} · {order.recipient_name} · {order.recipient_phone}</p><p><strong>Address</strong><br/>{order.delivery_address}, {order.delivery_city}{order.delivery_state?`, ${order.delivery_state}`:''}</p><p><strong>Order status</strong><br/>{order.status.replaceAll('_',' ')}</p></div>
+              {order.customer_note&&<p className="manifest-note"><strong>Handling notes:</strong> {order.customer_note}</p>}
+              <table><thead><tr><th>Pick</th><th>Product / SKU</th><th>Bin</th><th>Required</th><th>Picked</th></tr></thead><tbody>{lines.map((line)=>{const item=items.find((entry)=>entry.id===line.inventory_item_id);const bin=stock.find((entry)=>entry.warehouse_id===order.warehouse_id&&entry.inventory_item_id===line.inventory_item_id)?.location_code;return <tr key={line.inventory_item_id}><td>□</td><td>{item?.name||'Product'}<br/><small>{item?.sku||'SKU unavailable'}</small></td><td>{bin||'Unassigned'}</td><td>{formatQty(line.quantity)} {item?.unit||'unit'}</td><td>{formatQty(line.picked_quantity)}</td></tr>})}</tbody></table>
+              <footer><span>Picker: __________________________</span><span>Checked by: __________________________</span><span>Date / time: __________________________</span></footer>
+            </section>
           </article>
         })}
       </div>}

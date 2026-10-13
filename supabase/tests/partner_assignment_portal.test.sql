@@ -4,6 +4,7 @@ declare
   v_operations_id uuid := gen_random_uuid();
   v_partner_one_user_id uuid := gen_random_uuid();
   v_partner_two_user_id uuid := gen_random_uuid();
+  v_rider_user_id uuid := gen_random_uuid();
   v_customer_user_id uuid := gen_random_uuid();
   v_customer_id uuid := gen_random_uuid();
   v_service_id uuid;
@@ -27,6 +28,7 @@ begin
     (v_operations_id,'00000000-0000-0000-0000-000000000000','authenticated','authenticated','ops-'||v_operations_id::text||'@example.test','',now(),'{}','{}',now(),now()),
     (v_partner_one_user_id,'00000000-0000-0000-0000-000000000000','authenticated','authenticated','partner-one-'||v_partner_one_user_id::text||'@example.test','',now(),'{}','{}',now(),now()),
     (v_partner_two_user_id,'00000000-0000-0000-0000-000000000000','authenticated','authenticated','partner-two-'||v_partner_two_user_id::text||'@example.test','',now(),'{}','{}',now(),now()),
+    (v_rider_user_id,'00000000-0000-0000-0000-000000000000','authenticated','authenticated','partner-rider-'||v_rider_user_id::text||'@example.test','',now(),'{}','{}',now(),now()),
     (v_customer_user_id,'00000000-0000-0000-0000-000000000000','authenticated','authenticated','customer-'||v_customer_user_id::text||'@example.test','',now(),'{}','{}',now(),now());
   insert into public.user_roles(user_id,role) values(v_operations_id,'operations');
   insert into public.customers(id,company_name,customer_type,contact_person,email,phone,created_by)
@@ -47,7 +49,8 @@ begin
   insert into public.partner_users(partner_id,user_id) values
     ((v_partner_one->>'partner_id')::uuid,v_partner_one_user_id),
     ((v_partner_two->>'partner_id')::uuid,v_partner_two_user_id);
-  insert into public.user_roles(user_id,role) values(v_partner_one_user_id,'partner'),(v_partner_two_user_id,'partner') on conflict do nothing;
+  update public.partner_users set membership_role='manager' where partner_id=(v_partner_two->>'partner_id')::uuid and user_id=v_partner_two_user_id;
+  insert into public.user_roles(user_id,role) values(v_partner_one_user_id,'partner'),(v_partner_two_user_id,'partner'),(v_rider_user_id,'partner') on conflict do nothing;
   v_first_assignment_id := (public.assign_job_to_partner(v_job_id,(v_partner_one->>'partner_id')::uuid)->>'assignment_id')::uuid;
   begin
     perform public.assign_job_to_partner(v_job_id,(v_partner_two->>'partner_id')::uuid);
@@ -74,6 +77,8 @@ begin
   perform set_config('request.jwt.claim.sub',v_partner_two_user_id::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_partner_two_user_id,'role','authenticated')::text,true);
   perform public.respond_to_partner_assignment(v_second_assignment_id,true,'Accepted for delivery');
+  insert into public.partner_users(partner_id,user_id,membership_role) values((v_partner_two->>'partner_id')::uuid,v_rider_user_id,'rider');
+  perform public.assign_job_to_rider(v_job_id,v_rider_user_id);
   perform public.update_job_status(v_job_id,'picked_up');
   perform public.update_job_status(v_job_id,'in_transit');
   begin

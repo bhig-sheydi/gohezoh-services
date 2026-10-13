@@ -1,7 +1,7 @@
 begin;
 do $$
 declare
-  v_ops uuid:=gen_random_uuid();v_user uuid:=gen_random_uuid();v_customer uuid:=gen_random_uuid();
+  v_ops uuid:=gen_random_uuid();v_user uuid:=gen_random_uuid();v_dispatcher uuid:=gen_random_uuid();v_rider uuid:=gen_random_uuid();v_customer uuid:=gen_random_uuid();
   v_service uuid;v_warehouse uuid:=gen_random_uuid();v_job uuid:=gen_random_uuid();
   v_request uuid:=gen_random_uuid();v_order uuid:=gen_random_uuid();v_inbound uuid:=gen_random_uuid();v_last uuid:=gen_random_uuid();
   v_corridor uuid;v_leg jsonb;
@@ -15,8 +15,10 @@ begin
     where c.service_code='SRV-0001' and o.name='Port Harcourt' and d.name='Port Harcourt';
   insert into auth.users(id,instance_id,aud,role,email,encrypted_password,email_confirmed_at,raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
   values(v_ops,'00000000-0000-0000-0000-000000000000','authenticated','authenticated','hub-ops-'||v_ops||'@example.test','',now(),'{}','{}',now(),now()),
-        (v_user,'00000000-0000-0000-0000-000000000000','authenticated','authenticated','hub-customer-'||v_user||'@example.test','',now(),'{}','{}',now(),now());
-  insert into public.user_roles(user_id,role) values(v_ops,'operations'),(v_user,'customer') on conflict do nothing;
+        (v_user,'00000000-0000-0000-0000-000000000000','authenticated','authenticated','hub-customer-'||v_user||'@example.test','',now(),'{}','{}',now(),now()),
+        (v_dispatcher,'00000000-0000-0000-0000-000000000000','authenticated','authenticated','hub-dispatcher-'||v_dispatcher||'@example.test','',now(),'{}','{}',now(),now()),
+        (v_rider,'00000000-0000-0000-0000-000000000000','authenticated','authenticated','hub-rider-'||v_rider||'@example.test','',now(),'{}','{}',now(),now());
+  insert into public.user_roles(user_id,role) values(v_ops,'operations'),(v_user,'customer'),(v_dispatcher,'partner'),(v_rider,'partner') on conflict do nothing;
   insert into public.customers(id,company_name,contact_person,phone,created_by) values(v_customer,'Hub test customer','Hub contact','08000000011',v_user);
   insert into public.customer_users(customer_id,user_id) values(v_customer,v_user);
   insert into public.warehouses(id,name,code,address,city,is_active)
@@ -55,6 +57,12 @@ begin
   if (select count(*) from public.jobs where order_id=v_order)<>1 then raise exception 'Extra billed job created';end if;
   if not exists(select 1 from public.partner_assignments where job_id=v_job and partner_id=v_inbound and status='completed') then raise exception 'Inbound assignment not completed';end if;
   update public.partner_assignments set status='accepted',responded_at=now() where id=(v_leg->>'assignment_id')::uuid;
+  insert into public.partner_users(partner_id,user_id,membership_role) values(v_last,v_dispatcher,'dispatcher'),(v_last,v_rider,'rider');
+  perform set_config('request.jwt.claim.sub',v_dispatcher::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_dispatcher,'role','authenticated')::text,true);
+  perform public.assign_job_to_rider(v_job,v_rider);
+  perform set_config('request.jwt.claim.sub',v_ops::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_ops,'role','authenticated')::text,true);
   update public.jobs set status='pickup_scheduled' where id=v_job;
   update public.jobs set status='picked_up' where id=v_job;
   update public.jobs set status='in_transit' where id=v_job;

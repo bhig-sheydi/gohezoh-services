@@ -78,7 +78,58 @@
 .toast button:hover { background:rgba(23,59,52,.1); }
 .toast button:focus-visible { outline:2px solid currentColor; outline-offset:2px; }
 .toast button svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; }
+
+.print-manifest { display:none; }
+@media print {
+  @page { size: A4 portrait; margin: 14mm; }
+  body * { visibility:hidden !important; }
+  .print-manifest.is-print-target, .print-manifest.is-print-target * { visibility:visible !important; }
+  .print-manifest.is-print-target { display:block !important; position:fixed; inset:0; width:100%; padding:0; color:#111; background:#fff; font:11pt Arial,sans-serif; }
+  .print-manifest header { margin-bottom:24px; border-bottom:2px solid #222; padding-bottom:12px; }
+  .print-manifest header p { margin:0 0 8px; font-size:10pt; font-weight:700; letter-spacing:.08em; }
+  .print-manifest h1 { margin:0 0 5px; font-size:24pt; }
+  .print-manifest header span { color:#555; font-size:9pt; }
+  .manifest-meta { display:grid; grid-template-columns:1fr 1fr; gap:10px 20px; margin-bottom:16px; }
+  .manifest-meta p { margin:0; line-height:1.5; }
+  .manifest-note { margin:14px 0; padding:10px; border:1px solid #aaa; }
+  .print-manifest table { width:100%; border-collapse:collapse; margin-top:18px; }
+  .print-manifest th,.print-manifest td { border:1px solid #777; padding:9px 7px; text-align:left; vertical-align:top; }
+  .print-manifest th { background:#eee !important; }
+  .print-manifest td:first-child { width:42px; font-size:18pt; }
+  .print-manifest td:nth-child(4),.print-manifest td:nth-child(5) { width:90px; }
+  .print-manifest footer { display:grid; gap:28px; margin-top:48px; }
+  .print-manifest footer span { display:block; }
+}
 .toast-email { top:96px; right:auto; bottom:auto; left:50%; width:min(540px,calc(100vw - 32px)); max-width:none; padding:18px 19px; border:2px solid #3d7450; color:#123b25; background:#e4f5e6; box-shadow:0 18px 45px rgba(20,49,31,.28); font-size:14px; transform:translateX(-50%); }
 .toast-email-icon { display:grid; width:33px; height:33px; flex:none; place-items:center; border-radius:9px; color:#fff; background:#276144; font-size:19px; }
 .toast-email-icon svg { width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
 @media(max-width:680px) { .toast-email { top:80px; padding:15px; } }
+.commission-plans { margin:0 0 22px; }.commission-plans-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:18px; }.commission-plans-heading h2 { margin:4px 0 8px; font-size:18px; }.commission-plans-heading .finance-form-note { max-width:700px; }.commission-service-list { display:flex; flex-wrap:wrap; gap:12px 20px; margin:0; padding:12px; border:1px solid #dfe8dc; border-radius:10px; }.commission-service-list legend { padding:0 6px; color:#52685c; font-size:10px; font-weight:750; }.commission-service-list label { display:flex; align-items:center; gap:7px; color:#43584c; font-size:11px; }.commission-service-list p { flex-basis:100%; margin:0; }.commission-plan-list { display:grid; gap:8px; margin-top:18px; }.commission-plan-row { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; padding:13px; border:1px solid #e7ede5; border-radius:10px; }.commission-plan-row p,.commission-plan-row small { display:block; margin:5px 0 0; color:#728076; font-size:10px; text-transform:capitalize; }.commission-plan-row strong { font-size:12px; }
+
+.parcel-identifiers { display:grid; gap:8px; padding:12px; border:1px solid #dfe7d7; border-radius:10px; background:#fbfcf8; }
+.parcel-identifiers h3 { margin:0; font-size:13px; }
+.parcel-identifier { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:8px 0; border-top:1px solid #e7ecdf; }
+.parcel-identifier p { margin:4px 0 0; color:#637268; font-size:11px; }
+.parcel-barcode { display:block; width:min(190px,46%); height:auto; color:#17201b; }
+.parcel-lookup { max-width:480px; margin:14px 0 20px; }
+@media print { .parcel-barcode { width:190px; color:#000; } }
+
+.parcel-identifiers-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.parcel-barcode { flex:none; width:360px; max-width:100%; }
+.parcel-print-button { padding:7px 10px; font-size:10px; }
+.bdo-collapsible { padding:0; overflow:hidden; }
+.bdo-collapsible>summary { display:flex; align-items:center; justify-content:space-between; gap:16px; min-height:60px; padding:16px 20px; cursor:pointer; list-style:none; }
+.bdo-collapsible>summary::-webkit-details-marker { display:none; }
+.bdo-collapsible>summary::after { content:'+'; color:#24724e; font-size:22px; font-weight:500; }
+.bdo-collapsible[open]>summary::after { content:'−'; }
+.bdo-collapsible>summary strong { color:#1c3629; font-size:14px; }
+.bdo-collapsible>summary small { margin-left:auto; color:#748278; font-size:11px; }
+.bdo-collapsible-body { display:grid; gap:16px; padding:18px 20px 20px; border-top:1px solid #e5ebe2; }
+.bdo-optional-details { padding:10px 12px; border:1px solid #e2e9e1; border-radius:10px; }
+.bdo-optional-details summary { color:#53685c; cursor:pointer; font-size:11px; font-weight:700; }
+.bdo-optional-details .field { margin-top:10px; }
+.bdo-choice-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:10px; margin:0; padding:12px; border:1px solid #e2e9e1; border-radius:10px; }
+.bdo-choice-list legend { padding:0 6px; color:#53685c; font-size:11px; font-weight:700; }
+.bdo-choice-list label { display:flex; align-items:center; gap:8px; color:#42594d; font-size:11px; }
+@media(max-width:680px) { .bdo-collapsible>summary { align-items:flex-start; flex-direction:column; gap:5px; }.bdo-collapsible>summary small { margin:0; }.bdo-collapsible-body { padding:14px; } }
+@media print { body:has(.parcel-identifiers.is-print-target) * { visibility:hidden !important; } body:has(.parcel-identifiers.is-print-target) .parcel-identifiers.is-print-target, body:has(.parcel-identifiers.is-print-target) .parcel-identifiers.is-print-target * { visibility:visible !important; } body:has(.parcel-identifiers.is-print-target) .parcel-identifiers.is-print-target { position:fixed; inset:20px auto auto 20px; width:390px; border:0; background:#fff; color:#000; } body:has(.parcel-identifiers.is-print-target) .parcel-print-button { display:none; } }

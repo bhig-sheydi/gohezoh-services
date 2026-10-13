@@ -15,7 +15,7 @@ export default function CoverageAdminPanel({ supabase, onError, onNotice }: { su
   const load = useCallback(async () => {
     const [locationResult, corridorResult, partnerResult, eligibilityResult] = await Promise.all([
       supabase.from('coverage_locations').select('id, name, state, is_enabled').order('name'),
-      supabase.from('coverage_corridors').select('id, origin_id, destination_id, service_code, is_enabled').order('created_at', { ascending: false }),
+      supabase.from('coverage_corridors').select('id, origin_id, destination_id, service_code, is_enabled').order('updated_at', { ascending: false }),
       supabase.from('logistics_partners').select('id, partner_name').eq('status', 'active').order('partner_name'),
       supabase.from('partner_corridor_coverage').select('partner_id, corridor_id, is_enabled'),
     ])
