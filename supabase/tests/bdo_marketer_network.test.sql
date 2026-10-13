@@ -76,6 +76,9 @@ begin
   if v_referral_count<>1 then raise exception 'Marketer referral count is incorrect'; end if;
   perform set_config('request.jwt.claim.sub',v_bdo::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_bdo,'role','authenticated')::text,true);
+  if not exists(select 1 from public.list_my_bdo_marketers() where marketer_user_id=v_marketer and email='marketer-'||v_marketer||'@example.test') then
+    raise exception 'BDO marketer list did not return the invited marketer';
+  end if;
   if not exists(select 1 from public.list_my_bdo_marketer_performance() where marketer_user_id=v_marketer and customer_count=1 and qualifying_transactions=0) then
     raise exception 'BDO downline performance did not report the attributed customer';
   end if;
