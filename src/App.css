@@ -260,6 +260,24 @@
 .parcel-pal-destination-card .parcel-pal-actions { display:flex; gap:8px; align-items:center; }
 .parcel-pal-destination-card .primary-button,.parcel-pal-contact-destination .secondary-button { width:auto; min-height:36px; padding:0 12px; }
 .parcel-pal-get-address { width:100%; min-height:40px; }
+.delivery-address-fields { display:grid; min-width:0; gap:12px; margin:0; padding:0; border:0; }
+.location-consent,.parcel-pal-location-quality { margin:0; color:var(--ink); font-size:13px; line-height:1.6; }
+.location-evidence { color:var(--ink); font-size:12px; }
+.location-evidence span,.location-evidence time { display:block; margin-top:5px; overflow-wrap:anywhere; }
+.location-confirm { display:flex; align-items:center; gap:8px; color:var(--ink); font-size:13px; }
+.location-attribution { color:var(--muted); font-size:11px; line-height:1.5; }
+.location-attribution a { color:inherit; text-decoration:underline; }
+.address-map-picker { display:grid; min-width:0; gap:10px; }
+.address-map-picker p { margin:0; color:var(--ink); font-size:13px; line-height:1.5; }
+.address-map-search { display:flex; flex-wrap:wrap; gap:8px; }
+.address-map-search input { flex:1 1 150px; min-width:0; padding:9px; border:1px solid var(--muted); border-radius:7px; color:var(--ink); background:transparent; font:inherit; }
+.address-map-viewport { position:relative; width:100%; max-width:480px; height:256px; overflow:hidden; border:1px solid var(--muted); border-radius:10px; background:#e9ede6; cursor:crosshair; }
+.address-map-viewport:focus-visible { outline:3px solid #779138; outline-offset:2px; }
+.address-map-viewport .address-map-tile { position:absolute; width:256px; height:256px; max-width:none; pointer-events:none; user-select:none; }
+.address-map-loading { position:absolute; inset:0; z-index:2; display:grid; place-items:center; padding:20px; color:#234b37; background:#e9ede6; font-size:13px; text-align:center; }
+.address-map-pin { position:absolute; z-index:1; width:18px; height:18px; border:3px solid #fff; border-radius:50% 50% 50% 0; background:#c72c2c; box-shadow:0 1px 4px #0008; transform:translate(-50%,-100%) rotate(-45deg); pointer-events:none; }
+.address-map-controls { display:flex; flex-wrap:wrap; gap:6px; }
+.address-map-controls .secondary-button { min-width:36px; padding:0 10px; }
 .parcel-pal-contact-destinations { display:grid; gap:8px; margin-top:10px; }
 .parcel-pal-contact-destination { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px; border:1px solid #e5ebe0; border-radius:9px; color:var(--ink); background:#fbfcf8; font-size:12px; line-height:1.5; }
 .recipient-location-confirm { display:flex; align-items:center; gap:10px; padding:12px; border:1px solid #d9e5d0; border-radius:10px; color:var(--ink); background:#f5f8ef; font-size:14px; font-weight:650; }

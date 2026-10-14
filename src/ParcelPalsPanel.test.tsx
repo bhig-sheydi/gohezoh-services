@@ -10,7 +10,7 @@ vi.mock('./lib/geoapify-geocoding', () => ({ getAddressFromCurrentPosition: vi.f
 type Client = ReturnType<typeof getSupabaseClient>
 
 function makeClient(rpc: ReturnType<typeof vi.fn>, ownPhoto: string | null = null) {
-  const upsert = vi.fn(async () => ({ error: null }))
+  const upsert = vi.fn(() => ({ abortSignal: vi.fn(async () => ({ error: null })) }))
   const profileQuery = {
     select: vi.fn(() => profileQuery),
     eq: vi.fn(() => profileQuery),
@@ -132,7 +132,7 @@ describe('Parcel Pals privacy and requests', () => {
       return { data: null, error: null }
     })
     const { supabase, upsert } = makeClient(rpc)
-    vi.mocked(getAddressFromCurrentPosition).mockResolvedValueOnce({ address: '10 Palm Street', city: 'Umuahia', state: 'Abia', qualityNote: 'Suggested address; verify the house/building before saving. Device GPS accuracy ±18 m. Mapped result is about 12 m from your location.' })
+    vi.mocked(getAddressFromCurrentPosition).mockResolvedValueOnce({ address: '10 Palm Street', city: 'Umuahia', state: 'Abia', latitude: 5.5, longitude: 7.5, specificity: 'building', resultType: 'building', distanceMetres: 12, confidence: null, evidence: { latitude: 5.5, longitude: 7.5, accuracyMetres: 18, capturedAt: Date.now(), source: 'browser' }, qualityNote: 'Building suggestion; verify the house/building before saving. Device-reported accuracy: about 18 m.' })
     const user = userEvent.setup()
     const view = render(<ParcelPalsPanel supabase={supabase} userId="user-1" onError={vi.fn()} onNotice={vi.fn()} />)
     expect(screen.queryByRole('heading', { name: 'Your delivery locations' })).not.toBeInTheDocument()
@@ -144,8 +144,8 @@ describe('Parcel Pals privacy and requests', () => {
       expect(within(workCard).getByLabelText('City')).toHaveValue('Umuahia')
       expect(within(workCard).getByLabelText('State')).toHaveValue('Abia')
     })
-    expect(await within(workCard).findByRole('status')).toHaveTextContent('verify the house/building before saving')
-    expect(within(workCard).getByRole('status')).toHaveTextContent('GPS accuracy ±18 m')
+    expect(await within(workCard).findByRole('status')).toHaveTextContent('Address filled. Check before saving.')
+    await user.click(within(workCard).getByRole('checkbox', { name: 'Address is correct.' }))
     await user.click(within(workCard).getByRole('button', { name: 'Save location' }))
     await waitFor(() => expect(upsert).toHaveBeenCalledWith({ user_id: 'user-1', slot: 1, label: 'Work', address: '10 Palm Street', city: 'Umuahia', state: 'Abia', secondary_phone: null }, { onConflict: 'user_id,slot' }))
   })

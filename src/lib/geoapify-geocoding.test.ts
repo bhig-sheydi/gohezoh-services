@@ -1,32 +1,69 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { getAddressFromCurrentPosition } from './geoapify-geocoding'
-import { requestPosition } from './proximity'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { getAddressFromCurrentPosition, reverseAddress, type AddressResult } from './geoapify-geocoding'
+import { requestAddressPosition } from './proximity'
 
-vi.mock('./proximity', () => ({ requestPosition: vi.fn() }))
+vi.mock('./proximity', () => ({ requestAddressPosition: vi.fn() }))
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
+const fix = { latitude: 6.45, longitude: 3.4, accuracyMetres: 18, capturedAt: Date.now(), source: 'browser' as const }
+const address: AddressResult = { address: '10 Palm Street', city: 'Umuahia', state: 'Abia', latitude: 6.45, longitude: 3.4, specificity: 'building', resultType: 'building', distanceMetres: 12, confidence: null }
+function setup(data: unknown = address, error: unknown = null) {
+  const invoke = vi.fn(async () => ({ data, error }))
+  return { invoke, client: { functions: { invoke } } as unknown as SupabaseClient }
+}
 
-afterEach(() => {
-  vi.unstubAllEnvs()
-  vi.restoreAllMocks()
-})
-
-describe('Geoapify reverse geocoding', () => {
-  it('does not geocode an imprecise GPS fix', async () => {
-    vi.stubEnv('VITE_GEOAPIFY_API_KEY', 'test-key')
-    vi.mocked(requestPosition).mockResolvedValue({ latitude: 6.45, longitude: 3.4, accuracyMetres: 500, capturedAt: Date.now(), source: 'browser' })
-    const fetchSpy = vi.spyOn(globalThis, 'fetch')
-
-    await expect(getAddressFromCurrentPosition()).rejects.toThrow('±500 m')
-    expect(fetchSpy).not.toHaveBeenCalled()
+describe('authenticated location lookup', () => {
+  it('records the original device evidence and sends only requested coordinates to the proxy', async () => {
+    vi.mocked(requestAddressPosition).mockResolvedValue(fix)
+    const { client, invoke } = setup()
+    const result = await getAddressFromCurrentPosition(client)
+    expect(result.evidence).toEqual(fix)
+    expect(result.qualityNote).toContain('Device-reported accuracy: about 18 m')
+    expect(invoke).toHaveBeenCalledWith('location-address', expect.objectContaining({ body: { action: 'reverse', latitude: 6.45, longitude: 3.4 }, timeout: 20_000 }))
+    expect(JSON.stringify(invoke.mock.calls)).not.toContain('apiKey')
   })
-
-  it('returns the nearest address suggestion and its precision note for a good fix', async () => {
-    vi.stubEnv('VITE_GEOAPIFY_API_KEY', 'test-key')
-    vi.mocked(requestPosition).mockResolvedValue({ latitude: 6.45, longitude: 3.4, accuracyMetres: 18, capturedAt: Date.now(), source: 'browser' })
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ features: [{ properties: { housenumber: '10', street: 'Palm Street', city: 'Umuahia', state: 'Abia', distance: 12 } }] }) }))
-
-    await expect(getAddressFromCurrentPosition()).resolves.toEqual({
-      address: '10 Palm Street', city: 'Umuahia', state: 'Abia',
-      qualityNote: 'Suggested address; verify the house/building before saving. Device GPS accuracy ±18 m. Mapped result is about 12 m from your location.',
-    })
+  it('returns the best available address even with a coarse device fix', async () => {
+    vi.mocked(requestAddressPosition).mockResolvedValue({ ...fix, accuracyMetres: 500 })
+    const { client, invoke } = setup()
+    const onPosition = vi.fn()
+    await expect(getAddressFromCurrentPosition(client, { onPosition })).resolves.toMatchObject({ address: '10 Palm Street', evidence: expect.objectContaining({ accuracyMetres: 500 }) })
+    expect(onPosition).toHaveBeenCalledOnce()
+    expect(invoke).toHaveBeenCalledOnce()
+  })
+  it('never reverse geocodes after denied device permission', async () => {
+    vi.mocked(requestAddressPosition).mockRejectedValueOnce(new Error('Location permission was denied.'))
+    const { client, invoke } = setup()
+    await expect(getAddressFromCurrentPosition(client)).rejects.toThrow('denied')
+    expect(invoke).not.toHaveBeenCalled()
+  })
+  it('deduplicates identical concurrent requests but does not retain results', async () => {
+    const { client, invoke } = setup()
+    await Promise.all([reverseAddress(client, fix), reverseAddress(client, fix)])
+    expect(invoke).toHaveBeenCalledTimes(1)
+    await reverseAddress(client, fix)
+    expect(invoke).toHaveBeenCalledTimes(2)
+  })
+  it.each([null, {}, { ...address, confidence: 10 }, { ...address, latitude: '6.45' }, { ...address, longitude: 190 }])('rejects an invalid normalized response %#', async (data) => {
+    const { client } = setup(data)
+    await expect(reverseAddress(client, fix)).rejects.toThrow('invalid result')
+  })
+  it('distinguishes coarse map data and missing confidence from physical accuracy', async () => {
+    const { client } = setup({ ...address, address: '', specificity: 'area', resultType: 'city', distanceMetres: 272, confidence: 0.5 })
+    const result = await reverseAddress(client, { ...fix, source: 'map', accuracyMetres: null })
+    expect(result.qualityNote).toContain('Only an area')
+    expect(result.qualityNote).toContain('device accuracy is not available')
+    expect(result.qualityNote).toContain('low confidence')
+    expect(result.qualityNote).toContain('far from this point')
+  })
+  it.each([401, 429, 502])('handles HTTP %i without automatic client retries', async (status) => {
+    const { client, invoke } = setup(null, { context: new Response('{}', { status, headers: { 'Retry-After': '30' } }) })
+    await expect(reverseAddress(client, fix)).rejects.toMatchObject({ status, retryAfter: 30 })
+    expect(invoke).toHaveBeenCalledTimes(1)
+  })
+  it('does not start an aborted request', async () => {
+    const { client, invoke } = setup()
+    const controller = new AbortController(); controller.abort()
+    await expect(reverseAddress(client, fix, controller.signal)).rejects.toBeDefined()
+    expect(invoke).not.toHaveBeenCalled()
   })
 })

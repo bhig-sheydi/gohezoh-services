@@ -13,6 +13,11 @@
 }
 
 :root[data-theme='dark'] { color-scheme:dark; background:#101a19; }
+:root[data-theme='dark'] .parcel-pal-destination-card { color:#e9f2ea; background:#1b2c25; border-color:#3b5248; }
+:root[data-theme='dark'] .parcel-pal-destinations .location-consent,
+:root[data-theme='dark'] .parcel-pal-destinations .location-attribution { color:#b2c3b7; }
+:root[data-theme='dark'] .parcel-pal-destinations .parcel-pal-location-quality { color:#e9f2ea; }
+:root[data-theme='dark'] .parcel-pal-destinations .location-confirm input { accent-color:#cbe879; }
 :root[data-theme='dark'] ::selection { color:#102019; background:#c8e883; }
 :root[data-theme='dark'] .app-shell {
   --ink:#e9f2ea;
