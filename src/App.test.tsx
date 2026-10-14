@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+﻿import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from './App'
@@ -200,8 +200,13 @@ describe('account access', () => {
     mockState.noCustomerMembership = true
     mockState.session = { user: { id: 'customer-user', email: 'ada@example.test', user_metadata: { full_name: 'Ada Customer', phone: '08012345678' } } }
     render(<App />)
-    expect(await screen.findByRole('heading', { name: 'Where should it go?' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Your parcels' })).toBeInTheDocument()
+    expect(await screen.findByText('123456')).toBeInTheDocument()
     expect(mockState.rpc).toHaveBeenCalledWith('ensure_customer_profile')
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /Edit my delivery info/ }))
+    const heading = screen.getByRole('heading', { name: 'Your delivery locations' })
+    expect(document.activeElement).toBe(heading)
   })
 
   it('explains when signup matched an existing account and no email was sent', async () => {
@@ -438,6 +443,8 @@ beforeEach(() => {
     if (name === 'get_my_bdo_referral_code') return {data:'ABC123DEF456',error:null}
     if (name === 'create_partner_prospect_invite') return {data:'12345678-1234-4234-8234-123456789abc',error:null}
     if (name === 'ensure_customer_profile') return {data:'customer-1',error:null}
+    if (name === 'get_my_parcel_pal_code') return {data:'123456',error:null}
+    if (name === 'list_parcel_pal_requests' || name === 'list_my_parcel_pals') return {data:[],error:null}
     if (name === 'record_business_development_activity') return {data:{activity_number:'BDA-00001'},error:null}
     if (name === 'create_delivery_route') return {data:{route_id:'route-created',route_number:'RTE-0002'},error:null}
     if (name === 'assign_job_route') {mockState.job={...mockState.job,route_id:args.p_route_id};return {data:{route_id:args.p_route_id,route_number:'RTE-0001'},error:null}}
@@ -547,6 +554,7 @@ describe('partner assignment and delivery screens', () => {
     render(<App />)
 
     expect(await screen.findByRole('heading', { name: 'BDO workspace' })).toBeInTheDocument()
+    expect(screen.queryByText('PARCEL PALS')).not.toBeInTheDocument()
     expect(await screen.findByText('Assigned leads')).toBeInTheDocument()
     expect(await screen.findByLabelText('Personal referral link')).toHaveValue('https://gohezoh-services.vercel.app/?ref=ABC123DEF456')
     await user.click(screen.getByText('Add a lead'))
@@ -695,7 +703,7 @@ describe('partner assignment and delivery screens', () => {
     expect(await screen.findByRole('img',{name:'Barcode KWP-P-00000042'})).toBeInTheDocument()
     const lookup=screen.getByLabelText('Find parcel by ID or scan its barcode')
     await user.type(lookup,'KWP-P-00000042')
-    expect(screen.getByText('Books · 2 items in this parcel')).toBeInTheDocument()
+    expect(screen.getByText(/Books.*2 items in this parcel/)).toBeInTheDocument()
     await user.clear(lookup)
     await user.type(lookup,'KWP-P-99999999')
     expect(await screen.findByRole('heading',{name:'No parcel found'})).toBeInTheDocument()
@@ -751,8 +759,10 @@ describe('partner assignment and delivery screens', () => {
     mockState.roles = ['customer']
     mockState.customerRequests = [{ id: 'request-1', request_number: 'REQ-0001', status: 'converted', pickup_city: 'Lagos', delivery_city: 'Ibadan', recipient_name: 'Ada', created_at: '2026-10-01T10:00:00Z' }]
     mockState.customerOrders = [{ service_request_id: 'request-1', order_number: 'ORD-0001', jobs: { id: 'job-1', job_number: 'JOB-0001', status: 'delivered', job_status_history: [], proof_of_delivery: [{ storage_path: 'job-1/proof.jpg', created_at: '2026-10-01T12:00:00Z', recipient_name: 'Ada' }] } }]
+    const user = userEvent.setup()
     render(<App />)
 
+    await user.click(await screen.findByRole('button', { name: /Tracking/ }))
     const proofLink = await screen.findByRole('link', { name: 'View proof of delivery 1' })
     expect(proofLink).toHaveAttribute('href', 'https://signed.example.test/proof')
     expect(mockState.createSignedUrls).toHaveBeenCalledWith(['job-1/proof.jpg'], 300)
@@ -766,21 +776,60 @@ describe('partner assignment and delivery screens', () => {
     mockState.coverageCorridors = [{ id: 'lagos-local', origin_id: 'lagos', destination_id: 'lagos', service_code: 'SRV-0001', is_enabled: true }]
     const user = userEvent.setup()
     render(<App />)
-    await screen.findByRole('heading', {name: 'Where should it go?'})
-    await user.selectOptions(screen.getByLabelText('Delivery service'), 'service-1')
+    await user.click(await screen.findByRole('button', { name: /Send items/ }))
+    await screen.findByRole('heading', {name: 'Delivery details'})
+    await user.selectOptions(screen.getByLabelText('Service'), 'service-1')
     for (const [label,value] of Object.entries({
       'Pickup contact':'Ada','Pickup phone':'08000000001','Pickup address':'1 Lagos Road',
       'Recipient name':'Bola','Recipient phone':'08000000002','Delivery address':'2 Lagos Road',
-      'Parcel description':'Books','Quantity':'2','Weight':'1250',
+      'Description':'Books',
     })) fireEvent.change(screen.getByLabelText(label),{target:{value}})
+    const quantity = screen.getByLabelText('Items for this destination') as HTMLSelectElement
+    expect(quantity.options).toHaveLength(50)
+    expect(quantity.options[quantity.options.length - 1].value).toBe('50')
+    await user.selectOptions(quantity, '2')
+    await user.selectOptions(screen.getByLabelText(/Weight/), '1.3')
+    await user.selectOptions(screen.getByLabelText(/Length/), '30')
+    await user.selectOptions(screen.getByLabelText(/Width/), '20')
+    await user.selectOptions(screen.getByLabelText(/Height/), '10')
     await user.selectOptions(screen.getByLabelText('Pickup city'), 'Lagos')
     await user.selectOptions(screen.getByLabelText('Delivery city'), 'Lagos')
-    await user.selectOptions(screen.getByLabelText('Weight unit'), 'g')
-    await user.click(screen.getByRole('button',{name:'Submit delivery request'}))
+    await user.click(screen.getByLabelText('I confirmed this delivery location with the recipient.'))
+    await user.click(screen.getByRole('button',{name:'Request delivery'}))
     await waitFor(() => expect(mockState.inserts).toContainEqual(expect.objectContaining({
       table:'service_requests',
-      data:expect.objectContaining({parcel_summary:'Books',parcel_items:[{description:'Books',quantity:2,weight_kg:1.25}]})
+      data:expect.objectContaining({parcel_summary:'Books',parcel_items:[{description:'Books',quantity:2,weight_kg:1.3,length_cm:30,width_cm:20,height_cm:10}]})
     })))
+  })
+
+  it('preserves an in-progress delivery form when account roles refresh on focus', async () => {
+    mockState.roles = ['customer']
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Your parcels' })
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: /Send items/ }))
+    const description = screen.getByLabelText('Description') as HTMLInputElement
+    await user.type(description, 'Unfinished parcel details')
+    const roleChecks = mockState.query.mock.calls.filter(([table]) => table === 'user_roles').length
+    fireEvent.focus(window)
+    await waitFor(() => expect(mockState.query.mock.calls.filter(([table]) => table === 'user_roles').length).toBeGreaterThan(roleChecks))
+    expect(screen.getByLabelText('Description')).toBe(description)
+    expect(description).toHaveValue('Unfinished parcel details')
+    expect(screen.getByRole('heading', { name: 'Delivery details' })).toBeInTheDocument()
+  })
+
+  it('warns immediately when selected item count exceeds packed shipment capacity', async () => {
+    mockState.roles = ['customer']
+    render(<App />)
+    await screen.findByRole('heading', { name: 'Your parcels' })
+    const user = userEvent.setup()
+    await user.click(screen.getByRole('button', { name: /Send items/ }))
+    await user.selectOptions(screen.getByLabelText(/Weight per item/), '5')
+    await user.selectOptions(screen.getByLabelText(/Length/), '99')
+    await user.selectOptions(screen.getByLabelText(/Width/), '60')
+    await user.selectOptions(screen.getByLabelText(/Height/), '70.5')
+    await user.selectOptions(screen.getByLabelText('Items for this destination'), '2')
+    expect(await screen.findByRole('alert')).toHaveTextContent(/exceeds the total weight and packed size capacity/i)
   })
 
   it('shows customer delivery notifications and marks only the selected notification as read', async () => {
@@ -789,11 +838,26 @@ describe('partner assignment and delivery screens', () => {
     const user = userEvent.setup()
     render(<App />)
 
+    await user.click(await screen.findByRole('button', { name: /Updates/ }))
     expect(await screen.findByText('Parcel delivered')).toBeInTheDocument()
     expect(screen.getByText('Job JOB-0001: parcel delivered.')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Mark as read' }))
     await waitFor(() => expect(mockState.rpc).toHaveBeenCalledWith('mark_customer_notification_read', { p_notification_id: 'notification-1' }))
     expect(screen.queryByRole('button', { name: 'Mark as read' })).not.toBeInTheDocument()
+  })
+
+  it('organizes customer features into home cards and separate app frames', async () => {
+    mockState.roles = ['customer']
+    const user = userEvent.setup()
+    render(<App />)
+    expect(await screen.findByRole('heading', { name: 'Your parcels' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Your number' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Items to send' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Updates/ }))
+    expect(await screen.findByRole('heading', { name: 'Messages about your parcels' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /customer home/ }))
+    await user.click(screen.getByRole('button', { name: /Tracking/ }))
+    expect(await screen.findByRole('heading', { name: 'Your deliveries', level: 2 })).toBeInTheDocument()
   })
 
   it('shows delivery exception alerts to internal staff and lets them mark an alert reviewed', async () => {
@@ -854,11 +918,14 @@ describe('partner assignment and delivery screens', () => {
     mockState.roles = ['customer']
     mockState.customerRequests = [{ id: 'request-1', request_number: 'REQ-0001', status: 'converted', pickup_city: 'Lagos', delivery_city: 'Ibadan', recipient_name: 'Ada', created_at: '2026-10-01T10:00:00Z' }]
     mockState.customerOrders = [{ service_request_id: 'request-1', order_number: 'ORD-0001', customer_price: 10000, currency: 'NGN', jobs: { id: 'job-1', job_number: 'JOB-0001', status: 'delivered', job_status_history: [], proof_of_delivery: [] } }]
+    const user = userEvent.setup()
     render(<App />)
 
-    expect(await screen.findByText('Payment information')).toBeInTheDocument()
-    expect(screen.getByText(/Amount billed:/)).toBeInTheDocument()
-    expect(screen.getByText('PAY-00001 · bank transfer · ₦4,000.00')).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: /Tracking/ }))
+    await user.click(await screen.findByText('Payment'))
+    expect(screen.getByText(/Total:/)).toBeInTheDocument()
+    expect(screen.getByText(/Received:/)).toBeInTheDocument()
+    expect(screen.getByText(/PAY-00001/)).toHaveTextContent('bank transfer')
     expect(screen.getByText(/Balance:/)).toBeInTheDocument()
   })
 })

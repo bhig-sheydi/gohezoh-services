@@ -11,6 +11,8 @@ Supabase owns `auth.users`; `profiles` and the role/membership tables extend tha
 ```mermaid
 erDiagram
     AUTH_USERS ||--o| PROFILES : profile
+    AUTH_USERS ||--o| PARCEL_PAL_CODES : lookup_number
+    AUTH_USERS ||--o{ PARCEL_PAL_CONNECTIONS : parcel_pal_membership
     AUTH_USERS ||--o{ USER_ROLES : has
     AUTH_USERS ||--o{ CUSTOMER_USERS : belongs
     CUSTOMERS ||--o{ CUSTOMER_USERS : members
@@ -77,6 +79,18 @@ erDiagram
 
     AUTH_USERS {
         uuid id PK
+    }
+    PARCEL_PAL_CODES {
+        text code PK
+        uuid user_id UK,FK
+        timestamptz created_at
+    }
+    PARCEL_PAL_CONNECTIONS {
+        uuid user_a PK,FK
+        uuid user_b PK,FK
+        uuid requested_by FK
+        text status
+        timestamptz responded_at
     }
     PROFILES {
         uuid user_id PK,FK
@@ -306,6 +320,8 @@ erDiagram
 **Implemented first-release flow:** Customer requests move through Operations review and conversion to an order/job, partner assignment, delivery status updates, recipient OTP verification, private POD storage, and customer in-app notifications. Finance can record job costs, receipts, and partner settlements in the local Phase 5 implementation. The release migrations still need to be applied to the linked production database before these features are live. Auth password-reset OTP is separate from the delivery-recipient OTP represented by `otp_verifications`.
 
 **Parcel traceability:** New customer requests capture a structured parcel description, quantity, and optional weight in `service_requests.parcel_items`. The job creation trigger copies every parcel item into `job_parcels`, preserving its position and measurements. Historical and warehouse-created requests with only `parcel_summary` receive a single descriptive parcel row when a job is created.
+
+**Parcel Pals:** Each auth account receives a unique six-digit lookup number. Private connection requests are visible only through server-side functions. Search and outgoing requests reveal no profile details. An incoming request shows only the sender's display name and private profile-photo path to the recipient; phone and address remain available only after acceptance. Profile photos are stored in a private Storage bucket and served using short-lived signed URLs under relationship-aware storage policies. Users upload JPEG, PNG or WebP images up to 5 MB; profiles without photos are prompted again on each app open until a photo is saved.
 
 The request-to-order function copies matching customer and service identifiers in one transaction. Assignment RPCs update both `jobs.partner_id` and `partner_assignments`. Server-side guards enforce status transitions and require a verified delivery OTP before delivery. The private POD bucket and customer access policies are configured in the migrations.
 
