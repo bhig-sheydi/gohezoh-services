@@ -3,15 +3,19 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { getSupabaseClient } from './lib/supabase'
 import ParcelPalsPanel from './ParcelPalsPanel'
+import { getAddressFromCurrentPosition } from './lib/geoapify-geocoding'
+
+vi.mock('./lib/geoapify-geocoding', () => ({ getAddressFromCurrentPosition: vi.fn() }))
 
 type Client = ReturnType<typeof getSupabaseClient>
 
 function makeClient(rpc: ReturnType<typeof vi.fn>, ownPhoto: string | null = null) {
+  const upsert = vi.fn(async () => ({ error: null }))
   const profileQuery = {
     select: vi.fn(() => profileQuery),
     eq: vi.fn(() => profileQuery),
     order: vi.fn(() => profileQuery),
-    upsert: vi.fn(async () => ({ error: null })),
+    upsert,
     maybeSingle: vi.fn(async () => ({ data: { avatar_path: ownPhoto }, error: null })),
   }
   const createSignedUrl = vi.fn(async (path: string) => ({ data: { signedUrl: `https://photos.example.test/${path}` }, error: null }))
@@ -22,7 +26,7 @@ function makeClient(rpc: ReturnType<typeof vi.fn>, ownPhoto: string | null = nul
     from: vi.fn(() => profileQuery),
     storage: { from: vi.fn(() => ({ createSignedUrl, upload, remove })) },
   } as unknown as Client
-  return { supabase, createSignedUrl, upload, remove }
+  return { supabase, createSignedUrl, upload, remove, upsert }
 }
 
 describe('Parcel Pals privacy and requests', () => {
@@ -119,6 +123,31 @@ describe('Parcel Pals privacy and requests', () => {
     expect(destination.closest('.parcel-pal-contact-destination')).toHaveTextContent('08033334444')
     await userEvent.setup().click(within(destination.closest('.parcel-pal-contact-destination')!).getByRole('button', { name: 'Use this destination' }))
     expect(onUseDestination).toHaveBeenCalledWith(expect.objectContaining({ full_name: 'Ada Pal', phone: '08011112222' }), expect.objectContaining({ label: 'Home', city: 'Umuahia' }))
+  })
+
+  it('keeps saved address forms hidden until opened and fills them from the current Geoapify location', async () => {
+    const rpc = vi.fn(async (name: string) => {
+      if (name === 'get_my_parcel_pal_code') return { data: '123456', error: null }
+      if (name === 'list_parcel_pal_requests' || name === 'list_my_parcel_pals') return { data: [], error: null }
+      return { data: null, error: null }
+    })
+    const { supabase, upsert } = makeClient(rpc)
+    vi.mocked(getAddressFromCurrentPosition).mockResolvedValueOnce({ address: '10 Palm Street', city: 'Umuahia', state: 'Abia', qualityNote: 'Suggested address; verify the house/building before saving. Device GPS accuracy ±18 m. Mapped result is about 12 m from your location.' })
+    const user = userEvent.setup()
+    const view = render(<ParcelPalsPanel supabase={supabase} userId="user-1" onError={vi.fn()} onNotice={vi.fn()} />)
+    expect(screen.queryByRole('heading', { name: 'Your delivery locations' })).not.toBeInTheDocument()
+    view.rerender(<ParcelPalsPanel supabase={supabase} userId="user-1" onError={vi.fn()} onNotice={vi.fn()} isEditingDestinations />)
+    const workCard = screen.getByText('Work').closest('form')!
+    await user.click(within(workCard).getByRole('button', { name: 'Get address' }))
+    await waitFor(() => {
+      expect(within(workCard).getByLabelText('Address')).toHaveValue('10 Palm Street')
+      expect(within(workCard).getByLabelText('City')).toHaveValue('Umuahia')
+      expect(within(workCard).getByLabelText('State')).toHaveValue('Abia')
+    })
+    expect(await within(workCard).findByRole('status')).toHaveTextContent('verify the house/building before saving')
+    expect(within(workCard).getByRole('status')).toHaveTextContent('GPS accuracy ±18 m')
+    await user.click(within(workCard).getByRole('button', { name: 'Save location' }))
+    await waitFor(() => expect(upsert).toHaveBeenCalledWith({ user_id: 'user-1', slot: 1, label: 'Work', address: '10 Palm Street', city: 'Umuahia', state: 'Abia', secondary_phone: null }, { onConflict: 'user_id,slot' }))
   })
 
   it('reminds again on the next app open while the profile still has no picture', async () => {

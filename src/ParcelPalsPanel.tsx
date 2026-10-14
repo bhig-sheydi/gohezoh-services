@@ -1,15 +1,16 @@
-import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent, type MouseEvent } from 'react'
 import { getSupabaseClient } from './lib/supabase'
+import { getAddressFromCurrentPosition } from './lib/geoapify-geocoding'
 
 type SearchResult = { found: boolean; code?: string; status?: string; direction?: string | null }
 type ParcelPalRequest = { code: string; status: string; direction: 'sent' | 'received'; full_name: string | null; avatar_path: string | null; avatar_url?: string | null; created_at: string }
 export type ParcelDestination = { slot: number; label: string; address: string; city: string; state: string; secondary_phone: string | null }
 export type ParcelPalContact = { code: string; full_name: string | null; phone: string | null; avatar_path: string | null; avatar_url?: string | null; address: string | null; city: string | null; state: string | null; destinations?: ParcelDestination[]; connected_at: string | null }
-type Props = { supabase: ReturnType<typeof getSupabaseClient>; userId: string; onError: (message: string) => void; onNotice: (message: string) => void; onUseDestination?: (contact: ParcelPalContact, destination: ParcelDestination) => void }
+type Props = { supabase: ReturnType<typeof getSupabaseClient>; userId: string; onError: (message: string) => void; onNotice: (message: string) => void; onUseDestination?: (contact: ParcelPalContact, destination: ParcelDestination) => void; isEditingDestinations?: boolean; onCloseDestinationEditor?: () => void }
 
 function rows<T>(value: unknown): T[] { return Array.isArray(value) ? value as T[] : [] }
 
-export default function ParcelPalsPanel({ supabase, userId, onError, onNotice, onUseDestination }: Props) {
+export default function ParcelPalsPanel({ supabase, userId, onError, onNotice, onUseDestination, isEditingDestinations = false, onCloseDestinationEditor }: Props) {
   const [code, setCode] = useState('')
   const [searchCode, setSearchCode] = useState('')
   const [searchResult, setSearchResult] = useState<SearchResult | null>(null)
@@ -23,6 +24,9 @@ export default function ParcelPalsPanel({ supabase, userId, onError, onNotice, o
   const [avatarFailed, setAvatarFailed] = useState(false)
   const [destinations, setDestinations] = useState<ParcelDestination[]>([])
   const [locationBusy, setLocationBusy] = useState(false)
+  const [locationLookupSlot, setLocationLookupSlot] = useState<number | null>(null)
+  const [locationLookupDone, setLocationLookupDone] = useState<number | null>(null)
+  const [locationQualityNote, setLocationQualityNote] = useState('')
   const profileLoaded = useRef(false)
   const photoInput = useRef<HTMLInputElement>(null)
 
@@ -153,7 +157,7 @@ export default function ParcelPalsPanel({ supabase, userId, onError, onNotice, o
     const { error } = await supabase.rpc('respond_to_parcel_pal_request', { p_code: request.code, p_accept: accept })
     if (error) onError(error.message)
     else {
-      onNotice(accept ? 'Parcel Pal request accepted. You can now see each other’s shared contact details.' : 'Parcel Pal request declined.')
+      onNotice(accept ? 'Parcel Pal request accepted. You can now see each otherâ€™s shared contact details.' : 'Parcel Pal request declined.')
       setSearchResult(null)
       await refresh()
     }
@@ -181,6 +185,26 @@ export default function ParcelPalsPanel({ supabase, userId, onError, onNotice, o
     setLocationBusy(false)
   }
 
+  async function getCurrentAddress(event: MouseEvent<HTMLButtonElement>, slot: number) {
+    if (locationBusy) return
+    const form = event.currentTarget.closest('form')
+    if (!form) return
+    setLocationBusy(true); setLocationLookupSlot(slot); setLocationLookupDone(null); setLocationQualityNote(''); onError(''); onNotice('')
+    try {
+      const address = await getAddressFromCurrentPosition()
+      for (const [name, value] of Object.entries({ address: address.address, city: address.city, state: address.state })) {
+        const input = form.elements.namedItem(name)
+        if (input instanceof HTMLInputElement) input.value = value
+      }
+      setLocationLookupDone(slot)
+      setLocationQualityNote(address.qualityNote)
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'Could not find an address from your current location.')
+    } finally {
+      setLocationLookupSlot(null); setLocationBusy(false)
+    }
+  }
+
   return <section className="parcel-pals-panel" aria-labelledby="parcel-pals-heading">
     <div className="parcel-pals-heading">
       <div><p className="eyebrow">PARCEL PALS</p><h2 id="parcel-pals-heading">Your number</h2><p>Share it to connect with someone.</p></div>
@@ -189,13 +213,14 @@ export default function ParcelPalsPanel({ supabase, userId, onError, onNotice, o
           {avatarUrl && !avatarFailed ? <img src={avatarUrl} alt="Your profile picture" onError={() => setAvatarFailed(true)} /> : <span aria-hidden="true">{avatarPath ? '!' : '+'}</span>}
         </button>
         <input ref={photoInput} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" aria-label="Choose a profile picture" onChange={(event) => void uploadProfilePhoto(event)} />
-        <span>YOUR PARCEL PAL NUMBER</span><strong aria-label="Your Parcel Pal number">{code || '------'}</strong><button type="button" className="secondary-button" disabled={!code} onClick={() => void copyMyCode()}>Copy number</button><small className="parcel-pal-photo-state" aria-live="polite">{avatarUrl && !avatarFailed ? 'Profile picture set · tap to change' : avatarPath ? 'Picture unavailable · tap to replace' : 'Add a profile picture'}</small>
+        <span>YOUR PARCEL PAL NUMBER</span><strong aria-label="Your Parcel Pal number">{code || '------'}</strong><button type="button" className="secondary-button" disabled={!code} onClick={() => void copyMyCode()}>Copy number</button><small className="parcel-pal-photo-state" aria-live="polite">{avatarUrl && !avatarFailed ? 'Profile picture set Â· tap to change' : avatarPath ? 'Picture unavailable Â· tap to replace' : 'Add a profile picture'}</small>
       </div>
     </div>
     {showPhotoReminder && <div className="parcel-pal-photo-reminder" role="dialog" aria-modal="true" aria-labelledby="parcel-pal-photo-title"><div className="parcel-pal-photo-prompt"><span className="parcel-pal-photo-prompt-icon" aria-hidden="true">+</span><h3 id="parcel-pal-photo-title">Add a profile picture</h3><p>Use your business logo or a clear photo of your face.</p><button type="button" className="primary-button" disabled={photoBusy} onClick={() => photoInput.current?.click()}>{photoBusy ? 'Saving...' : 'Choose picture'}</button><button type="button" className="text-button" onClick={() => setShowPhotoReminder(false)}>Don't remind me again</button></div></div>}
     <button className="text-button parcel-pal-refresh" type="button" aria-label="Refresh Parcel Pals" onClick={() => void refresh()}>Refresh</button>
-    <p className="parcel-pal-privacy"><span aria-hidden="true">◆</span> Contact details appear after acceptance.</p>
-    <section className="parcel-pal-destinations" aria-labelledby="parcel-pal-destinations-heading"><div className="history-heading"><div><h3 id="parcel-pal-destinations-heading" tabIndex={-1}>Your delivery locations</h3><small>Save up to three places: work, home and another location.</small></div></div><div className="parcel-pal-destination-grid">{[1,2,3].map((slot) => { const saved = destinations.find((item) => item.slot === slot); return <form className="parcel-pal-destination-card" key={slot} onSubmit={saveDestination}><strong>{slot === 1 ? 'Work' : slot === 2 ? 'Home' : 'Other'}</strong><input type="hidden" name="slot" value={slot} /><label className="field"><span>Address</span><input name="address" defaultValue={saved?.address ?? ''} required /></label><div className="field-row"><label className="field"><span>City</span><input name="city" defaultValue={saved?.city ?? ''} required /></label><label className="field"><span>State</span><input name="state" defaultValue={saved?.state ?? ''} required /></label></div><label className="field"><span>Second phone (optional)</span><input name="secondary_phone" type="tel" defaultValue={saved?.secondary_phone ?? ''} /></label><div className="parcel-pal-actions"><button className="primary-button" disabled={locationBusy}>{locationBusy ? 'Saving...' : 'Save location'}</button>{saved && <button className="text-button" type="button" disabled={locationBusy} onClick={() => void removeDestination(slot)}>Remove</button>}</div></form> })}</div></section>    <form className="parcel-pal-search" onSubmit={search}>
+    <p className="parcel-pal-privacy"><span aria-hidden="true">â—†</span> Contact details appear after acceptance.</p>
+    {isEditingDestinations && <section className="parcel-pal-destinations" aria-labelledby="parcel-pal-destinations-heading"><div className="history-heading"><div><h3 id="parcel-pal-destinations-heading" tabIndex={-1}>Your delivery locations</h3><small>Save up to three places: work, home and another location.</small><small>Use Get address while you are at that location. Allow location access, then review the result before saving.</small></div><button className="text-button" type="button" onClick={onCloseDestinationEditor}>Done</button></div><div className="parcel-pal-destination-grid">{[1,2,3].map((slot) => { const saved = destinations.find((item) => item.slot === slot); return <form className="parcel-pal-destination-card" key={slot} onSubmit={saveDestination}><strong>{slot === 1 ? 'Work' : slot === 2 ? 'Home' : 'Other'}</strong><input type="hidden" name="slot" value={slot} /><label className="field"><span>Address</span><input name="address" defaultValue={saved?.address ?? ''} required /></label><div className="field-row"><label className="field"><span>City</span><input name="city" defaultValue={saved?.city ?? ''} required /></label><label className="field"><span>State</span><input name="state" defaultValue={saved?.state ?? ''} required /></label></div><label className="field"><span>Second phone (optional)</span><input name="secondary_phone" type="tel" defaultValue={saved?.secondary_phone ?? ''} /></label><button className="secondary-button parcel-pal-get-address" type="button" disabled={locationBusy} onClick={(event) => void getCurrentAddress(event,slot)}>{locationLookupSlot === slot ? 'Getting address...' : 'Get address'}</button>{locationLookupDone === slot && <small className="parcel-pal-location-quality" role="status">{locationQualityNote}</small>}<div className="parcel-pal-actions"><button className="primary-button" disabled={locationBusy}>{locationBusy ? 'Saving...' : 'Save location'}</button>{saved && <button className="text-button" type="button" disabled={locationBusy} onClick={() => void removeDestination(slot)}>Remove</button>}</div></form> })}</div></section>}
+    <form className="parcel-pal-search" onSubmit={search}>
       <label className="field"><span>Find a Parcel Pal</span><input aria-label="Search by Parcel Pal number" type="text" inputMode="numeric" autoComplete="off" maxLength={6} pattern="[0-9]{6}" value={searchCode} onChange={(event) => { setSearchCode(event.target.value.replace(/\D/g, '').slice(0, 6)); setSearchResult(null) }} placeholder="6-digit number" /></label>
       <button className="secondary-button" disabled={busy || searchCode.length !== 6}>{busy ? 'Searching...' : 'Search'}</button>
     </form>

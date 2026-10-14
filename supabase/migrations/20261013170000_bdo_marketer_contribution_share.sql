@@ -1,4 +1,4 @@
- - A supervising BDO's marketer-network share is separate from their direct BDO
+-- A supervising BDO's marketer-network share is separate from their direct BDO
 -- plan and from the marketer's own commission. The share rate applies to the
 -- accepted quote's recorded Gohezo contribution, prorated by each actual receipt.
 create table public.bdo_marketer_share_plans (
