@@ -31,6 +31,10 @@ begin
   perform set_config('request.jwt.claim.sub',v_partner_user::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_partner_user,'role','authenticated')::text,true);
   perform public.submit_partner_document(v_application,'cac',v_path);
+  insert into storage.objects(bucket_id,name,owner_id,metadata) values
+    ('partner-vehicles',v_path||'-vehicle',v_partner_user::text,'{"mimetype":"application/pdf","size":100}'),
+    ('partner-vehicles',v_path||'-licence',v_partner_user::text,'{"mimetype":"application/pdf","size":100}');
+  perform public.register_partner_vehicle(v_application,'van','REF-101','Referred Courier',v_path||'-vehicle','Referral Driver','12345678901',v_path||'-licence','08:00','18:00');
 
   select id into v_admin from auth.users where lower(email)='vevakporgodsanointed@gmail.com' limit 1;
   if v_admin is null then raise exception 'Promoted Super Admin fixture is required';end if;

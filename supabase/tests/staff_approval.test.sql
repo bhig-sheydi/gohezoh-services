@@ -27,7 +27,7 @@ begin
   select id into v_partner_application from public.staff_applications where user_id=v_partner_user and requested_role='partner';
   if v_application is null or v_partner_application is null then raise exception 'Staff signup did not create pending requests';end if;
   insert into public.logistics_partners(id,partner_name,contact_person,phone,status)
-  values(v_partner,'Approval Test Partner','Contact','08000000000','active');
+  values(v_partner,'Test Partner','Contact','08000000000','active');
 
   perform set_config('request.jwt.claim.sub',v_manager::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_manager,'role','authenticated')::text,true);
@@ -67,6 +67,10 @@ begin
     raise exception 'Invalid document type accepted';
   exception when check_violation then null;end;
   perform public.submit_partner_document(v_partner_application,'cac',v_document_path);
+  insert into storage.objects(bucket_id,name,owner_id,metadata) values
+    ('partner-vehicles',v_document_path||'-vehicle',v_partner_user::text,'{"mimetype":"application/pdf","size":100}'),
+    ('partner-vehicles',v_document_path||'-licence',v_partner_user::text,'{"mimetype":"application/pdf","size":100}');
+  perform public.register_partner_vehicle(v_partner_application,'bus','STAFF-101','Test Partner',v_document_path||'-vehicle','Company Driver','12345678901',v_document_path||'-licence','08:00','18:00');
   perform set_config('request.jwt.claim.sub',v_admin::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_admin,'role','authenticated')::text,true);
   perform public.review_staff_application(v_partner_application,true,v_partner);

@@ -29,7 +29,9 @@ begin
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_admin,'role','authenticated')::text,true);
   perform public.set_partner_corridor_coverage(v_partner,v_corridor,true);
   v_result:=public.publish_delivery_request(v_request);
-  if (v_result->>'deadline_at')::timestamptz < now()+interval '119 minutes' then raise exception 'Window shorter than two hours'; end if;
+  if (v_result->>'deadline_at')::timestamptz < now()+interval '59 seconds'
+     or (v_result->>'deadline_at')::timestamptz > now()+interval '61 seconds' then
+    raise exception 'Bid window is not one minute'; end if;
   v_result:=public.publish_delivery_request(v_request);
   if (select count(*) from public.delivery_quote_windows where request_id=v_request)<>1 then raise exception 'Publish retry created second window'; end if;
   begin
@@ -38,6 +40,8 @@ begin
   exception when check_violation then null; end;
   perform set_config('request.jwt.claim.sub',v_partner_user::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_partner_user,'role','authenticated')::text,true);
+  if (select count(*) from public.list_partner_bid_screen() where request_id=v_request)<>1 then
+    raise exception 'Eligible request missing from partner bid screen'; end if;
   v_bid:=public.submit_partner_quote(v_request,7500,24,'Pickup and delivery','No exclusions',true,'No surcharges');
   if v_bid is null then raise exception 'Eligible partner could not bid'; end if;
   begin

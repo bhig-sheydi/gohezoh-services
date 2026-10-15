@@ -1,0 +1,75 @@
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import './partner-bid-screen.css'
+
+type Parcel = { description?: string; quantity?: number; weight_kg?: number; length_cm?: number; width_cm?: number; height_cm?: number }
+type BidJob = { request_id: string; request_number: string; pickup_city: string; delivery_city: string; parcel_summary: string; parcel_items: Parcel[] | null; photo_path: string | null; photo_url?: string | null; deadline_at: string; own_bid_amount_ngn: number | null; own_bid_status: string | null }
+type Props = { supabase: SupabaseClient; partnerIds: string[]; onError: (message: string) => void; onNotice: (message: string) => void }
+const money = (value: number) => new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' }).format(value)
+
+export default function PartnerBidScreen({ supabase, partnerIds, onError, onNotice }: Props) {
+  const partnerIdKey = partnerIds.join(',')
+  const [jobs, setJobs] = useState<BidJob[]>([])
+  const [now, setNow] = useState(0)
+  const [openBid, setOpenBid] = useState<string | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    if (!partnerIdKey) { setJobs([]); return }
+    const { data, error } = await supabase.rpc('list_partner_bid_screen')
+    if (error) { onError(error.message); return }
+    const rows = (data ?? []) as BidJob[]
+    const withPhotos = await Promise.all(rows.map(async (job) => {
+      if (!job.photo_path) return { ...job, photo_url: null }
+      const signed = await supabase.storage.from('customer-saved-parcels').createSignedUrl(job.photo_path, 75)
+      return { ...job, photo_url: signed.error ? null : signed.data?.signedUrl ?? null }
+    }))
+    setJobs(withPhotos)
+  }, [supabase, partnerIdKey, onError])
+
+  useEffect(() => {
+    const initial = window.setTimeout(() => { setNow(new Date().getTime()); void load() }, 0)
+    const refresh = window.setInterval(() => { void load() }, 10_000)
+    const clock = window.setInterval(() => setNow(new Date().getTime()), 250)
+    return () => { window.clearTimeout(initial); window.clearInterval(refresh); window.clearInterval(clock) }
+  }, [load])
+
+  async function submit(event: FormEvent<HTMLFormElement>, job: BidJob) {
+    event.preventDefault()
+    if (busy || now >= new Date(job.deadline_at).getTime()) return
+    const form = new FormData(event.currentTarget)
+    setBusy(job.request_id)
+    const { error } = await supabase.rpc('submit_partner_quote', {
+      p_request_id: job.request_id,
+      p_amount_ngn: Number(form.get('amount')),
+      p_eta_hours: Number(form.get('eta_hours')),
+      p_inclusions: String(form.get('inclusions')).trim(),
+      p_exclusions: String(form.get('exclusions')).trim(),
+      p_availability_confirmed: form.get('availability_confirmed') === 'on',
+      p_surcharge_conditions: String(form.get('surcharge_conditions')).trim(),
+    })
+    if (error) onError(error.message)
+    else { onNotice('Your private bid was submitted.'); setOpenBid(null); await load() }
+    setBusy(null)
+  }
+
+  return <section className="partner-bid-screen" aria-label="Bidding screen">
+    <header className="partner-bid-screen-header"><div><p className="eyebrow">LIVE BIDDING</p><h2>Jobs to bid on</h2></div><button className="secondary-button" onClick={() => void load()}>Refresh</button></header>
+    <div className="partner-bid-screen-display">
+      {jobs.filter((job) => new Date(job.deadline_at).getTime() > now).map((job) => {
+        const remaining = Math.max(0, Math.ceil((new Date(job.deadline_at).getTime() - now) / 1000))
+        const parcel = Array.isArray(job.parcel_items) ? job.parcel_items[0] : null
+        return <article className="partner-bid-job" key={job.request_id}>
+          <div className="partner-bid-photo">{job.photo_url ? <img src={job.photo_url} alt={`Goods for ${job.request_number}`} /> : <span>No parcel photo supplied</span>}</div>
+          <div className="partner-bid-details"><small>{job.request_number}</small><h3>{job.parcel_summary || parcel?.description || 'Parcel delivery'}</h3>
+            <div className="partner-bid-route"><span><small>PICKUP</small><strong>{job.pickup_city}</strong></span><span aria-hidden="true">→</span><span><small>DROP-OFF</small><strong>{job.delivery_city}</strong></span></div>
+            <div className="partner-bid-facts"><span>{parcel?.quantity ? `${parcel.quantity} item${parcel.quantity === 1 ? '' : 's'}` : 'Quantity not supplied'}</span><span>{parcel?.weight_kg ? `${parcel.weight_kg} kg each` : 'Weight not supplied'}</span><span>{parcel?.length_cm && parcel?.width_cm && parcel?.height_cm ? `${parcel.length_cm} × ${parcel.width_cm} × ${parcel.height_cm} cm each` : 'Size not supplied'}</span></div>
+            <p className="partner-bid-rider">Rider: assigned after the winning bid. Live location is not available yet.</p>
+            <div className="partner-bid-actions"><strong className="partner-bid-timer" aria-label={`${remaining} seconds remaining`}>{String(Math.floor(remaining / 60)).padStart(2, '0')}:{String(remaining % 60).padStart(2, '0')}</strong>{job.own_bid_amount_ngn != null ? <span>Your bid: {money(Number(job.own_bid_amount_ngn))}</span> : <button className="partner-bid-button" type="button" onClick={() => setOpenBid(openBid === job.request_id ? null : job.request_id)}>Bid</button>}</div>
+            {openBid === job.request_id && job.own_bid_amount_ngn == null && <form className="partner-bid-form" onSubmit={(event) => void submit(event, job)}><div className="field-row"><label className="field"><span>Total price (NGN)</span><input name="amount" type="number" min="1" step="0.01" required /></label><label className="field"><span>Delivery estimate (hours)</span><input name="eta_hours" type="number" min="1" required /></label></div><details><summary>Bid terms</summary><label className="field"><span>Inclusions</span><textarea name="inclusions" required rows={2} defaultValue="Pickup and delivery" /></label><label className="field"><span>Exclusions</span><textarea name="exclusions" required rows={2} defaultValue="None" /></label><label className="field"><span>Surcharge conditions (write None if none)</span><textarea name="surcharge_conditions" required rows={2} defaultValue="None" /></label></details><label className="partner-bid-confirm"><input type="checkbox" name="availability_confirmed" required /> I confirm availability for this route and timing</label><button className="partner-bid-button" disabled={busy === job.request_id}>{busy === job.request_id ? 'Submitting...' : 'Submit bid'}</button></form>}
+          </div>
+        </article>
+      })}
+    </div>
+  </section>
+}

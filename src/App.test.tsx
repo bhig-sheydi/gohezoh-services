@@ -205,7 +205,7 @@ describe('account access', () => {
     expect(mockState.rpc).toHaveBeenCalledWith('ensure_customer_profile')
     const user = userEvent.setup()
     await user.click(await screen.findByRole('button', { name: /Edit my delivery info/ }))
-    const heading = screen.getByRole('heading', { name: 'Your delivery locations' })
+    const heading = screen.getByRole('heading', { name: 'Delivery addresses' })
     expect(document.activeElement).toBe(heading)
   })
 
@@ -288,6 +288,23 @@ describe('account access', () => {
     expect(await screen.findByText(/bdo@example\.test/)).toBeInTheDocument()
   })
 
+  it('requires and sends the rejection reason from the company review card', async () => {
+    mockState.roles = ['admin']
+    mockState.session = { user: { id: 'admin-1', email: 'admin@gohezohservices.org' } }
+    mockState.rpc.mockImplementation(async (name: string) => {
+      if (name === 'list_staff_applications') return { data: [{ id: 'application-1', user_id: 'partner-1', email: 'partner@example.test', full_name: 'Partner Applicant', requested_role: 'partner', organization_name: 'Partner Company', status: 'pending', email_confirmed: true }], error: null }
+      if (name === 'list_staff_access') return { data: [], error: null }
+      return { data: {}, error: null }
+    })
+    render(<App />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Reject' }))
+    expect(screen.getByLabelText('Reason for rejection')).toBeRequired()
+    expect(mockState.rpc).not.toHaveBeenCalledWith('review_staff_application', expect.anything())
+    fireEvent.change(screen.getByLabelText('Reason for rejection'), { target: { value: 'Please upload clearer company papers.' } })
+    fireEvent.submit(screen.getByRole('button', { name: 'Confirm rejection' }).closest('form')!)
+    await waitFor(() => expect(mockState.rpc).toHaveBeenCalledWith('review_staff_application', { p_application_id: 'application-1', p_approve: false, p_partner_id: null, p_rejection_reason: 'Please upload clearer company papers.' }))
+  })
+
   it('shows submitted partner documents to the Super Admin', async () => {
     mockState.roles = ['admin']
     mockState.session = { user: { id: 'admin-1', email: 'admin@gohezohservices.org' } }
@@ -303,10 +320,15 @@ describe('account access', () => {
     const tab = { opener: null, location: { replace: vi.fn() }, close: vi.fn() }
     const open = vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window)
     render(<App />)
-    expect(await screen.findByText('CAC document submitted')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Business verification' })).toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: /Partner company/ })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Approve' })).not.toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: 'View document' }))
     await waitFor(() => expect(mockState.createSignedUrl).toHaveBeenCalledWith('partner-1/application-1/registration.pdf', 300))
-    expect(tab.location.replace).toHaveBeenCalledWith('https://signed.example.test/document')
+    expect(await screen.findByTitle('Partner Company - CAC document')).toHaveAttribute('src', 'https://signed.example.test/document')
+    expect(open).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     open.mockRestore()
   })
 })
@@ -794,11 +816,15 @@ describe('partner assignment and delivery screens', () => {
     await user.selectOptions(screen.getByLabelText(/Height/), '10')
     await user.selectOptions(screen.getByLabelText('Pickup city'), 'Lagos')
     await user.selectOptions(screen.getByLabelText('Delivery city'), 'Lagos')
+    const parcelPhoto = new File(['parcel photo'], 'parcel.png', { type: 'image/png' })
+    await user.upload(screen.getByLabelText('Photo of goods (optional)'), parcelPhoto)
+    expect((screen.getByLabelText('Photo of goods (optional)') as HTMLInputElement).files?.[0]).toEqual(parcelPhoto)
     await user.click(screen.getByLabelText('I confirmed this delivery location with the recipient.'))
     await user.click(screen.getByRole('button',{name:'Request delivery'}))
+    await waitFor(() => expect(mockState.upload).toHaveBeenCalledWith(expect.stringMatching(/\.png$/), parcelPhoto, { contentType: 'image/png', upsert: false }))
     await waitFor(() => expect(mockState.inserts).toContainEqual(expect.objectContaining({
       table:'service_requests',
-      data:expect.objectContaining({parcel_summary:'Books',parcel_items:[{description:'Books',quantity:2,weight_kg:1.3,length_cm:30,width_cm:20,height_cm:10}]})
+      data:expect.objectContaining({parcel_summary:'Books',parcel_photo_path:expect.stringMatching(/\.png$/),parcel_items:[{description:'Books',quantity:2,weight_kg:1.3,length_cm:30,width_cm:20,height_cm:10}]})
     })))
   })
 

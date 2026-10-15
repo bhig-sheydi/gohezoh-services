@@ -9,7 +9,8 @@ import AdminConsole from './AdminConsole'
 import StaffAccessPanel from './StaffAccessPanel'
 import { BDOMarketersPanel } from './BDOMarketersPanel'
 import { MarketerPortal } from './MarketerPortal'
-import { CustomerQuotePanel, PartnerBidQueue } from './QuotePanels'
+import { CustomerQuotePanel } from './QuotePanels'
+import PartnerBidScreen from './PartnerBidScreen'
 import ProximityPanel from './ProximityPanel'
 import { requestPosition, type PositionFix } from './lib/proximity'
 import PortHarcourtHubPanel from './PortHarcourtHubPanel'
@@ -19,6 +20,7 @@ import { MarketerCommissionPlansPanel } from './MarketerCommissionPlansPanel'
 import { BdoMarketerSharePlansPanel } from './BdoMarketerSharePlansPanel'
 import { CommissionPayoutPanel } from './CommissionPayoutPanel'
 import { PartnerInvitationClaim, PartnerOrganizationPanel } from './PartnerOrganizationPanel'
+import PartnerCompanyWelcome from './PartnerCompanyWelcome'
 import InternalExceptionInbox from './InternalExceptionInbox'
 import ParcelIdentifiers, { type ParcelIdentifier } from './ParcelIdentifiers'
 import ParcelPalsPanel, { type ParcelDestination, type ParcelPalContact } from './ParcelPalsPanel'
@@ -278,9 +280,22 @@ function App() {
       quantity: Number(form.get('parcel_quantity')),
       weight_kg: weightKg,
     }
+    const savedParcelId = String(form.get('saved_parcel_id') ?? '')
+    if (/^[0-9a-fA-F-]{36}$/.test(savedParcelId)) parcelItem.saved_parcel_id = savedParcelId
     for (const [formName, parcelName] of [['parcel_length_cm','length_cm'],['parcel_width_cm','width_cm'],['parcel_height_cm','height_cm'],['parcel_declared_value','declared_value'],['parcel_price','price']] as const) {
       const value = String(form.get(formName) ?? '').trim()
       if (value) parcelItem[parcelName] = Number(value)
+    }
+    const parcelPhoto = (formElement.elements.namedItem('parcel_photo') as HTMLInputElement | null)?.files?.[0]
+    let parcelPhotoPath: string | null = null
+    if (parcelPhoto && parcelPhoto.size > 0) {
+      if (!['image/jpeg','image/png','image/webp'].includes(parcelPhoto.type) || parcelPhoto.size > 5 * 1024 * 1024) {
+        setError('Choose a JPEG, PNG, or WebP parcel photo under 5 MB.'); setBusy(false); return
+      }
+      const extension = parcelPhoto.type === 'image/jpeg' ? 'jpg' : parcelPhoto.type === 'image/png' ? 'png' : 'webp'
+      parcelPhotoPath = `${session.user.id}/${crypto.randomUUID()}.${extension}`
+      const upload = await supabase.storage.from('customer-saved-parcels').upload(parcelPhotoPath, parcelPhoto, { contentType: parcelPhoto.type, upsert: false })
+      if (upload.error) { setError(upload.error.message); setBusy(false); return }
     }
     const { error: requestError } = await supabase.from('service_requests').insert({
       customer_id: customer.id,
@@ -300,9 +315,13 @@ function App() {
       preferred_pickup_at: preferred ? new Date(preferred).toISOString() : null,
       parcel_summary: String(form.get('parcel_description')).trim(),
       parcel_items: [parcelItem],
+      parcel_photo_path: parcelPhotoPath,
       special_instructions: String(form.get('special_instructions') || '') || null,
     })
-    if (requestError) setError(requestError.message)
+    if (requestError) {
+      if (parcelPhotoPath) await supabase.storage.from('customer-saved-parcels').remove([parcelPhotoPath])
+      setError(requestError.message)
+    }
     else { setNotice('Delivery request submitted. Kwik-Parsel operations will review it and publish it for partner quotes.'); formElement.reset(); await loadCustomer() }
     setBusy(false)
   }
@@ -456,7 +475,7 @@ function OperationsConsole({ supabase, onError, onNotice, canUpdateJobs }: {
     setBusy(true)
     const { error } = await supabase.rpc('reopen_delivery_quote_window', { p_request_id: requestId, p_reason: String(form.get('reason')).trim() })
     if (error) onError(error.message)
-    else { onNotice('Bidding reopened for two hours.'); await loadQuoteState() }
+    else { onNotice('Bidding reopened for one minute.'); await loadQuoteState() }
     setBusy(false)
   }
 
@@ -674,7 +693,7 @@ function OperationsConsole({ supabase, onError, onNotice, canUpdateJobs }: {
         <p className="form-footnote">Confirm only after the customer accepts the final quote. Payment or approved credit is required before partner award.</p>
       </section>}
     </div>}
-    <section className="history-panel"><div className="history-heading"><div><p className="eyebrow">BIDDING</p><h2>Quote windows and exceptions</h2></div><button className="secondary-button" onClick={() => void loadQuoteState()}>Refresh</button></div>{quoteWindows.length === 0 ? <p className="notification-empty">No quote windows yet.</p> : <div className="request-list">{quoteWindows.map((window) => <article className="request-item" key={window.request_id}><div className="request-item-top"><strong>{requests.find((request) => request.id === window.request_id)?.request_number ?? window.request_id}</strong><span className="request-status">{window.status.replaceAll('_', ' ')}</span></div><p>Deadline: {new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(window.deadline_at))}</p>{window.status === 'open' && <button className="secondary-button" disabled={busy} onClick={() => void closeQuoteWindow(window.request_id)}>Evaluate bids</button>}{window.status === 'no_bids' && <form className="form-grid" onSubmit={(event) => void reopenWindow(event, window.request_id)}><p className="timeline-alert">No valid bids. No automatic price was created.</p><label className="field"><span>Reason for reopening</span><textarea name="reason" minLength={10} required rows={2} /></label><button className="secondary-button" disabled={busy}>Reopen bidding for two hours</button></form>}{window.status === 'tie_review' && <form className="form-grid" onSubmit={(event) => void resolveTie(event, window.request_id)}><p className="timeline-alert">Lowest bids are tied. Select a valid bid and record why it wins.</p><label className="field"><span>Winning bid</span><select name="winning_bid_id" required defaultValue=""><option value="">Choose bid</option>{tieBids.filter((bid) => bid.request_id === window.request_id && bid.status === 'valid').map((bid) => <option key={bid.id} value={bid.id}>{partners.find((partner) => partner.id === bid.partner_id)?.partner_name ?? bid.partner_id} ? {new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' }).format(Number(bid.amount_ngn))}</option>)}</select></label><label className="field"><span>Decision reason</span><textarea name="reason" minLength={10} required rows={2} /></label><button className="primary-button" disabled={busy}>Resolve tie</button></form>}{deliveryQuotes.find((quote) => quote.request_id === window.request_id)?.status === 'pending_price' && <p className="form-footnote">Lowest valid bid selected. Management must finalize and send the customer price.</p>}</article>)}</div>}</section>
+    <section className="history-panel"><div className="history-heading"><div><p className="eyebrow">BIDDING</p><h2>Quote windows and exceptions</h2></div><button className="secondary-button" onClick={() => void loadQuoteState()}>Refresh</button></div>{quoteWindows.length === 0 ? <p className="notification-empty">No quote windows yet.</p> : <div className="request-list">{quoteWindows.map((window) => <article className="request-item" key={window.request_id}><div className="request-item-top"><strong>{requests.find((request) => request.id === window.request_id)?.request_number ?? window.request_id}</strong><span className="request-status">{window.status.replaceAll('_', ' ')}</span></div><p>Deadline: {new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(window.deadline_at))}</p>{window.status === 'open' && <button className="secondary-button" disabled={busy} onClick={() => void closeQuoteWindow(window.request_id)}>Evaluate bids</button>}{window.status === 'no_bids' && <form className="form-grid" onSubmit={(event) => void reopenWindow(event, window.request_id)}><p className="timeline-alert">No valid bids. No automatic price was created.</p><label className="field"><span>Reason for reopening</span><textarea name="reason" minLength={10} required rows={2} /></label><button className="secondary-button" disabled={busy}>Reopen bidding for one minute</button></form>}{window.status === 'tie_review' && <form className="form-grid" onSubmit={(event) => void resolveTie(event, window.request_id)}><p className="timeline-alert">Lowest bids are tied. Select a valid bid and record why it wins.</p><label className="field"><span>Winning bid</span><select name="winning_bid_id" required defaultValue=""><option value="">Choose bid</option>{tieBids.filter((bid) => bid.request_id === window.request_id && bid.status === 'valid').map((bid) => <option key={bid.id} value={bid.id}>{partners.find((partner) => partner.id === bid.partner_id)?.partner_name ?? bid.partner_id} ? {new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' }).format(Number(bid.amount_ngn))}</option>)}</select></label><label className="field"><span>Decision reason</span><textarea name="reason" minLength={10} required rows={2} /></label><button className="primary-button" disabled={busy}>Resolve tie</button></form>}{deliveryQuotes.find((quote) => quote.request_id === window.request_id)?.status === 'pending_price' && <p className="form-footnote">Lowest valid bid selected. Management must finalize and send the customer price.</p>}</article>)}</div>}</section>
     <PortHarcourtHubPanel supabase={supabase} onError={onError} onNotice={onNotice} />
     <ProximityPanel supabase={supabase} canConfigure={canUpdateJobs} onError={onError} onNotice={onNotice} />
     <section className="form-card progress-operations">
@@ -868,10 +887,11 @@ function PartnerPortal({ supabase, userId, canRespond, onError, onNotice }: {
 
   const visibleAssignments=assignments.filter(({job})=>!parcelLookup.trim()||job.job_parcels?.some((parcel)=>parcel.tracking_code.toUpperCase()===parcelLookup.trim().toUpperCase()))
   return <main className="partner-page">
-    <div className="dashboard-heading"><div><p className="eyebrow">LOGISTICS PARTNER</p><h1>Assigned deliveries</h1><p className="section-intro">{partnerName || 'Jobs assigned to your partner account appear here.'}</p></div><button className="secondary-button" onClick={() => void loadAssignments()} disabled={loading}>Refresh deliveries</button></div>
+    {canRespond && <PartnerCompanyWelcome supabase={supabase} onError={onError} onNotice={onNotice} />}
+    {canRespond && <PartnerBidScreen supabase={supabase} partnerIds={partnerIds} onError={onError} onNotice={onNotice} />}
     {canRespond && <PartnerOrganizationPanel supabase={supabase} userId={userId} onError={onError} onNotice={onNotice} />}
-    {canRespond && <PartnerBidQueue supabase={supabase} partnerIds={partnerIds} onError={onError} onNotice={onNotice} />}
     {canRespond && <ProximityPanel supabase={supabase} canConfigure={false} onError={onError} onNotice={onNotice} />}
+    <div className="dashboard-heading"><div><p className="eyebrow">LOGISTICS PARTNER</p><h1>Assigned deliveries</h1><p className="section-intro">{partnerName || 'Jobs assigned to your partner account appear here.'}</p></div><button className="secondary-button" onClick={() => void loadAssignments()} disabled={loading}>Refresh deliveries</button></div>
     {!canRespond && <div className="role-preview-banner">Preview only: partner responses and delivery updates require a linked Partner account.</div>}
     <label className="field parcel-lookup"><span>Find parcel by ID or scan its barcode</span><input value={parcelLookup} onChange={(event)=>setParcelLookup(event.target.value)} placeholder="KWP-P-00000001" autoComplete="off" /></label>
     {loading ? <div className="loading queue-loading">Loading assigned deliveries...</div> : assignments.length === 0 ? <section className="form-card queue-empty"><h2>No assigned deliveries</h2><p>New jobs assigned by Kwik-Parsel Operations will appear here.</p></section> : visibleAssignments.length===0 ? <section className="form-card queue-empty"><h2>No parcel found</h2><p>Check the parcel code and try again.</p></section> : <div className="partner-assignment-list">{visibleAssignments.map((assignment) => {
@@ -1053,6 +1073,7 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
     {activeFrame === 'send' && <section className="form-card request-card customer-app-frame" aria-labelledby="delivery-details-heading">
       <p className="eyebrow">NEW DELIVERY</p><h2 id="delivery-details-heading">Delivery details</h2>
       <form key={`${selectedParcel?.id ?? 'new-parcel'}-${selectedPal?.contact.code ?? 'no-pal'}-${selectedPal?.destination.slot ?? 0}`} className="form-grid" onSubmit={onSubmit} onChange={checkParcelCapacity}>
+        {selectedParcel && <input type="hidden" name="saved_parcel_id" value={selectedParcel.id} />}
         {selectedParcel && <div className="selected-saved-parcel"><img src={selectedParcel.photo_url} alt="" /><span><strong>{selectedParcel.item_name}</strong><small>Saved item details filled in</small></span><button className="text-button" type="button" onClick={() => setSelectedParcel(null)}>Clear</button></div>}
         <label className="field"><span>Service</span><select name="service_id" required value={serviceId} onChange={(event) => { setServiceId(event.target.value); setOriginId(''); setDestinationId('') }}><option value="" disabled>Select service</option>{services.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}</select></label>
         <div className="form-divider">PICKUP</div>
@@ -1068,6 +1089,7 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
         <div className="form-divider">PARCEL</div><p className="parcel-capacity-help">Enter size and weight per item. We check the selected count against shipment capacity.</p>
         <div className="field-row"><Field label="Description" name="parcel_description" placeholder="Household items" required defaultValue={selectedParcel?.description} /><label className="field"><span>Items for this destination</span><select name="parcel_quantity" required defaultValue="1">{Array.from({ length: PARCEL_MAX_QUANTITY }, (_, index) => index + 1).map((quantity) => <option key={quantity} value={quantity}>{quantity}</option>)}</select></label><ParcelWeightField name="parcel_weight" defaultValue={selectedParcel?.weight_kg} /></div>
         <ParcelMeasureFields names={{ length: 'parcel_length_cm', width: 'parcel_width_cm', height: 'parcel_height_cm' }} defaults={{ length: selectedParcel?.length_cm, width: selectedParcel?.width_cm, height: selectedParcel?.height_cm }} />
+        <label className="field"><span>Photo of goods (optional)</span><input name="parcel_photo" type="file" accept="image/jpeg,image/png,image/webp" /></label>
         {capacityWarning && <p className={`parcel-capacity-warning ${capacityWarning.exceeded ? 'parcel-capacity-exceeded' : 'parcel-capacity-prompt'}`} role={capacityWarning.exceeded ? 'alert' : 'status'} aria-live={capacityWarning.exceeded ? 'assertive' : 'polite'}>{capacityWarning.message}</p>}
         <div className="field-row"><Field label="Declared worth (â‚¦)" name="parcel_declared_value" type="number" min="0" step="0.01" defaultValue={selectedParcel?.declared_value} /><Field label="Price paid (â‚¦)" name="parcel_price" type="number" min="0" step="0.01" defaultValue={selectedParcel?.price} /></div>
         <details className="customer-optional"><summary>Special instructions</summary><label className="field"><span>Notes for delivery</span><textarea name="special_instructions" rows={2} /></label></details>

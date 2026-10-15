@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import PartnerOnboarding from './PartnerOnboarding'
 
-type Application = { id: string; requested_role: string; status: string; created_at: string; partner_document_type: string | null; partner_document_path: string | null }
+type Application = { id: string; requested_role: string; status: string; created_at: string; partner_document_type: string | null; partner_document_path: string | null; organization_name?: string | null; partner_invitation_id?: string | null; rejection_reason?: string | null }
 
 export default function StaffAccessPanel({ supabase, userId, onError, onNotice }: {
   supabase: SupabaseClient; userId: string; onError: (message: string) => void; onNotice: (message: string) => void
@@ -9,7 +10,7 @@ export default function StaffAccessPanel({ supabase, userId, onError, onNotice }
   const [applications, setApplications] = useState<Application[]>([])
   const [busy, setBusy] = useState(false)
   const load = useCallback(async () => {
-    const { data, error } = await supabase.from('staff_applications').select('id,requested_role,status,created_at,partner_document_type,partner_document_path').eq('user_id', userId).order('created_at', { ascending: false })
+    const { data, error } = await supabase.from('staff_applications').select('id,requested_role,status,created_at,partner_document_type,partner_document_path,organization_name,partner_invitation_id,rejection_reason').eq('user_id', userId).order('created_at', { ascending: false })
     if (error) onError(error.message)
     else setApplications((data ?? []) as Application[])
   }, [supabase, userId, onError])
@@ -54,11 +55,14 @@ export default function StaffAccessPanel({ supabase, userId, onError, onNotice }
     setBusy(false)
   }
 
+  const documentForm = <form className="form-grid" onSubmit={uploadDocument}><h2>Partner verification</h2><p className="section-intro">Submit a NIN or CAC registration document. Super Admin approval waits for this file. PDF or image, up to 5 MB.</p>{applications.find((item) => item.requested_role === 'partner' && item.status === 'pending')?.partner_document_path && <p>Document submitted. You may replace it before approval.</p>}<label className="field"><span>Document type</span><select name="document_type" required><option value="nin">NIN</option><option value="cac">CAC registration</option></select></label><label className="field"><span>NIN or CAC document</span><input name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp" required /></label><button className="primary-button" disabled={busy}>{busy ? 'Uploading...' : 'Submit document'}</button></form>
   const latest = applications[0]
-  return <section className="form-card narrow"><p className="eyebrow">ACCOUNT ACCESS</p><h1>{latest?.status === 'pending' ? 'Staff access pending' : 'Request staff access'}</h1>
+  const companyApplication = applications.find((item) => item.requested_role === 'partner' && item.status === 'pending' && !item.partner_invitation_id)
+  return <section className={`form-card narrow${companyApplication ? ' partner-onboarding-card' : ''}`}><p className="eyebrow">ACCOUNT ACCESS</p><h1>{companyApplication ? 'Register your company' : latest?.status === 'pending' ? 'Staff access pending' : 'Request staff access'}</h1>
     {latest?.status === 'pending' ? <p className="section-intro">Your {latest.requested_role.replaceAll('_', ' ')} request is awaiting Super Admin review. Your email must be confirmed before approval.</p> : <p className="section-intro">Choose the category you need. A Super Admin must approve it before you can use that workspace.</p>}
     {applications.length > 0 && <div className="admin-list">{applications.map((application) => <p key={application.id}>{application.requested_role.replaceAll('_', ' ')}: {application.status}</p>)}</div>}
-    {applications.some((item) => item.requested_role === 'partner' && item.status === 'pending') && <form className="form-grid" onSubmit={uploadDocument}><h2>Partner verification</h2><p className="section-intro">Submit a NIN or CAC registration document. Super Admin approval waits for this file. PDF or image, up to 5 MB.</p>{applications.find((item) => item.requested_role === 'partner' && item.status === 'pending')?.partner_document_path && <p>Document submitted. You may replace it before approval.</p>}<label className="field"><span>Document type</span><select name="document_type" required><option value="nin">NIN</option><option value="cac">CAC registration</option></select></label><label className="field"><span>NIN or CAC document</span><input name="document" type="file" accept=".pdf,.jpg,.jpeg,.png,.webp,application/pdf,image/jpeg,image/png,image/webp" required /></label><button className="primary-button" disabled={busy}>{busy ? 'Uploading...' : 'Submit document'}</button></form>}
+    {applications.filter((application) => application.status === 'rejected').map((application) => <div className="application-rejection" role="status" key={application.id}><strong>Application rejected</strong><p>{application.rejection_reason || 'This older decision has no recorded reason. Contact Super Admin.'}</p></div>)}
+    {companyApplication ? <PartnerOnboarding key={companyApplication.id} supabase={supabase} applicationId={companyApplication.id} userId={userId} companyName={companyApplication.organization_name} documentReady={!!companyApplication.partner_document_path} documentVersion={companyApplication.partner_document_path} documentForm={documentForm} documentBusy={busy} onError={onError} onNotice={onNotice} /> : applications.some((item) => item.requested_role === 'partner' && item.status === 'pending') ? documentForm : null}
     {!latest || ['rejected','revoked'].includes(latest.status) ? <form className="form-grid" onSubmit={submit}><label className="field"><span>Requested category</span><select name="role" required><option value="operations">Operations</option><option value="warehouse">Warehouse</option><option value="finance">Finance</option><option value="bdo">Business Development</option><option value="partner">Logistics Partner</option><option value="management">Management</option></select></label><label className="field"><span>Organization or partner name</span><input name="organization_name" /></label><button className="primary-button" disabled={busy}>{busy ? 'Submitting...' : 'Request access'}</button></form> : null}
     <button className="secondary-button" onClick={() => void load()}>Refresh status</button>
   </section>
