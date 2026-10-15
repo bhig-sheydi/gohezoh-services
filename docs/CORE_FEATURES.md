@@ -32,6 +32,8 @@ This is the ordered customer-and-partner product scope for local and interstate 
 
 ## Commercial rule
 
+The minimum partner bid and customer-facing charge for any local or interstate dispatch is NGN 1,000. Operations cannot confirm a delivery below this amount.
+
 For an eligible leg with NGN 100,000 accepted and collected, Gohezo's fee is NGN 20,000 and partner net is NGN 80,000 before separately agreed adjustments. The partner sets a customer-facing bid knowing the fee will be withheld. The customer sees the accepted quote; there is no extra 20% customer fee. This is distinct from BDO/marketer referral commissions and warehouse fees. The prior `eligible direct cost / 0.75` price formula does not apply to driver transport under this policy.
 
 ## Release gates

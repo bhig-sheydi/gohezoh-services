@@ -37,6 +37,7 @@ describe('company bidding screen', () => {
     expect(await screen.findByAltText('Goods for REQ-1')).toBeInTheDocument()
     expect(createSignedUrl).toHaveBeenCalledWith('user-1/books.jpg', 75)
     fireEvent.click(screen.getByRole('button', { name: 'Bid' }))
+    expect(screen.getByLabelText('Total price (NGN)')).toHaveAttribute('min', '1000')
     fireEvent.change(screen.getByLabelText('Total price (NGN)'), { target: { value: '7500' } })
     fireEvent.change(screen.getByLabelText('Delivery estimate (hours)'), { target: { value: '3' } })
     fireEvent.click(screen.getByLabelText(/I confirm availability/))

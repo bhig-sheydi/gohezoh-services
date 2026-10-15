@@ -27,6 +27,10 @@ begin
   values(v_request,v_customer,v_service,v_customer_user,'1 Lagos Road','Lagos','Sender','+2348010000003','2 Port Harcourt Road','Port Harcourt','Recipient','+2348010000004');
   perform set_config('request.jwt.claim.sub',v_admin::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_admin,'role','authenticated')::text,true);
+  begin
+    perform public.process_service_request(v_request,'approve',999);
+    raise exception 'Sub-minimum manually confirmed order was accepted';
+  exception when check_violation then null; end;
   perform public.set_partner_corridor_coverage(v_partner,v_corridor,true);
   v_result:=public.publish_delivery_request(v_request);
   if (v_result->>'deadline_at')::timestamptz < now()+interval '59 seconds'
@@ -42,6 +46,10 @@ begin
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_partner_user,'role','authenticated')::text,true);
   if (select count(*) from public.list_partner_bid_screen() where request_id=v_request)<>1 then
     raise exception 'Eligible request missing from partner bid screen'; end if;
+  begin
+    perform public.submit_partner_quote(v_request,999,24,'Pickup and delivery','No exclusions',true,'No surcharges');
+    raise exception 'Sub-minimum delivery bid was accepted';
+  exception when check_violation then null; end;
   v_bid:=public.submit_partner_quote(v_request,7500,24,'Pickup and delivery','No exclusions',true,'No surcharges');
   if v_bid is null then raise exception 'Eligible partner could not bid'; end if;
   begin
@@ -72,6 +80,10 @@ begin
     raise exception 'Arbitrary customer price bypassed formula';
   exception when check_violation then null; end;
   perform public.set_delivery_quote_price(v_request,500,10667,'Approved final price',now()+interval '2 days');
+  begin
+    update public.customer_delivery_quotes set customer_price_ngn=999 where request_id=v_request;
+    raise exception 'Sub-minimum customer quote was accepted';
+  exception when check_violation then null; end;
   if (select unrounded_price_ngn from public.customer_delivery_quotes where request_id=v_request)<>10666.6667 then
     raise exception 'Extra direct cost formula incorrect'; end if;
   perform set_config('request.jwt.claim.sub',v_customer_user::text,true);
