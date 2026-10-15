@@ -90,6 +90,11 @@ const mockState = vi.hoisted(() => {
   }
 
   state.client = {
+    channel: () => {
+      const channel = { on: () => channel, subscribe: () => channel }
+      return channel
+    },
+    removeChannel: vi.fn(async () => 'ok'),
     auth: {
       getSession: vi.fn(async () => ({ data: { session: state.session } })),
       onAuthStateChange: vi.fn(() => ({ data: { subscription: { unsubscribe: vi.fn() } } })),

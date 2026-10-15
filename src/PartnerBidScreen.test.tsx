@@ -7,8 +7,11 @@ function setup(jobs: Record<string, unknown>[]) {
   const rpc = vi.fn(async (name: string) => name === 'list_partner_bid_screen'
     ? { data: jobs, error: null } : { data: 'bid-1', error: null })
   const createSignedUrl = vi.fn(async () => ({ data: { signedUrl: 'https://example.test/parcel' }, error: null }))
-  const supabase = { rpc, storage: { from: () => ({ createSignedUrl }) } } as unknown as SupabaseClient
-  return { supabase, rpc, createSignedUrl }
+  let onWindowChange = () => {}
+  const channel = { on: vi.fn((_type, _filter, callback: () => void) => { onWindowChange = callback; return channel }), subscribe: vi.fn(() => channel) }
+  const removeChannel = vi.fn(async () => 'ok')
+  const supabase = { rpc, channel: vi.fn(() => channel), removeChannel, storage: { from: () => ({ createSignedUrl }) } } as unknown as SupabaseClient
+  return { supabase, rpc, createSignedUrl, broadcastWindowChange: () => onWindowChange(), removeChannel }
 }
 
 describe('company bidding screen', () => {
@@ -47,5 +50,16 @@ describe('company bidding screen', () => {
     render(<PartnerBidScreen supabase={supabase} partnerIds={['partner-1']} onError={vi.fn()} onNotice={vi.fn()} />)
     await screen.findByLabelText('Bidding screen')
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Bid' })).not.toBeInTheDocument())
+  })
+
+  it('receives a new eligible job without a manual refresh', async () => {
+    const { supabase, rpc, broadcastWindowChange } = setup([])
+    render(<PartnerBidScreen supabase={supabase} partnerIds={['partner-1']} onError={vi.fn()} onNotice={vi.fn()} />)
+    await waitFor(() => expect(rpc).toHaveBeenCalledWith('list_partner_bid_screen'))
+    rpc.mockImplementation(async (name: string) => name === 'list_partner_bid_screen'
+      ? { data: [{ request_id: 'new-job', request_number: 'REQ-NEW', pickup_city: 'Lagos', delivery_city: 'Lagos', parcel_summary: 'Test parcel', parcel_items: [], photo_path: null, deadline_at: new Date(Date.now() + 60_000).toISOString(), own_bid_amount_ngn: null }], error: null }
+      : { data: 'bid-1', error: null })
+    broadcastWindowChange()
+    expect(await screen.findByText('REQ-NEW')).toBeInTheDocument()
   })
 })

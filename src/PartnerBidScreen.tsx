@@ -29,10 +29,22 @@ export default function PartnerBidScreen({ supabase, partnerIds, onError, onNoti
 
   useEffect(() => {
     const initial = window.setTimeout(() => { setNow(new Date().getTime()); void load() }, 0)
-    const refresh = window.setInterval(() => { void load() }, 10_000)
+    const refresh = window.setInterval(() => { if (!document.hidden) void load() }, 5_000)
     const clock = window.setInterval(() => setNow(new Date().getTime()), 250)
-    return () => { window.clearTimeout(initial); window.clearInterval(refresh); window.clearInterval(clock) }
-  }, [load])
+    const onFocus = () => { setNow(new Date().getTime()); void load() }
+    const onVisibility = () => { if (!document.hidden) onFocus() }
+    window.addEventListener('focus', onFocus)
+    document.addEventListener('visibilitychange', onVisibility)
+    const channel = supabase.channel('partner-open-bid-windows')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'delivery_quote_windows' }, () => { void load() })
+      .subscribe((status) => { if (status === 'SUBSCRIBED') void load() })
+    return () => {
+      window.clearTimeout(initial); window.clearInterval(refresh); window.clearInterval(clock)
+      window.removeEventListener('focus', onFocus)
+      document.removeEventListener('visibilitychange', onVisibility)
+      void supabase.removeChannel(channel)
+    }
+  }, [load, supabase])
 
   async function submit(event: FormEvent<HTMLFormElement>, job: BidJob) {
     event.preventDefault()
