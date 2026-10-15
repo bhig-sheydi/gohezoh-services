@@ -315,3 +315,6 @@
 .bdo-choice-list label { display:flex; align-items:center; gap:8px; color:#42594d; font-size:11px; }
 @media(max-width:680px) { .bdo-collapsible>summary { align-items:flex-start; flex-direction:column; gap:5px; }.bdo-collapsible>summary small { margin:0; }.bdo-collapsible-body { padding:14px; } }
 @media print { body:has(.parcel-identifiers.is-print-target) * { visibility:hidden !important; } body:has(.parcel-identifiers.is-print-target) .parcel-identifiers.is-print-target, body:has(.parcel-identifiers.is-print-target) .parcel-identifiers.is-print-target * { visibility:visible !important; } body:has(.parcel-identifiers.is-print-target) .parcel-identifiers.is-print-target { position:fixed; inset:20px auto auto 20px; width:390px; border:0; background:#fff; color:#000; } body:has(.parcel-identifiers.is-print-target) .parcel-print-button { display:none; } }
+.rider-shell .rider-login { margin: 4rem auto; }
+.rider-workspace { width: min(100%, 1100px); margin: 2rem auto; }
+.rider-workspace .partner-assignment-list { display: grid; gap: 1rem; }

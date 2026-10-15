@@ -420,3 +420,6 @@ enabled = true
 [functions.location-address]
 # Every POST verifies the bearer token with Supabase Auth inside the function.
 verify_jwt = false
+
+[functions.rider-access]
+verify_jwt = false

@@ -30,6 +30,16 @@ Deno.serve(async (request) => {
   }
 
   const admin = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } })
+  const { data: riderRole } = await admin.from('user_roles').select('role').eq('user_id', user.id).eq('role', 'rider').maybeSingle()
+  if (riderRole) {
+    let sessionId = ''
+    try {
+      const segment = authorization.slice(7).split('.')[1].replaceAll('-', '+').replaceAll('_', '/')
+      sessionId = String(JSON.parse(atob(segment.padEnd(Math.ceil(segment.length / 4) * 4, '='))).session_id ?? '')
+    } catch { /* Invalid session below. */ }
+    const { data: active } = await admin.rpc('rider_actor_session_active', { p_user_id: user.id, p_session_id: sessionId })
+    if (!active) return Response.json({ error: 'This rider session has expired. Sign in again.' }, { status: 401, headers: corsHeaders })
+  }
   const { data, error } = await admin.rpc('issue_delivery_otp', { p_job_id: jobId, p_actor_id: user.id })
   if (error) return Response.json({ error: error.message }, { status: 400, headers: corsHeaders })
   try {
