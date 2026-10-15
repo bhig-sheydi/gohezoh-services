@@ -11,12 +11,14 @@ type Application = {
   email_confirmed: boolean; created_at: string; partner_document_type?: string | null; partner_document_path?: string | null; invited_partner_id?: string | null; invited_partner_name?: string | null; partner_prospect_id?: string | null; rejection_reason?: string | null
 }
 type StaffAccess = { user_id: string; email: string; full_name: string | null; role: string; organization_name: string | null }
+type RiderReview = { id: string; full_name: string; nin: string; nin_document_path: string | null; licence_document_path: string; photo_path: string | null; status: string; logistics_partners: { partner_name: string } | null }
 
 export default function AdminConsole({ supabase, onError, onNotice }: {
   supabase: SupabaseClient; onError: (message: string) => void; onNotice: (message: string) => void
 }) {
   const [applications, setApplications] = useState<Application[]>([])
   const [staff, setStaff] = useState<StaffAccess[]>([])
+  const [riderReviews, setRiderReviews] = useState<RiderReview[]>([])
   const [preview, setPreview] = useState<PreviewDocument | null>(null)
   const [reasons, setReasons] = useState<Record<string, string>>({})
   const [rejecting, setRejecting] = useState<string | null>(null)
@@ -25,18 +27,21 @@ export default function AdminConsole({ supabase, onError, onNotice }: {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [applicationResult, staffResult, documentResult] = await Promise.all([
+    const [applicationResult, staffResult, documentResult, riderResult] = await Promise.all([
       supabase.rpc('list_staff_applications'),
       supabase.rpc('list_staff_access'),
       supabase.from('staff_applications').select('id,partner_document_type,partner_document_path,rejection_reason'),
+      supabase.from('company_riders').select('id,full_name,nin,nin_document_path,licence_document_path,photo_path,status,logistics_partners(partner_name)').eq('status','pending').order('created_at',{ ascending: true }),
     ])
     if (applicationResult.error) onError(applicationResult.error.message)
     if (staffResult.error) onError(staffResult.error.message)
     if (documentResult.error) onError(documentResult.error.message)
+    if (riderResult.error) onError(riderResult.error.message)
     const documents = new Map((documentResult.data ?? []).map((item) => [item.id, item]))
     const rows = ((applicationResult.data ?? []) as Application[]).map((application) => ({ ...application, ...documents.get(application.id) }))
     setApplications(rows)
     setStaff((staffResult.data ?? []) as StaffAccess[])
+    setRiderReviews((riderResult.data ?? []) as unknown as RiderReview[])
     setLoading(false)
   }, [supabase, onError])
 
@@ -63,10 +68,21 @@ export default function AdminConsole({ supabase, onError, onNotice }: {
     setBusy('')
   }
 
+  async function reviewRider(rider: RiderReview, approve: boolean) {
+    const reason = approve ? null : window.prompt('Reason for rejecting this rider:')?.trim()
+    if (!approve && (!reason || reason.length < 3)) { onError('Enter a rejection reason.'); return }
+    setBusy(rider.id); onError('')
+    const { error } = await supabase.rpc('review_company_rider', { p_rider_id: rider.id, p_approve: approve, p_reason: reason })
+    if (error) onError(error.message)
+    else { onNotice(approve ? 'Rider approved. The company can now issue a password.' : 'Rider rejected.'); await load() }
+    setBusy('')
+  }
+
   return <main className="dashboard admin-page">
     <div className="dashboard-heading"><div><p className="eyebrow">KWIK-PARSEL SUPER ADMIN</p><h1>Access control</h1><p className="section-intro">Approve verified staff and partners, link partners to their company, and revoke access when needed.</p></div><button className="secondary-button" onClick={() => void load()} disabled={loading}>Refresh</button></div>
     <AdminQuotePricingPanel supabase={supabase} onError={onError} onNotice={onNotice} />
     <CoverageAdminPanel supabase={supabase} onError={onError} onNotice={onNotice} />
+    <section className="form-card"><h2>Riders awaiting approval</h2>{riderReviews.length === 0 ? <p>No rider submissions need review.</p> : <div className="admin-list">{riderReviews.map((rider) => <article className="admin-row" key={rider.id}><div><strong>{rider.full_name}</strong><p>{rider.logistics_partners?.partner_name} · NIN ending {rider.nin.slice(-4)}</p><div className="company-review-actions">{rider.nin_document_path && <button type="button" className="secondary-button" onClick={() => setPreview({ bucket: 'rider-evidence', path: rider.nin_document_path!, title: `${rider.full_name} NIN document` })}>View NIN</button>}<button type="button" className="secondary-button" onClick={() => setPreview({ bucket: 'rider-evidence', path: rider.licence_document_path, title: `${rider.full_name} licence` })}>View licence</button></div></div><div className="company-review-actions"><button type="button" className="primary-button" disabled={busy === rider.id} onClick={() => void reviewRider(rider, true)}>Approve</button><button type="button" className="secondary-button" disabled={busy === rider.id} onClick={() => void reviewRider(rider, false)}>Reject</button></div></article>)}</div>}</section>
     <section className="form-card"><h2>Access requests</h2>{loading ? <p>Loading requests...</p> : applications.length === 0 ? <p>No requests yet.</p> : <div className="admin-list">{applications.map((application) => <article className="company-review-card" key={application.id} aria-label={application.organization_name || application.full_name || application.email}>
       <header><h3>{application.organization_name || application.full_name || application.email}</h3><span>{application.status}</span></header>
       <p>{application.full_name || application.email} - {application.email}</p>

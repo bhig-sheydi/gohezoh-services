@@ -57,3 +57,10 @@
   .partner-onboarding-card .partner-vehicle-fields,.partner-onboarding-card .partner-vehicle-list { grid-template-columns:minmax(0,1fr); }
   .partner-onboarding-card .partner-step-nav button { gap:5px; font-size:11px; }
 }
+.rider-roster-card { display: flex; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
+.rider-roster-photo { width: 76px; flex: 0 0 76px; text-align: center; }
+.rider-roster-photo img,.rider-roster-photo>span { width: 68px; height: 68px; border-radius: 50%; display: grid; place-items: center; object-fit: cover; background: var(--surface, #dce7e5); color: var(--text, #193433); font-size: 1.5rem; }
+.rider-photo-edit { display: block; font-size: .75rem; cursor: pointer; margin-top: .35rem; }
+.rider-photo-edit input { width: 100%; font-size: .65rem; }
+.rider-roster-details { flex: 1 1 230px; min-width: 0; }
+.rider-password-controls { margin-top: .75rem; display: grid; gap: .5rem; }

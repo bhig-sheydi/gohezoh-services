@@ -43,4 +43,19 @@ describe('company rider sign-in', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('It seems you changed your phone')
     expect(mocks.setSession).not.toHaveBeenCalled()
   })
+
+  it('uses a shared company link and a unique rider password to find the first phone', async () => {
+    const companyId = '11111111-1111-4111-8111-111111111111'
+    window.history.replaceState({}, '', `/rider#company=${companyId}`)
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ firstDevice: true, riderId: 'rider-identity' }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ session: { access_token: 'access', refresh_token: 'refresh' } }) })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<RiderApp />)
+    fireEvent.change(await screen.findByLabelText('Your password'), { target: { value: 'Market-River-Mango-1234' } })
+    fireEvent.submit(screen.getByRole('button', { name: 'Sign in' }).closest('form')!)
+    await waitFor(() => expect(mocks.setSession).toHaveBeenCalled())
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ action: 'challenge', companyId, password: 'Market-River-Mango-1234' })
+    expect(mocks.proof).toHaveBeenCalledWith('rider-identity', undefined)
+  })
 })

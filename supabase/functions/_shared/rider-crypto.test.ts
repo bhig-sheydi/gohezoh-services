@@ -7,7 +7,7 @@ describe('rider credentials and phone proof', () => {
     vi.stubGlobal('crypto', webcrypto)
     const first = createPassword()
     const second = createPassword()
-    expect(first).toMatch(/^[A-Za-z2-9]{20}$/)
+    expect(first).toMatch(/^(?:[A-Za-z]+-){4}[0-9]{4}$/)
     expect(first).not.toBe(second)
     const salt = hex(webcrypto.getRandomValues(new Uint8Array(16)))
     expect(await hashPassword(first, salt)).toBe(await hashPassword(first, salt))

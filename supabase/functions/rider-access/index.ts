@@ -33,23 +33,29 @@ Deno.serve(async (request) => {
     const partnerId = String(body.partnerId ?? '')
     if (!await managerFor(admin, user.id, partnerId)) return reply({ error: 'Only this company manager can manage riders' }, 403)
     if (action === 'list') {
-      const { data, error } = await admin.from('rider_credentials').select('user_id,rider_name,device_bound_at,revoked_at,created_at')
+      const { data, error } = await admin.from('company_riders').select('id,full_name,status,rejection_reason,photo_path,source_vehicle_id,created_at,rider_credentials(user_id,device_bound_at,device_label,password_revoked_at,revoked_at)')
         .eq('partner_id', partnerId).order('created_at', { ascending: false }).limit(100)
       return error ? reply({ error: 'Could not load riders' }, 500) : reply({ riders: data })
     }
-    const name = String(body.name ?? '').trim()
-    if (action === 'create' && (name.length < 3 || name.length > 120)) return reply({ error: 'Enter the rider’s full name' }, 400)
+    const rosterId = String(body.rosterId ?? '')
+    const { data: roster } = await admin.from('company_riders').select('id,full_name,status')
+      .eq('id', rosterId).eq('partner_id', partnerId).maybeSingle()
+    if (!roster || roster.status !== 'approved') return reply({ error: 'This rider needs Super Admin approval before access is issued' }, 403)
+    const name = roster.full_name
     const token = hex(bytes(32))
-    const password = createPassword()
+    const requestedPassword = typeof body.password === 'string' ? body.password.trim() : ''
+    if (requestedPassword && (requestedPassword.length < 12 || requestedPassword.length > 80 || !/[A-Za-z]/.test(requestedPassword) || !/[0-9]/.test(requestedPassword)))
+      return reply({ error: 'Use 12-80 characters with letters and numbers for a custom rider password' }, 400)
+    const password = requestedPassword || createPassword()
     const salt = hex(bytes(16))
     const passwordHash = await hashPassword(password, salt)
     const fingerprint = await hmac(riderSecret, `rider-password:${password}`)
     const linkHash = await sha256(token)
     if (action === 'reset') {
       const riderId = String(body.riderId ?? '')
-      const { data: current } = await admin.from('rider_credentials').select('auth_secret_seed').eq('user_id', riderId)
+      const { data: current } = await admin.from('rider_credentials').select('auth_secret_seed,roster_id').eq('user_id', riderId)
         .eq('partner_id', partnerId).is('revoked_at', null).maybeSingle()
-      if (!current) return reply({ error: 'This rider does not belong to your company' }, 404)
+      if (!current || current.roster_id !== rosterId) return reply({ error: 'This rider does not belong to your company' }, 404)
       const { data: identity } = await admin.auth.admin.getUserById(riderId)
       if (!identity.user?.email) return reply({ error: 'Could not reset this rider' }, 503)
       const auth = createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } })
@@ -60,11 +66,15 @@ Deno.serve(async (request) => {
       if (revokeError) return reply({ error: 'Could not revoke existing rider sessions' }, 503)
       const { data, error } = await admin.from('rider_credentials').update({ link_hash: linkHash, password_salt: salt,
         password_hash: passwordHash, password_fingerprint: fingerprint, device_public_key: null, device_bound_at: null,
-        challenge: null, challenge_expires_at: null, failed_attempts: 0, locked_until: null })
+        challenge: null, challenge_expires_at: null, failed_attempts: 0, locked_until: null,
+        device_label: null, device_mismatch_attempts: 0, password_revoked_at: null })
         .eq('user_id', riderId).eq('partner_id', partnerId).is('revoked_at', null).select('user_id').maybeSingle()
+      if (error?.code === '23505') return reply({ error: 'This password has been used by another rider. Choose a different one.' }, 409)
       if (error || !data) return reply({ error: 'Could not reset this rider' }, 400)
       return reply({ token, password })
     }
+    const { data: existing } = await admin.from('rider_credentials').select('user_id').eq('roster_id', rosterId).maybeSingle()
+    if (existing) return reply({ error: 'This rider already has access. Reset their password instead.' }, 409)
     const seed = hex(bytes(32))
     const authPassword = await hmac(riderSecret, `rider-auth:${seed}`)
     const email = `rider-${crypto.randomUUID()}@accounts.gohezohservices.org`
@@ -75,11 +85,12 @@ Deno.serve(async (request) => {
     const { error: roleError } = await admin.from('user_roles').insert({ user_id: riderId, role: 'rider' })
     const { error: memberError } = roleError ? { error: roleError } : await admin.from('partner_users').insert({ partner_id: partnerId, user_id: riderId, membership_role: 'rider' })
     const { error: credentialError } = roleError || memberError ? { error: roleError ?? memberError } : await admin.from('rider_credentials').insert({
-      user_id: riderId, partner_id: partnerId, rider_name: name, auth_secret_seed: seed, link_hash: linkHash,
+      user_id: riderId, partner_id: partnerId, roster_id: rosterId, rider_name: name, auth_secret_seed: seed, link_hash: linkHash,
       password_salt: salt, password_hash: passwordHash, password_fingerprint: fingerprint,
     })
     if (credentialError) {
       await admin.auth.admin.deleteUser(riderId)
+      if (credentialError.code === '23505') return reply({ error: 'This password has been used by another rider. Choose a different one.' }, 409)
       return reply({ error: 'Could not finish creating rider access' }, 500)
     }
     await admin.from('audit_logs').insert({ entity_type: 'rider_credentials', entity_id: riderId,
@@ -88,19 +99,25 @@ Deno.serve(async (request) => {
   }
 
   const token = String(body.token ?? '')
-  if (!/^[0-9a-f]{64}$/.test(token)) return reply({ error: 'Invalid rider link' }, 400)
-  const linkHash = await sha256(token)
-  const { data: rider } = await admin.from('rider_credentials').select('*').eq('link_hash', linkHash).is('revoked_at', null).maybeSingle()
-  if (!rider) return reply({ error: 'Invalid rider link' }, 401)
+  const companyId = String(body.companyId ?? '')
+  const password = String(body.password ?? '')
+  let lookup = admin.from('rider_credentials').select('*').is('revoked_at', null).is('password_revoked_at', null)
+  if (/^[0-9a-f]{64}$/.test(token)) lookup = lookup.eq('link_hash', await sha256(token))
+  else if (/^[0-9a-f-]{36}$/.test(companyId) && password) lookup = lookup.eq('partner_id', companyId)
+    .eq('password_fingerprint', await hmac(riderSecret, `rider-password:${password}`))
+  else return reply({ error: 'Invalid rider link or password' }, 400)
+  const { data: rider } = await lookup.maybeSingle()
+  if (!rider) return reply({ error: 'Invalid rider link or password' }, 401)
+  const { data: roster } = await admin.from('company_riders').select('status').eq('id', rider.roster_id).maybeSingle()
+  if (roster?.status !== 'approved') return reply({ error: 'Rider access is unavailable. Contact company management.' }, 403)
   if (action === 'challenge') {
-    if (!rider.device_public_key) return reply({ firstDevice: true })
+    if (!rider.device_public_key) return reply({ firstDevice: true, riderId: rider.user_id })
     const challenge = hex(bytes(32))
     await admin.from('rider_credentials').update({ challenge, challenge_expires_at: new Date(Date.now() + 90_000).toISOString() }).eq('user_id', rider.user_id)
-    return reply({ challenge })
+    return reply({ challenge, riderId: rider.user_id })
   }
   if (action !== 'login') return reply({ error: 'Unknown action' }, 400)
   if (rider.locked_until && new Date(rider.locked_until).getTime() > Date.now()) return reply({ error: 'Too many attempts. Contact your management or try again later.' }, 429)
-  const password = String(body.password ?? '')
   const calculated = await hashPassword(password, rider.password_salt)
   if (calculated !== rider.password_hash) {
     const attempts = Number(rider.failed_attempts ?? 0) + 1
@@ -111,15 +128,25 @@ Deno.serve(async (request) => {
   if (!rider.device_public_key) {
     if (!validPublicKey(body.publicKey)) return reply({ error: 'This phone cannot securely register. Use a supported browser.' }, 400)
     const { data: bound } = await admin.from('rider_credentials').update({ device_public_key: body.publicKey,
-      device_bound_at: new Date().toISOString() }).eq('user_id', rider.user_id).is('device_public_key', null).select('user_id').maybeSingle()
-    if (!bound) return reply({ error: 'It seems you changed your phone. Contact your management to set a new password.' }, 403)
+      device_bound_at: new Date().toISOString(),device_label: String(body.deviceLabel ?? '').slice(0, 120) || null })
+      .eq('user_id', rider.user_id).is('device_public_key', null).select('user_id').maybeSingle()
+    if (!bound) {
+      const { data: attempts } = await admin.rpc('record_rider_device_mismatch', { p_user_id: rider.user_id })
+      return reply({ error: Number(attempts) > 3 ? 'Someone may be trying to access this rider account. The password was removed. Ask management to create a new one.' : 'This password is registered to another phone. Contact management.' }, 403)
+    }
   } else {
     if (!rider.challenge || !rider.challenge_expires_at || new Date(rider.challenge_expires_at).getTime() < Date.now())
       return reply({ error: 'Sign-in challenge expired. Try again.' }, 401)
     try {
       const valid = await verifyDeviceSignature(rider.device_public_key, rider.challenge, String(body.signature ?? ''))
-      if (!valid) return reply({ error: 'It seems you changed your phone. Contact your management to set a new password.' }, 403)
-    } catch { return reply({ error: 'It seems you changed your phone. Contact your management to set a new password.' }, 403) }
+      if (!valid) {
+        const { data: attempts } = await admin.rpc('record_rider_device_mismatch', { p_user_id: rider.user_id })
+        return reply({ error: Number(attempts) > 3 ? 'Someone may be trying to access this rider account. The password was removed. Ask management to create a new one.' : 'This password is registered to another phone. Contact management.' }, 403)
+      }
+    } catch {
+      const { data: attempts } = await admin.rpc('record_rider_device_mismatch', { p_user_id: rider.user_id })
+      return reply({ error: Number(attempts) > 3 ? 'Someone may be trying to access this rider account. The password was removed. Ask management to create a new one.' : 'This password is registered to another phone. Contact management.' }, 403)
+    }
     const { data: consumed } = await admin.from('rider_credentials').update({ challenge: null, challenge_expires_at: null })
       .eq('user_id', rider.user_id).eq('challenge', rider.challenge).select('user_id').maybeSingle()
     if (!consumed) return reply({ error: 'Sign-in challenge expired. Try again.' }, 401)

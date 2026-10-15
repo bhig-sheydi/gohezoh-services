@@ -15,6 +15,19 @@ const nextStatus: Record<string, string[]> = {
 }
 const label = (status: string) => status.replaceAll('_', ' ').replace(/^./, (letter) => letter.toUpperCase())
 const token = () => new URLSearchParams(window.location.hash.replace(/^#/, '')).get('rider') ?? ''
+const company = () => new URLSearchParams(window.location.hash.replace(/^#/, '')).get('company') ?? ''
+async function deviceLabel() {
+  const hints = (navigator as Navigator & { userAgentData?: { getHighEntropyValues?: (names: string[]) => Promise<{ model?: string; platform?: string }> } }).userAgentData
+  try {
+    const details = await hints?.getHighEntropyValues?.(['model', 'platform'])
+    if (details?.model) return `${details.platform ?? 'Phone'} ${details.model}`.slice(0, 120)
+  } catch { /* Model hints are optional and may be unavailable. */ }
+  const ua = navigator.userAgent
+  const android = ua.match(/Android[^;)]*;\s*([^;)]+)\s*[;)]/i)
+  if (android) return `Android ${android[1].trim()}`.slice(0, 120)
+  if (/iPhone/i.test(ua)) return 'iPhone (model unavailable)'
+  return 'Phone model unavailable'
+}
 
 async function access(body: Record<string, unknown>) {
   const response = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/rider-access`, {
@@ -67,13 +80,15 @@ export default function RiderApp() {
     event.preventDefault()
     if (busy) return
     const riderToken = token()
-    if (!/^[0-9a-f]{64}$/.test(riderToken)) { setError('Ask your company management for your rider link.'); return }
+    const companyId = company()
+    if (!/^[0-9a-f]{64}$/.test(riderToken) && !/^[0-9a-f-]{36}$/.test(companyId)) { setError('Ask your company management for your rider link.'); return }
     const password = String(new FormData(event.currentTarget).get('password') ?? '')
     setBusy(true); setError(''); setNotice('')
     try {
-      const challenge = await access({ action: 'challenge', token: riderToken })
-      const proof = await riderDeviceProof(riderToken, typeof challenge.challenge === 'string' ? challenge.challenge : undefined)
-      const result = await access({ action: 'login', token: riderToken, password, ...proof })
+      const credentials = riderToken ? { token: riderToken } : { companyId }
+      const challenge = await access({ action: 'challenge', ...credentials, password })
+      const proof = await riderDeviceProof(String(challenge.riderId ?? riderToken), typeof challenge.challenge === 'string' ? challenge.challenge : undefined)
+      const result = await access({ action: 'login', ...credentials, password, deviceLabel: await deviceLabel(), ...proof })
       const auth = result.session as Session
       if (!auth?.access_token || !auth.refresh_token) throw new Error('Rider sign-in could not be completed')
       const { error: sessionError } = await supabase.auth.setSession({ access_token: auth.access_token, refresh_token: auth.refresh_token })

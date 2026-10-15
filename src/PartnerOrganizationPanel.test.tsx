@@ -1,9 +1,10 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { PartnerInvitationClaim, PartnerOrganizationPanel } from './PartnerOrganizationPanel'
 
 describe('partner organization invitations', () => {
+  afterEach(() => vi.unstubAllGlobals())
   it('lets a company manager create a role-scoped invitation link', async () => {
     const rpc = vi.fn(async (name: string) => {
       if (name === 'list_my_partner_team') return { data: [{ partner_id: 'partner-1', partner_name: 'North Star Logistics', user_id: 'manager-1', email: 'manager@example.test', full_name: 'Manager', membership_role: 'manager', is_manager: true }], error: null }
@@ -16,11 +17,11 @@ describe('partner organization invitations', () => {
     render(<PartnerOrganizationPanel supabase={supabase} userId="manager-1" onError={vi.fn()} onNotice={vi.fn()} />)
 
     await user.type(await screen.findByLabelText('Invitee email address'), 'rider@example.test')
-    await user.selectOptions(screen.getByLabelText('Team role'), 'rider')
+    await user.selectOptions(screen.getByLabelText('Team role'), 'staff')
     await user.click(screen.getByRole('button', { name: 'Create invitation link' }))
 
     await waitFor(() => expect(rpc).toHaveBeenCalledWith('create_partner_staff_invitation', {
-      p_partner_id: 'partner-1', p_email: 'rider@example.test', p_membership_role: 'rider',
+      p_partner_id: 'partner-1', p_email: 'rider@example.test', p_membership_role: 'staff',
     }))
     const inviteLink = await screen.findByDisplayValue(/partner_invite=/)
     expect((inviteLink as HTMLInputElement).value).toContain('partner_invite=')
@@ -37,10 +38,13 @@ describe('partner organization invitations', () => {
       return { data: { status: 'assigned' }, error: null }
     })
     const onNotice = vi.fn()
-    const supabase = { rpc } as unknown as Parameters<typeof PartnerOrganizationPanel>[0]['supabase']
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ riders: [{ id: 'roster-1', full_name: 'Rider', status: 'approved', photo_path: null,
+      rider_credentials: { user_id: 'rider-1', device_bound_at: null, device_label: null, password_revoked_at: null, revoked_at: null } }] }) })))
+    const supabase = { rpc, auth: { getSession: vi.fn(async () => ({ data: { session: { access_token: 'manager-token' } } })) } } as unknown as Parameters<typeof PartnerOrganizationPanel>[0]['supabase']
     render(<PartnerOrganizationPanel supabase={supabase} userId="manager-1" onError={vi.fn()} onNotice={onNotice} />)
 
-    await userEvent.selectOptions(await screen.findByLabelText('Rider for JOB-12345'), 'rider-1')
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Rider' })).toHaveValue('rider-1'))
+    await userEvent.selectOptions(screen.getByLabelText('Rider for JOB-12345'), 'rider-1')
     await userEvent.click(screen.getByRole('button', { name: 'Assign rider' }))
 
     await waitFor(() => expect(rpc).toHaveBeenCalledWith('assign_job_to_rider', { p_job_id: 'job-1', p_rider_user_id: 'rider-1' }))

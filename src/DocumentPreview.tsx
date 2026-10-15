@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import './partner-vehicles.css'
 
-export type PreviewDocument = { bucket: 'partner-verification' | 'partner-vehicles'; path: string; title: string }
+export type PreviewDocument = { bucket: 'partner-verification' | 'partner-vehicles' | 'rider-evidence'; path: string; title: string }
 export default function DocumentPreview({ supabase, document, onClose }: { supabase: SupabaseClient; document: PreviewDocument; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null)
   const [url, setUrl] = useState('')

@@ -13,6 +13,8 @@ const managerEmail = `rider-smoke-${randomUUID()}@example.test`
 const managerPassword = randomBytes(24).toString('hex')
 let managerId = ''
 let riderId = ''
+let rosterId = ''
+let evidencePaths = []
 let partnerId = ''
 let customerId = ''
 let requestId = ''
@@ -45,10 +47,35 @@ try {
   const { data: signed, error: signError } = await anon.auth.signInWithPassword({ email: managerEmail, password: managerPassword })
   if (signError || !signed.session) throw signError ?? new Error('Manager sign-in failed')
   const managerToken = signed.session.access_token
-  const createdRider = await call({ action: 'create', partnerId, name: 'Temporary Test Rider' }, managerToken)
+  const manager = createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: `Bearer ${managerToken}` } } })
+  const sampleImage = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==', 'base64')
+  evidencePaths = ['nin', 'licence'].map((kind) => `${partnerId}/${managerId}/${randomUUID()}-${kind}.png`)
+  for (const path of evidencePaths) {
+    const uploaded = await manager.storage.from('rider-evidence').upload(path, sampleImage, { contentType: 'image/png' })
+    if (uploaded.error) throw uploaded.error
+  }
+  const { data: registered, error: rosterError } = await manager.rpc('register_company_rider', { p_partner_id: partnerId,
+    p_full_name: 'Temporary Test Rider', p_nin: '12345678901', p_nin_document_path: evidencePaths[0],
+    p_licence_document_path: evidencePaths[1], p_photo_path: null })
+  if (rosterError || !registered) throw rosterError ?? new Error('Rider registration failed')
+  rosterId = registered
+  const premature = await call({ action: 'create', partnerId, rosterId }, managerToken)
+  assert(premature.status === 403, 'Unapproved rider received a password')
+  const pending = await manager.from('company_riders').select('status,nin_document_path,licence_document_path').eq('id', rosterId).single()
+  assert(!pending.error && pending.data?.status === 'pending' && pending.data.nin_document_path === evidencePaths[0],
+    'Company manager could not see the pending documented rider')
+  // Super Admin review is exercised separately in a rollback-only SQL test with an allowlisted admin identity.
+  const approved = await admin.from('company_riders').update({ status: 'approved', reviewed_at: new Date().toISOString() }).eq('id', rosterId)
+  if (approved.error) throw approved.error
+  const createdRider = await call({ action: 'create', partnerId, rosterId }, managerToken)
   assert(createdRider.status === 200 && createdRider.token && createdRider.password && createdRider.riderId,
     `Rider creation failed (${createdRider.status}): ${createdRider.error ?? ''}`)
   riderId = createdRider.riderId
+  const rosterList = await call({ action: 'list', partnerId }, managerToken)
+  assert(rosterList.status === 200 && rosterList.riders?.some((entry) => entry.id === rosterId &&
+    (Array.isArray(entry.rider_credentials) ? entry.rider_credentials[0]?.user_id : entry.rider_credentials?.user_id) === riderId),
+  `Company roster did not link the approved rider account: ${rosterList.error ?? ''}`)
   const first = await call({ action: 'challenge', token: createdRider.token })
   assert(first.status === 200 && first.firstDevice === true, 'First phone was not offered enrollment')
   const firstPhone = await phone()
@@ -100,29 +127,43 @@ try {
   const otherPhone = await phone()
   const rejected = await call({ action: 'login', token: createdRider.token, password: createdRider.password,
     signature: await signature(otherPhone, challenge.challenge) })
-  assert(rejected.status === 403 && /changed your phone/i.test(rejected.error), 'Different phone was not rejected')
+  assert(rejected.status === 403 && /another phone/i.test(rejected.error), 'Different phone was not rejected')
   const returning = await call({ action: 'login', token: createdRider.token, password: createdRider.password,
     signature: await signature(firstPhone, challenge.challenge) })
   assert(returning.status === 200 && returning.session?.access_token, 'Enrolled phone could not sign in again')
-  const reset = await call({ action: 'reset', partnerId, riderId }, managerToken)
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const foreignChallenge = await call({ action: 'challenge', companyId: partnerId, password: createdRider.password })
+    const foreign = await call({ action: 'login', companyId: partnerId, password: createdRider.password,
+      signature: await signature(otherPhone, foreignChallenge.challenge) })
+    assert(foreign.status === 403, 'Another phone was not refused')
+  }
+  const revokedPassword = await call({ action: 'challenge', companyId: partnerId, password: createdRider.password })
+  assert(revokedPassword.status === 401, 'Password survived four other-phone attempts')
+  const reset = await call({ action: 'reset', partnerId, rosterId, riderId }, managerToken)
   assert(reset.status === 200 && reset.token && reset.password, `Management reset failed: ${reset.error ?? ''}`)
   assert((await call({ action: 'challenge', token: createdRider.token })).status === 401, 'Old rider link still works')
   const oldSession = await rider.rpc('list_my_rider_jobs')
   assert(Boolean(oldSession.error), 'Old rider session remained usable after management reset')
   const secondPhone = await phone()
-  const again = await call({ action: 'login', token: reset.token, password: reset.password,
+  const again = await call({ action: 'login', companyId: partnerId, password: reset.password,
     publicKey: await webcrypto.subtle.exportKey('jwk', secondPhone.publicKey) })
   assert(again.status === 200 && again.session?.access_token, `Reset rider login failed: ${again.error ?? ''}`)
-  console.log('Rider live smoke test passed: create, first and returning phone, assigned job update, role isolation, changed phone, reset, revoked session, new phone.')
+  const archived = await manager.rpc('archive_company_rider', { p_rider_id: rosterId })
+  if (archived.error) throw archived.error
+  assert((await call({ action: 'challenge', companyId: partnerId, password: reset.password })).status === 401,
+    'Archived rider could still sign in')
+  console.log('Rider live smoke test passed: roster access, first and returning phone, assigned job update, role isolation, four-attempt lockout, reset, and archive.')
 } finally {
   if (jobId) await admin.from('jobs').delete().eq('id', jobId)
   if (orderId) await admin.from('orders').delete().eq('id', orderId)
   if (requestId) await admin.from('service_requests').delete().eq('id', requestId)
   if (customerId) await admin.from('customers').delete().eq('id', customerId)
   if (riderId) await admin.auth.admin.deleteUser(riderId)
+  if (rosterId) await admin.from('company_riders').delete().eq('id', rosterId)
+  if (evidencePaths.length) await admin.storage.from('rider-evidence').remove(evidencePaths)
   if (managerId) await admin.auth.admin.deleteUser(managerId)
   if (partnerId) await admin.from('logistics_partners').delete().eq('id', partnerId)
-  for (const id of [jobId, orderId, requestId, customerId, riderId, partnerId]) {
+  for (const id of [jobId, orderId, requestId, customerId, riderId, rosterId, partnerId]) {
     if (id) await admin.from('audit_logs').delete().eq('entity_id', id)
   }
   if (managerId) await admin.from('audit_logs').delete().eq('actor_id', managerId)

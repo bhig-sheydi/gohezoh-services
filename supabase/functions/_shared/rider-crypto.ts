@@ -12,9 +12,11 @@ export async function hashPassword(password: string, salt: string) {
   return hex(new Uint8Array(await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: unhex(salt), iterations: 210_000, hash: 'SHA-256' }, material, 256)))
 }
 export function createPassword() {
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'
-  const random = bytes(20)
-  return [...random].map((byte) => alphabet[byte % alphabet.length]).join('')
+  const words = 'Market River Mango Basket Orange Pepper Tomato Garden Palm Table Chair School Letter Parcel Driver Bridge Banana Kettle Bottle Coffee Sugar Street Water Window Mother Father Brother Sister Family Doctor Teacher Farmer Trader Cotton Fabric Button Yellow Green Purple Silver Golden Happy Sunny Rainy Cloudy Morning Evening Sunday Monday Friday Lagos Abuja Kano Enugu Ibadan Kaduna Owerri Jos Aba Benin Uyo Akure Minna Lokoja Maiduguri Calabar Ilorin Yola Bauchi Zaria'.split(' ')
+  const random = bytes(8)
+  const chosen = [0, 1, 2, 3].map((index) => words[random[index] % words.length])
+  const digits = (new DataView(random.buffer).getUint32(4) % 9000 + 1000).toString()
+  return `${chosen.join('-')}-${digits}`
 }
 export function validPublicKey(key: unknown): key is JsonWebKey {
   if (!key || typeof key !== 'object') return false
