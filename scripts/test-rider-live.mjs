@@ -14,6 +14,10 @@ const managerPassword = randomBytes(24).toString('hex')
 let managerId = ''
 let riderId = ''
 let partnerId = ''
+let customerId = ''
+let requestId = ''
+let orderId = ''
+let jobId = ''
 const assert = (condition, message) => { if (!condition) throw new Error(message) }
 const call = async (payload, accessToken) => {
   const response = await fetch(`${url}/functions/v1/rider-access`, { method: 'POST', headers: {
@@ -59,6 +63,38 @@ try {
   assert(!jobs.error && Array.isArray(jobs.data) && jobs.data.length === 0, 'Rider job scope failed')
   const profile = await rider.rpc('my_rider_profile')
   assert(!profile.error && profile.data?.[0]?.company_name === 'Temporary Rider Smoke Company', 'Rider company identity failed')
+  const { data: service } = await admin.from('services').select('id').eq('code', 'SRV-0001').single()
+  assert(service?.id, 'Local delivery service is missing')
+  const customer = await admin.from('customers').insert({ company_name: 'Temporary Rider Test Customer', contact_person: 'Test Customer',
+    phone: '+2348010000998', created_by: managerId }).select('id').single()
+  if (customer.error || !customer.data) throw customer.error ?? new Error('Customer fixture failed')
+  customerId = customer.data.id
+  const request = await admin.from('service_requests').insert({ customer_id: customerId, service_id: service.id, created_by: managerId,
+    pickup_address: '1 Test Road', pickup_city: 'Lagos', sender_name: 'Test Sender', sender_phone: '+2348010000997',
+    delivery_address: '2 Test Road', delivery_city: 'Lagos', recipient_name: 'Test Recipient', recipient_phone: '+2348010000996',
+    parcel_summary: 'Test parcel' }).select('id').single()
+  if (request.error || !request.data) throw request.error ?? new Error('Request fixture failed')
+  requestId = request.data.id
+  const order = await admin.from('orders').insert({ service_request_id: requestId, customer_id: customerId, service_id: service.id,
+    customer_price: 1500, confirmed_by: managerId }).select('id').single()
+  if (order.error || !order.data) throw order.error ?? new Error('Order fixture failed')
+  orderId = order.data.id
+  const job = await admin.from('jobs').insert({ order_id: orderId, customer_id: customerId, service_id: service.id, partner_id: partnerId,
+    status: 'partner_assigned', pickup_address: '1 Test Road', pickup_city: 'Lagos', sender_name: 'Test Sender', sender_phone: '+2348010000997',
+    delivery_address: '2 Test Road', delivery_city: 'Lagos', recipient_name: 'Test Recipient', recipient_phone: '+2348010000996' }).select('id').single()
+  if (job.error || !job.data) throw job.error ?? new Error('Job fixture failed')
+  jobId = job.data.id
+  const assignment = await admin.from('partner_assignments').insert({ job_id: jobId, partner_id: partnerId, status: 'accepted',
+    assigned_by: managerId, responded_at: new Date().toISOString() })
+  if (assignment.error) throw assignment.error
+  const assigned = await admin.from('jobs').update({ assigned_rider_id: riderId }).eq('id', jobId)
+  if (assigned.error) throw assigned.error
+  const assignedJobs = await rider.rpc('list_my_rider_jobs')
+  assert(!assignedJobs.error && assignedJobs.data?.length === 1 && assignedJobs.data[0].job_id === jobId, 'Assigned rider job is missing')
+  const advanced = await rider.rpc('rider_update_job_status', { p_job_id: jobId, p_new_status: 'pickup_scheduled' })
+  assert(!advanced.error && advanced.data?.status === 'pickup_scheduled', `Assigned rider could not update progress: ${advanced.error?.message ?? ''}`)
+  const managerRiderUpdate = await anon.rpc('rider_update_job_status', { p_job_id: jobId, p_new_status: 'picked_up' })
+  assert(Boolean(managerRiderUpdate.error), 'Company owner used rider-only progress action')
   const challenge = await call({ action: 'challenge', token: createdRider.token })
   assert(challenge.status === 200 && challenge.challenge, 'Bound phone challenge missing')
   const otherPhone = await phone()
@@ -77,12 +113,17 @@ try {
   const again = await call({ action: 'login', token: reset.token, password: reset.password,
     publicKey: await webcrypto.subtle.exportKey('jwk', secondPhone.publicKey) })
   assert(again.status === 200 && again.session?.access_token, `Reset rider login failed: ${again.error ?? ''}`)
-  console.log('Rider live smoke test passed: create, first and returning phone, role isolation, changed phone, reset, revoked session, new phone.')
+  console.log('Rider live smoke test passed: create, first and returning phone, assigned job update, role isolation, changed phone, reset, revoked session, new phone.')
 } finally {
-  if (riderId) await admin.from('audit_logs').delete().eq('entity_id', riderId)
-  if (partnerId) await admin.from('audit_logs').delete().eq('entity_id', partnerId)
-  if (managerId) await admin.from('audit_logs').delete().eq('actor_id', managerId)
+  if (jobId) await admin.from('jobs').delete().eq('id', jobId)
+  if (orderId) await admin.from('orders').delete().eq('id', orderId)
+  if (requestId) await admin.from('service_requests').delete().eq('id', requestId)
+  if (customerId) await admin.from('customers').delete().eq('id', customerId)
   if (riderId) await admin.auth.admin.deleteUser(riderId)
   if (managerId) await admin.auth.admin.deleteUser(managerId)
   if (partnerId) await admin.from('logistics_partners').delete().eq('id', partnerId)
+  for (const id of [jobId, orderId, requestId, customerId, riderId, partnerId]) {
+    if (id) await admin.from('audit_logs').delete().eq('entity_id', id)
+  }
+  if (managerId) await admin.from('audit_logs').delete().eq('actor_id', managerId)
 }
