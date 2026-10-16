@@ -47,7 +47,8 @@ describe('delivery location editor', () => {
     expect(await within(card).findByRole('alert')).toHaveTextContent('permission was denied')
     expect(within(card).getByLabelText('Address')).toHaveValue('20 Market Road')
     await user.click(within(card).getByRole('button', { name: 'Save location' }))
-    await waitFor(() => expect(upsert).toHaveBeenCalledWith({ user_id: 'user-1', slot: 1, label: 'Work', address: '20 Market Road', city: 'Umuahia', state: 'Abia', secondary_phone: null }, { onConflict: 'user_id,slot' }))
+    await waitFor(() => expect(upsert).toHaveBeenCalledWith({ user_id: 'user-1', slot: 1, label: 'Work', address: '20 Market Road', city: 'Umuahia', state: 'Abia', secondary_phone: null,
+      latitude: null, longitude: null, location_source: null, location_accuracy_metres: null }, { onConflict: 'user_id,slot' }))
   })
   it('deduplicates clicks and prevents input edits while a result is pending', async () => {
     let resolve!: (value: AddressSuggestion) => void

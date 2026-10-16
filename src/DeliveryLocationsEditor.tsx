@@ -12,6 +12,7 @@ export default function DeliveryLocationsEditor({ supabase, userId, destinations
   const [suggestion, setSuggestion] = useState<{ slot: number; at: number } | null>(null)
   const operation = useRef<AbortController | null>(null)
   const forms = useRef(new Map<number, HTMLFormElement>())
+  const coordinates = useRef(new Map<number, AddressSuggestion>())
   useEffect(() => () => { operation.current?.abort() }, [userId])
 
   function apply(slot: number, result: AddressSuggestion) {
@@ -22,6 +23,7 @@ export default function DeliveryLocationsEditor({ supabase, userId, destinations
       if (input instanceof HTMLInputElement && result[name]) input.value = result[name]
     }
     setSuggestion({ slot, at: result.evidence.capturedAt })
+    coordinates.current.set(slot, result)
     const approximate = result.specificity !== 'building' || (result.evidence.accuracyMetres ?? 0) > 100 || (result.distanceMetres ?? 0) > 100 || (result.confidence !== null && result.confidence < 0.8)
     setFeedback({ slot, message: approximate ? 'Approximate address. Edit any incorrect details.' : 'Address filled. Check before saving.', error: false })
   }
@@ -42,7 +44,15 @@ export default function DeliveryLocationsEditor({ supabase, userId, destinations
     event.preventDefault()
     if (operation.current) return
     const form = event.currentTarget
-    const payload = { user_id: userId, slot, label: slot === 1 ? 'Work' : slot === 2 ? 'Home' : 'Other', address: fieldValue(form, 'address'), city: fieldValue(form, 'city'), state: fieldValue(form, 'state'), secondary_phone: fieldValue(form, 'secondary_phone') || null }
+    const point = coordinates.current.get(slot)?.evidence
+    const saved = destinations.find((destination) => destination.slot === slot)
+    const unchanged = saved && ['address', 'city', 'state'].every((key) => fieldValue(form, key) === saved[key as 'address' | 'city' | 'state'])
+    const payload = { user_id: userId, slot, label: slot === 1 ? 'Work' : slot === 2 ? 'Home' : 'Other', address: fieldValue(form, 'address'), city: fieldValue(form, 'city'), state: fieldValue(form, 'state'), secondary_phone: fieldValue(form, 'secondary_phone') || null,
+      latitude: point && (point.accuracyMetres ?? Infinity) <= 100 ? point.latitude : unchanged ? saved.latitude ?? null : null,
+      longitude: point && (point.accuracyMetres ?? Infinity) <= 100 ? point.longitude : unchanged ? saved.longitude ?? null : null,
+      location_source: point && (point.accuracyMetres ?? Infinity) <= 100 ? point.source : unchanged ? saved.location_source ?? null : null,
+      location_accuracy_metres: point && (point.accuracyMetres ?? Infinity) <= 100 ? point.accuracyMetres : unchanged ? saved.location_accuracy_metres ?? null : null,
+    }
     const controller = new AbortController(); operation.current = controller
     setBusy({ slot, kind: 'save' }); onError(''); onNotice('')
     try {
@@ -76,7 +86,7 @@ export default function DeliveryLocationsEditor({ supabase, userId, destinations
     <p className="location-consent">At this address? Get address shares your location with Geoapify. You can edit the result.</p>
     <div className="parcel-pal-destination-grid">{[1, 2, 3].map((slot) => {
       const saved = destinations.find((item) => item.slot === slot)
-      return <form className="parcel-pal-destination-card" key={slot} ref={(form) => { if (form) forms.current.set(slot, form); else forms.current.delete(slot) }} onSubmit={(event) => void save(event, slot)}>
+      return <form className="parcel-pal-destination-card" key={slot} ref={(form) => { if (form) forms.current.set(slot, form); else forms.current.delete(slot) }} onChange={(event) => { if (['address','city','state'].includes((event.target as HTMLElement).getAttribute('name') ?? '')) coordinates.current.delete(slot) }} onSubmit={(event) => void save(event, slot)}>
         <strong>{slot === 1 ? 'Work' : slot === 2 ? 'Home' : 'Other'}</strong>
         <input type="hidden" name="slot" value={slot} />
         <fieldset className="delivery-address-fields" disabled={!!busy}>

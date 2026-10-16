@@ -8,6 +8,7 @@ declare
   v_customer_user uuid:=gen_random_uuid();
   v_customer uuid:=gen_random_uuid();
   v_partner uuid:=gen_random_uuid();
+  v_rider_roster uuid:=gen_random_uuid();
   v_service uuid;
   v_request uuid;
   v_order uuid;
@@ -31,6 +32,10 @@ begin
   insert into public.logistics_partners(id,partner_name,contact_person,phone,status)
   values(v_partner,'Rider capacity partner','Contact','+2348000000001','active');
   insert into public.partner_users(partner_id,user_id,membership_role) values(v_partner,v_manager,'manager'),(v_partner,v_rider,'rider'),(v_partner,v_other_rider,'rider');
+  insert into public.company_riders(id,partner_id,full_name,nin,licence_document_path,status,reviewed_at)
+    values(v_rider_roster,v_partner,'Capacity test rider','12345678903','test/capacity-licence.pdf','approved',now());
+  insert into public.rider_credentials(user_id,partner_id,roster_id,rider_name,auth_secret_seed,link_hash,password_salt,password_hash,password_fingerprint)
+    values(v_rider,v_partner,v_rider_roster,'Capacity test rider','capacity-seed-'||v_rider,'capacity-link-'||v_rider,'salt','hash','capacity-password-'||v_rider);
 
   for v_i in 1..6 loop
     v_request:=gen_random_uuid(); v_order:=gen_random_uuid(); v_job:=gen_random_uuid();

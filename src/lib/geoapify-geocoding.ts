@@ -81,6 +81,12 @@ export async function reverseAddress(client: SupabaseClient, evidence: LocationE
   return suggestion(result, evidence)
 }
 
+/** Explicit address lookup; geocoder coordinates are not a GPS accuracy measurement. */
+export async function searchAddress(client: SupabaseClient, text: string, signal?: AbortSignal): Promise<AddressSuggestion> {
+  const result = addressResult(await invoke(client, { action: 'search', text }, signal))
+  return suggestion(result, { latitude: result.latitude, longitude: result.longitude, accuracyMetres: null, capturedAt: Date.now(), source: 'search' })
+}
+
 /** Called only by an explicit user action. A device fix never guarantees a particular sensor or building. */
 export async function getAddressFromCurrentPosition(client: SupabaseClient, options: { signal?: AbortSignal; onPosition?: (fix: PositionFix) => void } = {}): Promise<AddressSuggestion> {
   const fix = await requestAddressPosition({ signal: options.signal })

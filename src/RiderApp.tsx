@@ -2,12 +2,13 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { getSupabaseClient } from './lib/supabase'
 import { riderDeviceProof } from './lib/rider-device'
+import RiderAvailability from './RiderAvailability'
 import './App.css'
 import './dark.css'
 
 type RiderJob = { job_id: string; job_number: string; status: string; pickup_address: string; pickup_city: string;
   delivery_address: string; delivery_city: string; recipient_name: string; recipient_phone: string;
-  parcel_summary: string; company_name: string }
+  parcel_summary: string; company_name: string; latitude?: number | null; longitude?: number | null; sender_name?: string; sender_phone?: string }
 const nextStatus: Record<string, string[]> = {
   partner_assigned: ['pickup_scheduled', 'picked_up', 'exception'], pickup_scheduled: ['picked_up', 'exception'],
   picked_up: ['in_transit', 'exception'], in_transit: ['out_for_delivery', 'exception'],
@@ -67,11 +68,11 @@ export default function RiderApp() {
     const { data: role } = await supabase.from('user_roles').select('role').eq('user_id', session.user.id).eq('role', 'rider').maybeSingle()
     setRider(Boolean(role))
     if (!role) return
-    const [{ data, error: loadError }, profile] = await Promise.all([
-      supabase.rpc('list_my_rider_jobs'), supabase.rpc('my_rider_profile'),
+    const [{ data, error: loadError }, profile, pickupLocations] = await Promise.all([
+      supabase.rpc('list_my_rider_jobs'), supabase.rpc('my_rider_profile'), supabase.rpc('list_my_rider_pickup_locations'),
     ])
     if (loadError) setError(loadError.message)
-    else setJobs((data ?? []) as RiderJob[])
+    else setJobs(((data ?? []) as RiderJob[]).map((job) => ({ ...job, ...(Array.isArray(pickupLocations.data) ? pickupLocations.data.find((location: { job_id: string }) => location.job_id === job.job_id) : {}) })))
     if (!profile.error && profile.data?.[0]?.company_name) setCompanyName(String(profile.data[0].company_name))
   }, [session, supabase])
   useEffect(() => { const timer = window.setTimeout(() => { void load() }, 0); return () => window.clearTimeout(timer) }, [load])
@@ -138,8 +139,10 @@ export default function RiderApp() {
         <button className="primary-button" disabled={busy}>{busy ? 'Signing in...' : 'Sign in'}</button></form>
     </section> : rider === null ? <div className="loading">Checking rider access...</div> : !rider ? <section className="form-card narrow"><h1>Rider access only</h1><p>Sign out of your current account to use a company rider link.</p></section> : <section className="rider-workspace">
       <div className="dashboard-heading"><div><p className="eyebrow">YOUR RIDES</p><h1>{session.user.user_metadata?.full_name ?? 'Rider'}</h1><p>{companyName}</p></div><button className="secondary-button" onClick={() => void load()}>Refresh jobs</button></div>
+      <RiderAvailability supabase={supabase} />
       {jobs.length === 0 ? <section className="form-card"><h2>No jobs assigned yet</h2><p>Your company will assign deliveries here.</p></section> : <div className="partner-assignment-list">{jobs.map((job) => <article className="form-card partner-job-card" key={job.job_id}>
         <div className="review-title"><div><p className="eyebrow">{job.job_number}</p><h2>{label(job.status)}</h2></div></div>
+        {job.latitude != null && job.longitude != null && <p><strong>{job.sender_name} · {job.sender_phone}</strong><br /><a href={`https://www.google.com/maps/search/?api=1&query=${job.latitude},${job.longitude}`} target="_blank" rel="noreferrer">Open pickup directions</a></p>}
         <p>{job.parcel_summary}</p><div className="partner-job-route"><div><small>PICKUP</small><p>{job.pickup_address}<br />{job.pickup_city}</p></div><div><small>DELIVER TO</small><p>{job.delivery_address}<br />{job.delivery_city}</p><strong>{job.recipient_name} · {job.recipient_phone}</strong></div></div>
         {(nextStatus[job.status] ?? []).length > 0 && <label className="field"><span>Update delivery</span><select disabled={busy} value="" onChange={(event) => { if (event.target.value) void advance(job, event.target.value) }}><option value="">Choose next step</option>{nextStatus[job.status].map((status) => <option key={status} value={status}>{label(status)}</option>)}</select></label>}
         {job.status === 'out_for_delivery' && <section className="delivery-otp-panel"><button className="secondary-button" disabled={busy} onClick={() => void sendCode(job)}>Send recipient code</button><label className="field"><span>Recipient code</span><input inputMode="numeric" value={codes[job.job_id] ?? ''} onChange={(event) => setCodes((current) => ({ ...current, [job.job_id]: event.target.value.replace(/\D/g, '').slice(0, 6) }))} maxLength={6} /></label><button className="primary-button" disabled={busy || (codes[job.job_id] ?? '').length !== 6} onClick={() => void verifyCode(job)}>Confirm delivery</button></section>}

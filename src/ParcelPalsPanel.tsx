@@ -4,7 +4,7 @@ import DeliveryLocationsEditor from './DeliveryLocationsEditor'
 
 type SearchResult = { found: boolean; code?: string; status?: string; direction?: string | null }
 type ParcelPalRequest = { code: string; status: string; direction: 'sent' | 'received'; full_name: string | null; avatar_path: string | null; avatar_url?: string | null; created_at: string }
-export type ParcelDestination = { slot: number; label: string; address: string; city: string; state: string; secondary_phone: string | null }
+export type ParcelDestination = { slot: number; label: string; address: string; city: string; state: string; secondary_phone: string | null; latitude?: number | null; longitude?: number | null; location_source?: string | null; location_accuracy_metres?: number | null }
 export type ParcelPalContact = { code: string; full_name: string | null; phone: string | null; avatar_path: string | null; avatar_url?: string | null; address: string | null; city: string | null; state: string | null; destinations?: ParcelDestination[]; connected_at: string | null }
 type Props = { supabase: ReturnType<typeof getSupabaseClient>; userId: string; onError: (message: string) => void; onNotice: (message: string) => void; onUseDestination?: (contact: ParcelPalContact, destination: ParcelDestination) => void; isEditingDestinations?: boolean; onCloseDestinationEditor?: () => void }
 
@@ -60,7 +60,7 @@ export default function ParcelPalsPanel({ supabase, userId, onError, onNotice, o
     ])
     setRequests(requestsWithPhotos)
     setContacts(contactsWithPhotos)
-    const locationResult = await supabase.from('customer_parcel_destinations').select('slot,label,address,city,state,secondary_phone').eq('user_id', userId).order('slot')
+    const locationResult = await supabase.from('customer_parcel_destinations').select('slot,label,address,city,state,secondary_phone,latitude,longitude,location_source,location_accuracy_metres').eq('user_id', userId).order('slot')
     if (locationResult.error) onError(locationResult.error.message)
     else setDestinations(rows<ParcelDestination>(locationResult.data))
   }, [onError, signedPhotoUrl, supabase, userId])

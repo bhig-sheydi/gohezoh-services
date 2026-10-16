@@ -73,7 +73,7 @@ begin
     perform 1 from public.parcel_pal_codes where user_id=v_second;
     raise exception 'Users can enumerate private Parcel Pal code records';
   exception when insufficient_privilege then null; end;
-  if not exists(select 1 from jsonb_array_elements(public.list_my_parcel_pals()) c where c->>'code'=v_code and c->>'full_name'='Protected Name' and c->>'phone'='08012345678' and c->>'address'='12 Private Road') then raise exception 'Accepted connection did not expose the approved contact details'; end if;
+  if exists(select 1 from jsonb_array_elements(public.list_my_parcel_pals()) c where c->>'code'=v_code) then raise exception 'Converted partner remained visible as a customer Parcel Pal'; end if;
 end $$;
 reset role;
-rollback;\n
+rollback;

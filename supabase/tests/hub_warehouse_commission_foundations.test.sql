@@ -2,7 +2,7 @@ begin;
 do $$
 declare
   v_ops uuid:=gen_random_uuid();v_user uuid:=gen_random_uuid();v_dispatcher uuid:=gen_random_uuid();v_rider uuid:=gen_random_uuid();v_customer uuid:=gen_random_uuid();
-  v_service uuid;v_warehouse uuid:=gen_random_uuid();v_job uuid:=gen_random_uuid();
+  v_service uuid;v_warehouse uuid:=gen_random_uuid();v_job uuid:=gen_random_uuid();v_roster uuid:=gen_random_uuid();
   v_request uuid:=gen_random_uuid();v_order uuid:=gen_random_uuid();v_inbound uuid:=gen_random_uuid();v_last uuid:=gen_random_uuid();
   v_corridor uuid;v_leg jsonb;
 begin
@@ -58,6 +58,10 @@ begin
   if not exists(select 1 from public.partner_assignments where job_id=v_job and partner_id=v_inbound and status='completed') then raise exception 'Inbound assignment not completed';end if;
   update public.partner_assignments set status='accepted',responded_at=now() where id=(v_leg->>'assignment_id')::uuid;
   insert into public.partner_users(partner_id,user_id,membership_role) values(v_last,v_dispatcher,'dispatcher'),(v_last,v_rider,'rider');
+  insert into public.company_riders(id,partner_id,full_name,nin,licence_document_path,status,reviewed_at)
+    values(v_roster,v_last,'Hub test rider','12345678901','test/hub-licence.pdf','approved',now());
+  insert into public.rider_credentials(user_id,partner_id,roster_id,rider_name,auth_secret_seed,link_hash,password_salt,password_hash,password_fingerprint)
+    values(v_rider,v_last,v_roster,'Hub test rider','hub-seed-'||v_rider,'hub-link-'||v_rider,'salt','hash','hub-password-'||v_rider);
   perform set_config('request.jwt.claim.sub',v_dispatcher::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_dispatcher,'role','authenticated')::text,true);
   perform public.assign_job_to_rider(v_job,v_rider);

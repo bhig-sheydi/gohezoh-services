@@ -5,6 +5,7 @@ declare
   v_partner_one_user_id uuid := gen_random_uuid();
   v_partner_two_user_id uuid := gen_random_uuid();
   v_rider_user_id uuid := gen_random_uuid();
+  v_rider_roster_id uuid := gen_random_uuid();
   v_customer_user_id uuid := gen_random_uuid();
   v_customer_id uuid := gen_random_uuid();
   v_service_id uuid;
@@ -78,6 +79,10 @@ begin
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_partner_two_user_id,'role','authenticated')::text,true);
   perform public.respond_to_partner_assignment(v_second_assignment_id,true,'Accepted for delivery');
   insert into public.partner_users(partner_id,user_id,membership_role) values((v_partner_two->>'partner_id')::uuid,v_rider_user_id,'rider');
+  insert into public.company_riders(id,partner_id,full_name,nin,licence_document_path,status,reviewed_at)
+    values(v_rider_roster_id,(v_partner_two->>'partner_id')::uuid,'Portal test rider','12345678902','test/portal-licence.pdf','approved',now());
+  insert into public.rider_credentials(user_id,partner_id,roster_id,rider_name,auth_secret_seed,link_hash,password_salt,password_hash,password_fingerprint)
+    values(v_rider_user_id,(v_partner_two->>'partner_id')::uuid,v_rider_roster_id,'Portal test rider','portal-seed-'||v_rider_user_id,'portal-link-'||v_rider_user_id,'salt','hash','portal-password-'||v_rider_user_id);
   perform public.assign_job_to_rider(v_job_id,v_rider_user_id);
   perform public.update_job_status(v_job_id,'picked_up');
   perform public.update_job_status(v_job_id,'in_transit');

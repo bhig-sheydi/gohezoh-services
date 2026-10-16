@@ -147,7 +147,8 @@ describe('Parcel Pals privacy and requests', () => {
     expect(await within(workCard).findByRole('status')).toHaveTextContent('Address filled. Check before saving.')
     await user.click(within(workCard).getByRole('checkbox', { name: 'Address is correct.' }))
     await user.click(within(workCard).getByRole('button', { name: 'Save location' }))
-    await waitFor(() => expect(upsert).toHaveBeenCalledWith({ user_id: 'user-1', slot: 1, label: 'Work', address: '10 Palm Street', city: 'Umuahia', state: 'Abia', secondary_phone: null }, { onConflict: 'user_id,slot' }))
+    await waitFor(() => expect(upsert).toHaveBeenCalledWith({ user_id: 'user-1', slot: 1, label: 'Work', address: '10 Palm Street', city: 'Umuahia', state: 'Abia', secondary_phone: null,
+      latitude: 5.5, longitude: 7.5, location_source: 'browser', location_accuracy_metres: 18 }, { onConflict: 'user_id,slot' }))
   })
 
   it('reminds again on the next app open while the profile still has no picture', async () => {

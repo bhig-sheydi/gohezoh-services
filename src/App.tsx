@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useState, type ChangeEvent, type FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { getSupabaseClient } from './lib/supabase'
+import PickupLocation from './PickupLocation'
 import WarehouseConsole from './WarehouseConsole'
 import { ParcelMeasureFields, ParcelWeightField } from './ParcelLimitFields'
 import { assessParcelCapacity } from './lib/parcel-capacity'
@@ -31,6 +32,7 @@ import './dark.css'
 
 type Customer = { id: string; company_name: string; status: string }
 type DeliveryRequest = {
+  dispatch_match_status?: string | null
   id: string
   request_number: string
   status: string
@@ -60,6 +62,7 @@ const jobStatusLabels: Record<string, string> = {
 const formatStatus = (status: string) => jobStatusLabels[status] ?? status.replaceAll('_', ' ')
 const requestStatusLabels: Record<string, string> = { submitted: 'Received', under_review: 'Under review', approved: 'Approved', rejected: 'Not accepted', converted: 'Order confirmed', cancelled: 'Cancelled' }
 const formatRequestStatus = (status: string) => requestStatusLabels[status] ?? status.replaceAll('_', ' ')
+const dispatchStatusLabels: Record<string, string> = { waiting: 'Finding nearby companies', bidding: 'Companies bidding', no_nearby: 'No nearby rider available', no_bids: 'No bids received', quote_ready: 'Quote being prepared' }
 const siteUrl = 'https://gohezoh-services.vercel.app/'
 const publicAppOrigin = (import.meta.env.VITE_PUBLIC_APP_URL || siteUrl).replace(/\/+$/, '')
 type Service = { id: string; code: string; name: string; description: string | null }
@@ -177,7 +180,7 @@ function App() {
     }
     const [{ data: customerData, error: customerError }, { data: requestData, error: requestError }, { data: serviceData }, { data: notificationData, error: notificationError }, { data: locationData, error: locationError }, { data: corridorData, error: corridorError }] = await Promise.all([
       supabase.from('customers').select('id, company_name, status').eq('id', membership.customer_id).single(),
-      supabase.from('service_requests').select('id, request_number, status, pickup_city, delivery_city, recipient_name, created_at').eq('customer_id', membership.customer_id).order('created_at', { ascending: false }).limit(20),
+      supabase.from('service_requests').select('id, request_number, status, dispatch_match_status, pickup_city, delivery_city, recipient_name, created_at').eq('customer_id', membership.customer_id).order('created_at', { ascending: false }).limit(20),
       supabase.from('services').select('id, code, name, description').eq('is_active', true).in('code', ['SRV-0001', 'SRV-0002']).order('name'),
       supabase.from('notifications').select('id, job_id, event_type, title, body, created_at, read_at, payload').eq('user_id', session.user.id).order('created_at', { ascending: false }).limit(30),
       supabase.from('coverage_locations').select('id, name, state, is_enabled').eq('is_enabled', true).order('name'),
@@ -255,6 +258,9 @@ function App() {
     if (!session || !customer) return
     const formElement = event.currentTarget
     const form = new FormData(formElement)
+    if (services.find((service) => service.id === form.get('service_id'))?.code === 'SRV-0001' && (!form.has('pickup_latitude') || !form.get('pickup_location_confirmed'))) {
+      setError('Choose or find your pickup address and confirm its location.'); return
+    }
     if (!form.get('recipient_location_confirmed')) { setError('Confirm the recipient has agreed to this delivery location before you submit.'); return }
     setBusy(true); setError(''); setNotice('')
     let weightKg: number | null
@@ -304,6 +310,12 @@ function App() {
       service_id: String(form.get('service_id')),
       created_by: session.user.id,
       pickup_address: String(form.get('pickup_address')),
+      pickup_latitude: form.has('pickup_latitude') ? Number(form.get('pickup_latitude')) : null,
+      pickup_longitude: form.has('pickup_longitude') ? Number(form.get('pickup_longitude')) : null,
+      pickup_accuracy_metres: form.get('pickup_accuracy_metres') ? Number(form.get('pickup_accuracy_metres')) : null,
+      pickup_location_source: form.get('pickup_location_source') || null,
+      pickup_saved_slot: form.get('pickup_saved_slot') ? Number(form.get('pickup_saved_slot')) : null,
+      pickup_captured_at: form.get('pickup_captured_at') || null,
       pickup_city: String(form.get('pickup_city')),
       pickup_state: String(form.get('pickup_state') || '') || null,
       sender_name: String(form.get('sender_name')),
@@ -1082,6 +1094,7 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
         <div className="form-divider">PICKUP</div>
         <div className="field-row"><Field label="Pickup contact" name="sender_name" required /><Field label="Pickup phone" name="sender_phone" type="tel" required /></div>
         <Field label="Pickup address" name="pickup_address" required />
+        {serviceCode === 'SRV-0001' && <PickupLocation supabase={supabase} userId={userId} onCitySelected={(city) => { setOriginId(coverageLocations.find((location) => location.name.toLowerCase() === city.toLowerCase())?.id ?? ''); setDestinationId('') }} />}
         <div className="field-row"><label className="field"><span>Pickup city</span><select name="pickup_city" required value={originId ? coverageLocations.find((location) => location.id === originId)?.name ?? '' : ''} onChange={(event) => { setOriginId(coverageLocations.find((location) => location.name === event.target.value)?.id ?? ''); setDestinationId('') }}><option value="">Select city</option>{origins.map((location) => <option key={location.id} value={location.name}>{location.name}</option>)}</select></label><input type="hidden" name="pickup_state" value={coverageLocations.find((location) => location.id === originId)?.state ?? ''} /><Field label="Pickup time" name="preferred_pickup_at" type="datetime-local" min={new Date().toISOString().slice(0, 16)} /></div>
         <div className="form-divider">DELIVER TO</div>
         {selectedPal && <div className="selected-saved-parcel"><span><strong>Parcel Pal: {selectedPal.contact.full_name || selectedPal.contact.code}</strong><small>{selectedPal.destination.label} location selected. Confirm it with the recipient below.</small></span><button className="text-button" type="button" onClick={() => setSelectedPal(null)}>Clear</button></div>}
@@ -1100,7 +1113,7 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
       </form>
     </section>}
     {activeFrame === 'updates' && <section className="notification-panel customer-notifications customer-app-frame"><div className="history-heading"><div><p className="eyebrow">UPDATES</p><h2>Messages about your parcels</h2></div><button type="button" className="text-button notification-refresh" onClick={onRefresh}>Refresh</button></div>{notifications.length === 0 ? <p className="notification-empty">No updates.</p> : <div className="notification-list">{notifications.map((notification) => <article className={`notification-item ${notification.read_at ? 'notification-read' : 'notification-unread'}`} key={notification.id}><div className="notification-copy"><div className="notification-title-row"><strong>{notification.title}</strong>{!notification.read_at && <span className="notification-new">New</span>}</div><p>{notification.body}</p><small>{new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(notification.created_at))}</small></div>{!notification.read_at && <button className="secondary-button notification-read-button" onClick={() => onMarkRead(notification)}>Mark as read</button>}</article>)}</div>}</section>}
-    {activeFrame === 'tracking' && <section className="history-panel customer-history customer-app-frame"><div className="history-heading"><div><p className="eyebrow">TRACKING</p><h2>Your deliveries</h2></div><span className="request-count">{requests.length}</span><button className="text-button" type="button" onClick={onRefresh}>Refresh</button></div>{requests.length === 0 ? <div className="empty-state"><span className="empty-icon" aria-hidden="true">ï¼‹</span><h3>No deliveries yet</h3></div> : <><CustomerQuotePanel supabase={supabase} requestIds={requests.map((request) => request.id)} onError={onError} onNotice={onNotice} onRefresh={onRefresh} /><div className="request-list">{requests.map((request) => <article className="request-item" key={request.id}><div className="request-item-top"><strong>{request.request_number}</strong><span className={`request-status status-${request.status}`}>{formatRequestStatus(request.status)}</span></div><p>{request.pickup_city} <span aria-hidden="true">to</span> {request.delivery_city}</p><small>{request.recipient_name} - {new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium' }).format(new Date(request.created_at))}</small>{request.order_number && <div className="request-references"><span>Order <strong>{request.order_number}</strong></span>{request.job_number && <span>Job <strong>{request.job_number}</strong></span>}{request.job_status && <span className={`job-status-label status-${request.job_status}`}>{formatStatus(request.job_status)}</span>}</div>}{request.customer_price !== undefined && request.customer_price !== null && <details className="customer-payment-summary"><summary>Payment</summary><span>Total: {new Intl.NumberFormat('en-NG',{style:'currency',currency:request.customer_currency ?? 'NGN'}).format(Number(request.customer_price))}</span><span>Received: {new Intl.NumberFormat('en-NG',{style:'currency',currency:request.customer_currency ?? 'NGN'}).format((request.payments ?? []).filter((payment) => payment.status === 'received').reduce((sum,payment) => sum + Number(payment.amount),0))}</span><span>Balance: {new Intl.NumberFormat('en-NG',{style:'currency',currency:request.customer_currency ?? 'NGN'}).format(Math.max(0,Number(request.customer_price) - (request.payments ?? []).filter((payment) => payment.status === 'received').reduce((sum,payment) => sum + Number(payment.amount),0)))}</span>{request.payments?.map((payment) => <small key={payment.payment_number}>{payment.payment_number} - {payment.method.replaceAll('_',' ')} - {new Intl.NumberFormat('en-NG',{style:'currency',currency:payment.currency}).format(Number(payment.amount))}{payment.status === 'reversed' ? ' - Reversed' : ''}</small>)}</details>}{request.job_status && <DeliveryTimeline request={request} />}<ParcelIdentifiers parcels={request.parcels??[]} />{request.proofs?.map((proof, index) => <a className="pod-customer-link" key={proof.storage_path} href={proof.signed_url} target="_blank" rel="noreferrer">View proof of delivery {index + 1}</a>)}</article>)}</div></>}</section>}
+    {activeFrame === 'tracking' && <section className="history-panel customer-history customer-app-frame"><div className="history-heading"><div><p className="eyebrow">TRACKING</p><h2>Your deliveries</h2></div><span className="request-count">{requests.length}</span><button className="text-button" type="button" onClick={onRefresh}>Refresh</button></div>{requests.length === 0 ? <div className="empty-state"><span className="empty-icon" aria-hidden="true">ï¼‹</span><h3>No deliveries yet</h3></div> : <><CustomerQuotePanel supabase={supabase} requestIds={requests.map((request) => request.id)} onError={onError} onNotice={onNotice} onRefresh={onRefresh} /><div className="request-list">{requests.map((request) => <article className="request-item" key={request.id}><div className="request-item-top"><strong>{request.request_number}</strong><span className={`request-status status-${request.status}`}>{['submitted','under_review'].includes(request.status) && request.dispatch_match_status ? dispatchStatusLabels[request.dispatch_match_status] : formatRequestStatus(request.status)}</span></div>{['no_nearby','no_bids'].includes(request.dispatch_match_status ?? '') && <button className="secondary-button" type="button" onClick={async () => { const { error } = await supabase.rpc('retry_my_dispatch', { p_request: request.id }); if (error) onError(error.message); else onRefresh() }}>Try matching again</button>}<p>{request.pickup_city} <span aria-hidden="true">to</span> {request.delivery_city}</p><small>{request.recipient_name} - {new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium' }).format(new Date(request.created_at))}</small>{request.order_number && <div className="request-references"><span>Order <strong>{request.order_number}</strong></span>{request.job_number && <span>Job <strong>{request.job_number}</strong></span>}{request.job_status && <span className={`job-status-label status-${request.job_status}`}>{formatStatus(request.job_status)}</span>}</div>}{request.customer_price !== undefined && request.customer_price !== null && <details className="customer-payment-summary"><summary>Payment</summary><span>Total: {new Intl.NumberFormat('en-NG',{style:'currency',currency:request.customer_currency ?? 'NGN'}).format(Number(request.customer_price))}</span><span>Received: {new Intl.NumberFormat('en-NG',{style:'currency',currency:request.customer_currency ?? 'NGN'}).format((request.payments ?? []).filter((payment) => payment.status === 'received').reduce((sum,payment) => sum + Number(payment.amount),0))}</span><span>Balance: {new Intl.NumberFormat('en-NG',{style:'currency',currency:request.customer_currency ?? 'NGN'}).format(Math.max(0,Number(request.customer_price) - (request.payments ?? []).filter((payment) => payment.status === 'received').reduce((sum,payment) => sum + Number(payment.amount),0)))}</span>{request.payments?.map((payment) => <small key={payment.payment_number}>{payment.payment_number} - {payment.method.replaceAll('_',' ')} - {new Intl.NumberFormat('en-NG',{style:'currency',currency:payment.currency}).format(Number(payment.amount))}{payment.status === 'reversed' ? ' - Reversed' : ''}</small>)}</details>}{request.job_status && <DeliveryTimeline request={request} />}<ParcelIdentifiers parcels={request.parcels??[]} />{request.proofs?.map((proof, index) => <a className="pod-customer-link" key={proof.storage_path} href={proof.signed_url} target="_blank" rel="noreferrer">View proof of delivery {index + 1}</a>)}</article>)}</div></>}</section>}
   </main>
 }
 

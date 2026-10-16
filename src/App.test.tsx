@@ -801,6 +801,10 @@ describe('partner assignment and delivery screens', () => {
     mockState.services = [{id:'service-1',code:'SRV-0001',name:'Local Delivery',description:''}]
     mockState.coverageLocations = [{ id: 'lagos', name: 'Lagos', state: 'Lagos', is_enabled: true }]
     mockState.coverageCorridors = [{ id: 'lagos-local', origin_id: 'lagos', destination_id: 'lagos', service_code: 'SRV-0001', is_enabled: true }]
+    mockState.invoke.mockImplementation(async (name: string) => name === 'location-address' ? { data: {
+      address: '1 Lagos Road', city: 'Lagos', state: 'Lagos', latitude: 6.45, longitude: 3.4,
+      specificity: 'building', resultType: 'building', distanceMetres: null, confidence: 0.95,
+    }, error: null } : { data: { sent: true }, error: null })
     const user = userEvent.setup()
     render(<App />)
     await user.click(await screen.findByRole('button', { name: /Send items/ }))
@@ -821,6 +825,9 @@ describe('partner assignment and delivery screens', () => {
     await user.selectOptions(screen.getByLabelText(/Height/), '10')
     await user.selectOptions(screen.getByLabelText('Pickup city'), 'Lagos')
     await user.selectOptions(screen.getByLabelText('Delivery city'), 'Lagos')
+    await user.click(screen.getByRole('button', { name: 'Find pickup address' }))
+    await screen.findByText(/approximate address match/)
+    await user.click(screen.getByLabelText('This is the pickup location.'))
     fireEvent.change(screen.getByLabelText(/Declared worth/), { target: { value: '25000' } })
     fireEvent.change(screen.getByLabelText(/Price paid/), { target: { value: '18000' } })
     await user.click(screen.getByLabelText('I confirmed this delivery location with the recipient.'))
@@ -832,7 +839,7 @@ describe('partner assignment and delivery screens', () => {
     await waitFor(() => expect(mockState.upload).toHaveBeenCalledWith(expect.stringMatching(/\.png$/), parcelPhoto, { contentType: 'image/png', upsert: false }))
     await waitFor(() => expect(mockState.inserts).toContainEqual(expect.objectContaining({
       table:'service_requests',
-      data:expect.objectContaining({parcel_summary:'Books',parcel_photo_path:expect.stringMatching(/\.png$/),parcel_items:[{description:'Books',quantity:2,weight_kg:1.3,length_cm:30,width_cm:20,height_cm:10,declared_value:25000,price:18000}]})
+      data:expect.objectContaining({parcel_summary:'Books',pickup_latitude:6.45,pickup_longitude:3.4,pickup_location_source:'search',parcel_photo_path:expect.stringMatching(/\.png$/),parcel_items:[{description:'Books',quantity:2,weight_kg:1.3,length_cm:30,width_cm:20,height_cm:10,declared_value:25000,price:18000}]})
     })))
   })
 
