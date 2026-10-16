@@ -107,8 +107,14 @@ export default function CustomerSavedParcels({ supabase, userId, onError, onNoti
   async function removeItem(item: SavedParcel) {
     const { error } = await supabase.from('customer_saved_parcels').delete().eq('id', item.id).eq('user_id', userId)
     if (error) { onError(error.message); return }
-    const { error: photoError } = await supabase.storage.from('customer-saved-parcels').remove([item.photo_path])
-    if (photoError) onError(photoError.message)
+    const [requestUse, otherSavedUse] = await Promise.all([
+      supabase.from('service_requests').select('id').eq('parcel_photo_path', item.photo_path).limit(1),
+      supabase.from('customer_saved_parcels').select('id').eq('photo_path', item.photo_path).limit(1),
+    ])
+    if (!requestUse.error && !otherSavedUse.error && !requestUse.data?.length && !otherSavedUse.data?.length) {
+      const { error: photoError } = await supabase.storage.from('customer-saved-parcels').remove([item.photo_path])
+      if (photoError) onError(photoError.message)
+    }
     setItems((current) => current.filter((saved) => saved.id !== item.id))
     onNotice('Saved item removed.')
   }

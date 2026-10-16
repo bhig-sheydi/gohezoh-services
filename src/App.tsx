@@ -287,7 +287,9 @@ function App() {
       if (value) parcelItem[parcelName] = Number(value)
     }
     const parcelPhoto = (formElement.elements.namedItem('parcel_photo') as HTMLInputElement | null)?.files?.[0]
-    let parcelPhotoPath: string | null = null
+    const savedPhotoPath = savedParcelId ? String(form.get('saved_parcel_photo_path') ?? '') : ''
+    if (!parcelPhoto?.size && !savedPhotoPath) { setError('Add a photo of the goods before requesting delivery.'); setBusy(false); return }
+    let parcelPhotoPath: string | null = savedPhotoPath || null
     if (parcelPhoto && parcelPhoto.size > 0) {
       if (!['image/jpeg','image/png','image/webp'].includes(parcelPhoto.type) || parcelPhoto.size > 5 * 1024 * 1024) {
         setError('Choose a JPEG, PNG, or WebP parcel photo under 5 MB.'); setBusy(false); return
@@ -319,10 +321,10 @@ function App() {
       special_instructions: String(form.get('special_instructions') || '') || null,
     })
     if (requestError) {
-      if (parcelPhotoPath) await supabase.storage.from('customer-saved-parcels').remove([parcelPhotoPath])
+      if (parcelPhoto?.size && parcelPhotoPath) await supabase.storage.from('customer-saved-parcels').remove([parcelPhotoPath])
       setError(requestError.message)
     }
-    else { setNotice('Delivery request submitted. Kwik-Parsel operations will review it and publish it for partner quotes.'); formElement.reset(); await loadCustomer() }
+    else { setNotice('Delivery request submitted. Your item is saved in Items to send.'); formElement.reset(); await loadCustomer() }
     setBusy(false)
   }
 
@@ -1074,6 +1076,7 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
       <p className="eyebrow">NEW DELIVERY</p><h2 id="delivery-details-heading">Delivery details</h2>
       <form key={`${selectedParcel?.id ?? 'new-parcel'}-${selectedPal?.contact.code ?? 'no-pal'}-${selectedPal?.destination.slot ?? 0}`} className="form-grid" onSubmit={onSubmit} onChange={checkParcelCapacity}>
         {selectedParcel && <input type="hidden" name="saved_parcel_id" value={selectedParcel.id} />}
+        {selectedParcel && <input type="hidden" name="saved_parcel_photo_path" value={selectedParcel.photo_path} />}
         {selectedParcel && <div className="selected-saved-parcel"><img src={selectedParcel.photo_url} alt="" /><span><strong>{selectedParcel.item_name}</strong><small>Saved item details filled in</small></span><button className="text-button" type="button" onClick={() => setSelectedParcel(null)}>Clear</button></div>}
         <label className="field"><span>Service</span><select name="service_id" required value={serviceId} onChange={(event) => { setServiceId(event.target.value); setOriginId(''); setDestinationId('') }}><option value="" disabled>Select service</option>{services.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}</select></label>
         <div className="form-divider">PICKUP</div>
@@ -1089,7 +1092,7 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
         <div className="form-divider">PARCEL</div><p className="parcel-capacity-help">Enter size and weight per item. We check the selected count against shipment capacity.</p>
         <div className="field-row"><Field label="Description" name="parcel_description" placeholder="Household items" required defaultValue={selectedParcel?.description} /><label className="field"><span>Items for this destination</span><select name="parcel_quantity" required defaultValue="1">{Array.from({ length: PARCEL_MAX_QUANTITY }, (_, index) => index + 1).map((quantity) => <option key={quantity} value={quantity}>{quantity}</option>)}</select></label><ParcelWeightField name="parcel_weight" defaultValue={selectedParcel?.weight_kg} /></div>
         <ParcelMeasureFields names={{ length: 'parcel_length_cm', width: 'parcel_width_cm', height: 'parcel_height_cm' }} defaults={{ length: selectedParcel?.length_cm, width: selectedParcel?.width_cm, height: selectedParcel?.height_cm }} />
-        <label className="field"><span>Photo of goods (optional)</span><input name="parcel_photo" type="file" accept="image/jpeg,image/png,image/webp" /></label>
+        <label className="field"><span>Photo of goods</span><input name="parcel_photo" type="file" accept="image/jpeg,image/png,image/webp" required={!selectedParcel} />{selectedParcel && <small>Using the saved photo. Choose another to replace it for this delivery.</small>}</label>
         {capacityWarning && <p className={`parcel-capacity-warning ${capacityWarning.exceeded ? 'parcel-capacity-exceeded' : 'parcel-capacity-prompt'}`} role={capacityWarning.exceeded ? 'alert' : 'status'} aria-live={capacityWarning.exceeded ? 'assertive' : 'polite'}>{capacityWarning.message}</p>}
         <div className="field-row"><Field label="Declared worth (â‚¦)" name="parcel_declared_value" type="number" min="0" step="0.01" defaultValue={selectedParcel?.declared_value} /><Field label="Price paid (â‚¦)" name="parcel_price" type="number" min="0" step="0.01" defaultValue={selectedParcel?.price} /></div>
         <details className="customer-optional"><summary>Special instructions</summary><label className="field"><span>Notes for delivery</span><textarea name="special_instructions" rows={2} /></label></details>

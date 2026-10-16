@@ -821,16 +821,27 @@ describe('partner assignment and delivery screens', () => {
     await user.selectOptions(screen.getByLabelText(/Height/), '10')
     await user.selectOptions(screen.getByLabelText('Pickup city'), 'Lagos')
     await user.selectOptions(screen.getByLabelText('Delivery city'), 'Lagos')
-    const parcelPhoto = new File(['parcel photo'], 'parcel.png', { type: 'image/png' })
-    await user.upload(screen.getByLabelText('Photo of goods (optional)'), parcelPhoto)
-    expect((screen.getByLabelText('Photo of goods (optional)') as HTMLInputElement).files?.[0]).toEqual(parcelPhoto)
+    fireEvent.change(screen.getByLabelText(/Declared worth/), { target: { value: '25000' } })
+    fireEvent.change(screen.getByLabelText(/Price paid/), { target: { value: '18000' } })
     await user.click(screen.getByLabelText('I confirmed this delivery location with the recipient.'))
-    await user.click(screen.getByRole('button',{name:'Request delivery'}))
+    const parcelPhoto = new File(['parcel photo'], 'parcel.png', { type: 'image/png' })
+    await user.upload(screen.getByLabelText('Photo of goods'), parcelPhoto)
+    expect((screen.getByLabelText('Photo of goods') as HTMLInputElement).files?.[0]).toEqual(parcelPhoto)
+    const requestForm = screen.getByRole('button',{name:'Request delivery'}).closest('form')!
+    fireEvent.submit(requestForm)
     await waitFor(() => expect(mockState.upload).toHaveBeenCalledWith(expect.stringMatching(/\.png$/), parcelPhoto, { contentType: 'image/png', upsert: false }))
     await waitFor(() => expect(mockState.inserts).toContainEqual(expect.objectContaining({
       table:'service_requests',
-      data:expect.objectContaining({parcel_summary:'Books',parcel_photo_path:expect.stringMatching(/\.png$/),parcel_items:[{description:'Books',quantity:2,weight_kg:1.3,length_cm:30,width_cm:20,height_cm:10}]})
+      data:expect.objectContaining({parcel_summary:'Books',parcel_photo_path:expect.stringMatching(/\.png$/),parcel_items:[{description:'Books',quantity:2,weight_kg:1.3,length_cm:30,width_cm:20,height_cm:10,declared_value:25000,price:18000}]})
     })))
+  })
+
+  it('requires a goods photo for a new delivery item', async () => {
+    mockState.roles = ['customer']
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: /Send items/ }))
+    expect(screen.getByLabelText('Photo of goods')).toBeRequired()
   })
 
   it('preserves an in-progress delivery form when account roles refresh on focus', async () => {
