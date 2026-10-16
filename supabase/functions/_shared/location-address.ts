@@ -19,6 +19,8 @@ type Action =
   | { action: 'reverse'; latitude: number; longitude: number }
   | { action: 'search'; text: string }
   | { action: 'suggest'; text: string }
+  | { action: 'nearby_suggest'; text: string; kind: 'street' | 'amenity'; latitude: number; longitude: number }
+  | { action: 'nearby_places'; latitude: number; longitude: number }
   | { action: 'map'; latitude: number; longitude: number; zoom: number }
   | { action: 'tile'; z: number; x: number; y: number }
 
@@ -55,6 +57,13 @@ function parseAction(body: unknown): Action {
     const text = body.text.trim()
     if (text.length >= 3 && text.length <= 300 && !Array.from(text).some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) return { action: body.action, text }
   }
+  if (body.action === 'nearby_suggest' && typeof body.text === 'string' && (body.kind === 'street' || body.kind === 'amenity') && validCoordinates(body.latitude, body.longitude)) {
+    const text = body.text.trim()
+    if (text.length >= 2 && text.length <= 120 && !Array.from(text).some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127))
+      return { action: 'nearby_suggest', text, kind: body.kind, latitude: body.latitude as number, longitude: body.longitude as number }
+  }
+  if (body.action === 'nearby_places' && validCoordinates(body.latitude, body.longitude))
+    return { action: 'nearby_places', latitude: body.latitude as number, longitude: body.longitude as number }
   if (body.action === 'map' && validCoordinates(body.latitude, body.longitude) && Number.isInteger(body.zoom) && body.zoom >= 14 && body.zoom <= 19)
     return { action: 'map', latitude: body.latitude as number, longitude: body.longitude as number, zoom: body.zoom as number }
   if (body.action === 'tile' && Number.isInteger(body.z) && Number.isInteger(body.x) && Number.isInteger(body.y)) {
@@ -133,6 +142,18 @@ function normalizeOneResult(result: unknown): LocationAddressResult {
     distanceMetres: distance as number | null,
     confidence: confidence as number | null,
   }
+}
+
+function normalizeNearbyPlaces(payload: unknown): LocationAddressResult[] {
+  if (!object(payload) || !Array.isArray(payload.features)) throw new Error('invalid places schema')
+  return payload.features.slice(0, 12).flatMap((feature: unknown) => {
+    if (!object(feature) || !object(feature.properties)) return []
+    const item = feature.properties
+    if (!validCoordinates(item.lat, item.lon) || typeof item.name !== 'string' || !item.name.trim() || item.name.length > 160) return []
+    return [{ address: item.name.trim(), city: typeof item.city === 'string' ? item.city : '', state: typeof item.state === 'string' ? item.state : '',
+      latitude: item.lat as number, longitude: item.lon as number, specificity: 'area' as const, resultType: 'amenity',
+      distanceMetres: finite(item.distance) && item.distance >= 0 ? item.distance : null, confidence: null }]
+  })
 }
 
 /** In-memory counters are best-effort per isolate, not a distributed quota guarantee.
@@ -215,11 +236,21 @@ export function createLocationAddressHandler(dependencies: Dependencies) {
         url.searchParams.set('center', `lonlat:${action.longitude},${action.latitude}`)
         url.searchParams.set('zoom', String(action.zoom))
       }
-      else {
-        url = new URL(`https://api.geoapify.com/v1/geocode/${action.action === 'reverse' ? 'reverse' : action.action === 'suggest' ? 'autocomplete' : 'search'}`)
-        url.searchParams.set('format', 'json'); url.searchParams.set('lang', 'en'); url.searchParams.set('limit', action.action === 'suggest' ? '5' : '1')
+      else if (action.action === 'nearby_places') {
+        url = new URL('https://api.geoapify.com/v2/places')
+        url.searchParams.set('categories', 'commercial,catering,education,healthcare,public_transport,tourism')
+        url.searchParams.set('filter', `circle:${action.longitude},${action.latitude},700`)
+        url.searchParams.set('bias', `proximity:${action.longitude},${action.latitude}`)
+        url.searchParams.set('limit', '12'); url.searchParams.set('lang', 'en')
+      } else {
+        url = new URL(`https://api.geoapify.com/v1/geocode/${action.action === 'reverse' ? 'reverse' : action.action === 'suggest' || action.action === 'nearby_suggest' ? 'autocomplete' : 'search'}`)
+        url.searchParams.set('format', 'json'); url.searchParams.set('lang', 'en'); url.searchParams.set('limit', action.action === 'suggest' ? '5' : action.action === 'nearby_suggest' ? '8' : '1')
         if (action.action === 'reverse') {
           url.searchParams.set('lat', String(action.latitude)); url.searchParams.set('lon', String(action.longitude)); url.searchParams.set('countrycodes', 'ng')
+        } else if (action.action === 'nearby_suggest') {
+          url.searchParams.set('text', action.text); url.searchParams.set('type', action.kind)
+          url.searchParams.set('filter', `circle:${action.longitude},${action.latitude},10000`)
+          url.searchParams.set('bias', `proximity:${action.longitude},${action.latitude}`)
         } else {
           url.searchParams.set('text', action.text); url.searchParams.set('filter', 'countrycode:ng')
         }
@@ -252,8 +283,10 @@ export function createLocationAddressHandler(dependencies: Dependencies) {
       }
       try {
         if (!response.headers.get('Content-Type')?.toLowerCase().includes('application/json')) throw new Error('invalid content type')
-        const results = normalizeResults(await response.json())
-        return json(action.action === 'suggest' ? { suggestions: results } : results[0], 200)
+        const payload = await response.json()
+        if (action.action === 'nearby_places') return json({ suggestions: normalizeNearbyPlaces(payload) }, 200)
+        const results = normalizeResults(payload)
+        return json(action.action === 'suggest' || action.action === 'nearby_suggest' ? { suggestions: results } : results[0], 200)
       } catch (error) {
         if (error instanceof LocationError) throw error
         throw new LocationError(502, 'invalid_response', 'The address service returned an invalid address. Enter your address manually.')

@@ -57,6 +57,34 @@ describe('authenticated location-address handler', () => {
     expect(url.searchParams.get('limit')).toBe('5')
   })
 
+  it('limits typed street suggestions to a nearby circle', async () => {
+    const { handler, fetcher } = setup()
+    const response = await handler(request({ action: 'nearby_suggest', text: 'Market', kind: 'street', latitude: 5.5296, longitude: 7.4861 }))
+    expect(response.status).toBe(200)
+    expect((await response.json()).suggestions).toHaveLength(1)
+    const url = new URL(String(fetcher.mock.calls[0][0]))
+    expect(url.pathname).toBe('/v1/geocode/autocomplete')
+    expect(url.searchParams.get('type')).toBe('street')
+    expect(url.searchParams.get('filter')).toBe('circle:7.4861,5.5296,10000')
+    expect(url.searchParams.get('bias')).toBe('proximity:7.4861,5.5296')
+  })
+
+  it('returns only named mapped places within the requested vicinity', async () => {
+    const fetcher = vi.fn(async () => Response.json({ features: [
+      { properties: { name: 'Main Market', city: 'Umuahia', state: 'Abia', lat: 5.53, lon: 7.49, distance: 250 } },
+      { properties: { city: 'Umuahia', lat: 5.531, lon: 7.491 } },
+    ] }))
+    const { handler } = setup({ fetcher })
+    const response = await handler(request({ action: 'nearby_places', latitude: 5.5296, longitude: 7.4861 }))
+    expect(response.status).toBe(200)
+    expect((await response.json()).suggestions).toEqual([{ address: 'Main Market', city: 'Umuahia', state: 'Abia', latitude: 5.53, longitude: 7.49,
+      specificity: 'area', resultType: 'amenity', distanceMetres: 250, confidence: null }])
+    const url = new URL(String(fetcher.mock.calls[0][0]))
+    expect(url.pathname).toBe('/v2/places')
+    expect(url.searchParams.get('filter')).toBe('circle:7.4861,5.5296,700')
+    expect(url.searchParams.get('limit')).toBe('12')
+  })
+
   it('does not fabricate city, confidence, precision or distance for coarse results', async () => {
     const { handler } = setup({ fetcher: vi.fn(async () => upstreamResponse({ address_line1: 'Abia', county: 'Umuahia North', lat: 5.53, lon: 7.49, result_type: 'state' })) })
     expect(await (await handler(request())).json()).toMatchObject({ city: '', specificity: 'area', resultType: 'state', distanceMetres: null, confidence: null })

@@ -324,8 +324,11 @@
 .address-suggestions small { opacity:.75; }
 .pin-correction { display:grid; gap:10px; width:min(100%,360px); padding:12px; border:1px solid #b7c9be; border-radius:14px; background:var(--surface, #fff); color:var(--ink); }
 .pin-correction p,.pin-correction small { margin:0; }
+.pin-map-search { display:grid; grid-template-columns:110px minmax(0,1fr); gap:8px; align-items:end; }
+.pin-map-search input { width:100%; min-width:0; min-height:40px; border:1px solid #94b1a1; border-radius:8px; padding:8px; background:var(--surface,#fff); color:var(--ink); }
 .pin-map-controls { display:flex; justify-content:space-between; align-items:center; gap:8px; }
 .pin-map-controls button { border:1px solid #94b1a1; border-radius:8px; padding:6px 9px; background:transparent; color:inherit; cursor:pointer; }
-.pin-map-image { position:relative; display:grid; place-items:center; overflow:hidden; width:100%; aspect-ratio:320/220; border:1px solid #94b1a1; border-radius:10px; padding:0; background:#dce8df; cursor:crosshair; }
+.pin-map-image { position:relative; display:grid; place-items:center; overflow:hidden; width:100%; aspect-ratio:320/220; border:1px solid #94b1a1; border-radius:10px; padding:0; background:#dce8df; cursor:grab; touch-action:none; user-select:none; }
+.pin-map-image:active { cursor:grabbing; }
 .pin-map-image img { display:block; width:100%; height:100%; object-fit:fill; }
 .pin-map-marker { position:absolute; top:50%; left:50%; transform:translate(-50%,-65%); font-size:35px; line-height:1; color:#e73857; text-shadow:0 1px 3px #fff; pointer-events:none; }

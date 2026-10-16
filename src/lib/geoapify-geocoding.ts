@@ -89,12 +89,25 @@ export async function searchAddress(client: SupabaseClient, text: string, signal
 
 export async function suggestAddresses(client: SupabaseClient, text: string, signal?: AbortSignal): Promise<AddressSuggestion[]> {
   const payload = await invoke(client, { action: 'suggest', text }, signal)
-  if (!payload || typeof payload !== 'object' || !('suggestions' in payload) || !Array.isArray(payload.suggestions) || payload.suggestions.length > 5)
+  return suggestionPayload(payload, 5)
+}
+
+function suggestionPayload(payload: unknown, maximum: number): AddressSuggestion[] {
+  if (!payload || typeof payload !== 'object' || !('suggestions' in payload) || !Array.isArray(payload.suggestions) || payload.suggestions.length > maximum)
     throw new AddressLookupError('Address suggestions are unavailable. Enter the full address and try again.')
   return payload.suggestions.map((candidate: unknown) => {
     const result = addressResult(candidate)
     return suggestion(result, { latitude: result.latitude, longitude: result.longitude, accuracyMetres: null, capturedAt: Date.now(), source: 'search' })
   })
+}
+
+export async function suggestNearby(client: SupabaseClient, text: string, kind: 'street' | 'amenity', point: LocationPoint, signal?: AbortSignal): Promise<AddressSuggestion[]> {
+  try { return suggestionPayload(await invoke(client, { action: 'nearby_suggest', text, kind, ...point }, signal), 8) }
+  catch (error) { if (error instanceof AddressLookupError && error.status === 404) return []; throw error }
+}
+
+export async function nearbyPlaces(client: SupabaseClient, point: LocationPoint, signal?: AbortSignal): Promise<AddressSuggestion[]> {
+  return suggestionPayload(await invoke(client, { action: 'nearby_places', ...point }, signal), 12)
 }
 
 export async function staticPinMap(client: SupabaseClient, latitude: number, longitude: number, zoom: number, signal?: AbortSignal): Promise<Blob> {

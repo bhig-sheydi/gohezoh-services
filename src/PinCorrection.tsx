@@ -1,10 +1,10 @@
-import { useEffect, useState, type MouseEvent } from 'react'
+import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { reverseAddress, staticPinMap, type AddressSuggestion, type LocationEvidence } from './lib/geoapify-geocoding'
+import { nearbyPlaces, reverseAddress, staticPinMap, suggestNearby, type AddressSuggestion, type LocationEvidence } from './lib/geoapify-geocoding'
 
 type Point = { latitude: number; longitude: number }
 const width = 320, height = 220
-function moved(point: Point, dx: number, dy: number, zoom: number): Point {
+function shifted(point: Point, dx: number, dy: number, zoom: number): Point {
   const size = 256 * 2 ** zoom
   const lat = Math.max(-85, Math.min(85, point.latitude)) * Math.PI / 180
   const x = (point.longitude + 180) / 360 * size + dx
@@ -16,14 +16,23 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
   supabase: SupabaseClient; initial: Point; onChoose: (evidence: LocationEvidence, address: AddressSuggestion | null) => void; onClose: () => void; requireMove?: boolean
 }) {
   const [point, setPoint] = useState(initial)
-  const [zoom, setZoom] = useState(17)
+  const [zoom, setZoom] = useState(requireMove ? 15 : 17)
   const [image, setImage] = useState<{ key: string; url: string } | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [movedPin, setMovedPin] = useState(false)
   const [retry, setRetry] = useState(0)
+  const [offset, setOffset] = useState({ x: 0, y: 0 })
+  const drag = useRef<{ id: number; x: number; y: number } | null>(null)
+  const [kind, setKind] = useState<'street' | 'amenity'>('street')
+  const [query, setQuery] = useState('')
+  const [selectedLabel, setSelectedLabel] = useState('')
+  const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([])
+  const [places, setPlaces] = useState<AddressSuggestion[]>([])
+  const [lookupError, setLookupError] = useState('')
   const mapKey = `${point.latitude}:${point.longitude}:${zoom}`
   const currentImage = image?.key === mapKey ? image.url : ''
+
   useEffect(() => {
     const controller = new AbortController()
     let url = ''
@@ -32,31 +41,73 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
       .catch((cause) => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Map unavailable') })
     return () => { controller.abort(); if (url) URL.revokeObjectURL(url) }
   }, [supabase, point.latitude, point.longitude, zoom, retry])
-  function place(event: MouseEvent<HTMLButtonElement>) {
-    if (event.detail === 0 || !currentImage) return
+
+  useEffect(() => {
+    if (query.trim().length < 2) return
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => {
+      void suggestNearby(supabase, query.trim(), kind, point, controller.signal)
+        .then((results) => { if (!controller.signal.aborted) { setSuggestions(results); setLookupError('') } })
+        .catch((cause) => { if (!controller.signal.aborted) { setSuggestions([]); setLookupError(cause instanceof Error ? cause.message : 'No nearby matches found.') } })
+    }, 400)
+    return () => { window.clearTimeout(timer); controller.abort() }
+  }, [supabase, query, kind, point])
+
+  function beginDrag(event: PointerEvent<HTMLButtonElement>) {
+    if (!currentImage) return
+    drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY }
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+  function moving(event: PointerEvent<HTMLButtonElement>) {
+    if (drag.current?.id !== event.pointerId) return
+    setOffset({ x: event.clientX - drag.current.x, y: event.clientY - drag.current.y })
+  }
+  function endDrag(event: PointerEvent<HTMLButtonElement>) {
+    const start = drag.current
+    if (!start || start.id !== event.pointerId || !currentImage) return
     const rect = event.currentTarget.getBoundingClientRect()
-    const dx = ((event.clientX - rect.left) / rect.width - 0.5) * width
-    const dy = ((event.clientY - rect.top) / rect.height - 0.5) * height
-    setPoint(moved(point, dx, dy, zoom)); setMovedPin(true)
+    const dx = event.clientX - start.x, dy = event.clientY - start.y
+    const next = Math.hypot(dx, dy) > 6
+      ? shifted(point, -dx * width / rect.width, -dy * height / rect.height, zoom)
+      : shifted(point, ((event.clientX - rect.left) / rect.width - 0.5) * width, ((event.clientY - rect.top) / rect.height - 0.5) * height, zoom)
+    drag.current = null; setOffset({ x: 0, y: 0 }); setPoint(next); setMovedPin(true); setPlaces([])
+  }
+  function chooseSuggestion(result: AddressSuggestion) {
+    setPoint({ latitude: result.latitude, longitude: result.longitude }); setZoom(kind === 'street' ? 17 : 18)
+    setQuery(''); setSelectedLabel(result.address); setSuggestions([]); setPlaces([]); setMovedPin(false)
+    if (kind === 'street') {
+      void nearbyPlaces(supabase, { latitude: result.latitude, longitude: result.longitude })
+        .then((results) => setPlaces(results)).catch(() => setPlaces([]))
+    }
+  }
+  function choosePlace(result: AddressSuggestion) {
+    setPoint({ latitude: result.latitude, longitude: result.longitude }); setZoom(18)
+    setSelectedLabel(result.address); setPlaces([]); setMovedPin(false)
   }
   async function confirm() {
     setBusy(true); setError('')
     let address: AddressSuggestion | null = null
     try { address = await reverseAddress(supabase, { ...point, accuracyMetres: null, capturedAt: Date.now(), source: 'map' }) }
-    catch { /* The chosen pin is useful even when the map has no street address. */ }
+    catch { /* The customer's chosen pin remains valid when reverse geocoding fails. */ }
     onChoose({ ...point, accuracyMetres: null, capturedAt: Date.now(), source: 'map' }, address)
     setBusy(false)
   }
   return <div className="pin-correction" aria-label="Adjust location pin">
-    <div className="pin-map-controls"><strong>Adjust pin</strong><button type="button" onClick={onClose} aria-label="Close pin map">Close</button></div>
-    <p>Tap the actual pickup or delivery entrance. The written address can still be edited.</p>
-    <button type="button" className="pin-map-image" onClick={place} aria-label="Choose a point on the map">
-      {currentImage ? <img src={currentImage} alt="Street map around the selected address" /> : <span>{error ? "Map unavailable" : "Loading map..."}</span>}
+    <div className="pin-map-controls"><strong>Choose the entrance</strong><button type="button" onClick={onClose} aria-label="Close pin map">Close</button></div>
+    <p>Drag the map under the pin, or tap a location.</p>
+    <div className="pin-map-search"><label className="field"><span>Find a mapped street or place</span><select value={kind} onChange={(event) => { setKind(event.target.value as 'street' | 'amenity'); setQuery(''); setSuggestions([]); setPlaces([]) }}><option value="street">Street</option><option value="amenity">Landmark</option></select></label>
+      <input aria-label={kind === 'street' ? 'Street name' : 'Landmark name'} value={query} placeholder={kind === 'street' ? 'Type a street name' : 'Type a landmark name'} onChange={(event) => { setQuery(event.target.value); setSuggestions([]) }} /></div>
+    {suggestions.length > 0 && <div className="address-suggestions" role="group" aria-label="Nearby mapped suggestions">{suggestions.map((result, index) => <button type="button" key={`${result.latitude}-${result.longitude}-${index}`} onClick={() => chooseSuggestion(result)}>{result.address}{result.city ? `, ${result.city}` : ''}</button>)}</div>}
+    {places.length > 0 && <div className="address-suggestions" role="group" aria-label="Nearby mapped places"><small>Mapped places near this street</small>{places.map((result, index) => <button type="button" key={`${result.latitude}-${result.longitude}-${index}`} onClick={() => choosePlace(result)}>{result.address}</button>)}</div>}
+    {selectedLabel && <small role="status">Near {selectedLabel}. Drag or tap to choose the exact entrance.</small>}
+    {lookupError && <small role="status">{lookupError}</small>}
+    <button type="button" className="pin-map-image" onPointerDown={beginDrag} onPointerMove={moving} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setOffset({ x: 0, y: 0 }) }} aria-label="Drag or tap map to choose a point">
+      {currentImage ? <img src={currentImage} alt="Street map around the selected address" draggable={false} style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }} /> : <span>{error ? 'Map unavailable' : 'Loading map...'}</span>}
       <span className="pin-map-marker" aria-hidden="true">●</span>
     </button>
     <div className="pin-map-controls"><button type="button" onClick={() => setZoom(Math.max(14, zoom - 1))}>− Zoom out</button><button type="button" onClick={() => setZoom(Math.min(19, zoom + 1))}>+ Zoom in</button></div>
     {error && <div><small role="alert">{error}</small> <button type="button" className="text-button" onClick={() => { setError(''); setRetry((value) => value + 1) }}>Retry map</button></div>}
-    <button type="button" className="primary-button" disabled={busy || !currentImage || (requireMove && !movedPin)} onClick={() => void confirm()}>{busy ? 'Checking pin…' : 'Use this pin'}</button>
-    <small>Map data © OpenStreetMap contributors, rendered by Geoapify.</small>
+    <button type="button" className="primary-button" disabled={busy || !currentImage || (requireMove && !movedPin)} onClick={() => void confirm()}>{busy ? 'Checking pin...' : 'Use this pin'}</button>
+    <small>Mapped streets and places may be incomplete. <a href="https://www.geoapify.com/" target="_blank" rel="noreferrer">Powered by Geoapify</a> · <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors</a></small>
   </div>
 }
