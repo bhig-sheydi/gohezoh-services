@@ -99,10 +99,12 @@ export async function suggestAddresses(client: SupabaseClient, text: string, sig
 
 export async function staticPinMap(client: SupabaseClient, latitude: number, longitude: number, zoom: number, signal?: AbortSignal): Promise<Blob> {
   const data = await invoke(client, { action: 'map', latitude, longitude, zoom }, signal)
-  if (!(data instanceof ArrayBuffer) || data.byteLength < 3) throw new AddressLookupError('Pin map unavailable. You can still confirm the address.')
-  const bytes = new Uint8Array(data)
+  // Supabase FunctionsClient decodes application/octet-stream as a Blob.
+  const blob = data instanceof Blob ? data : data instanceof ArrayBuffer ? new Blob([data]) : null
+  if (!blob || blob.size < 3 || blob.size > 512 * 1024) throw new AddressLookupError('Pin map unavailable. You can still confirm the address.')
+  const bytes = new Uint8Array(await blob.slice(0, 3).arrayBuffer())
   if (bytes[0] !== 255 || bytes[1] !== 216 || bytes[2] !== 255) throw new AddressLookupError('Pin map returned an invalid image.')
-  return new Blob([data], { type: 'image/jpeg' })
+  return new Blob([blob], { type: 'image/jpeg' })
 }
 
 /** Called only by an explicit user action. A device fix never guarantees a particular sensor or building. */

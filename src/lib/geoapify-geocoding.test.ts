@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getAddressFromCurrentPosition, reverseAddress, type AddressResult } from './geoapify-geocoding'
+import { getAddressFromCurrentPosition, reverseAddress, staticPinMap, type AddressResult } from './geoapify-geocoding'
 import { requestAddressPosition } from './proximity'
 
 vi.mock('./proximity', () => ({ requestAddressPosition: vi.fn() }))
@@ -65,5 +65,15 @@ describe('authenticated location lookup', () => {
     const controller = new AbortController(); controller.abort()
     await expect(reverseAddress(client, fix, controller.signal)).rejects.toBeDefined()
     expect(invoke).not.toHaveBeenCalled()
+  })
+  it('accepts the Blob returned by Supabase for a valid JPEG map', async () => {
+    const { client } = setup(new Blob([new Uint8Array([255, 216, 255, 0])], { type: 'application/octet-stream' }))
+    const result = await staticPinMap(client, 6.45, 3.4, 17)
+    expect(result.type).toBe('image/jpeg')
+    expect(Array.from(new Uint8Array(await result.arrayBuffer()))).toEqual([255, 216, 255, 0])
+  })
+  it('rejects invalid map bytes', async () => {
+    const { client } = setup(new Blob(['not a JPEG']))
+    await expect(staticPinMap(client, 6.45, 3.4, 17)).rejects.toThrow('invalid image')
   })
 })

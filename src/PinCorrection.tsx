@@ -21,6 +21,7 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [movedPin, setMovedPin] = useState(false)
+  const [retry, setRetry] = useState(0)
   const mapKey = `${point.latitude}:${point.longitude}:${zoom}`
   const currentImage = image?.key === mapKey ? image.url : ''
   useEffect(() => {
@@ -30,7 +31,7 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
       .then((blob) => { if (!controller.signal.aborted) { url = URL.createObjectURL(blob); setImage({ key: `${point.latitude}:${point.longitude}:${zoom}`, url }); setError('') } })
       .catch((cause) => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Map unavailable') })
     return () => { controller.abort(); if (url) URL.revokeObjectURL(url) }
-  }, [supabase, point.latitude, point.longitude, zoom])
+  }, [supabase, point.latitude, point.longitude, zoom, retry])
   function place(event: MouseEvent<HTMLButtonElement>) {
     if (event.detail === 0 || !currentImage) return
     const rect = event.currentTarget.getBoundingClientRect()
@@ -50,11 +51,11 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
     <div className="pin-map-controls"><strong>Adjust pin</strong><button type="button" onClick={onClose} aria-label="Close pin map">Close</button></div>
     <p>Tap the actual pickup or delivery entrance. The written address can still be edited.</p>
     <button type="button" className="pin-map-image" onClick={place} aria-label="Choose a point on the map">
-      {currentImage ? <img src={currentImage} alt="Street map around the selected address" /> : <span>Loading map…</span>}
+      {currentImage ? <img src={currentImage} alt="Street map around the selected address" /> : <span>{error ? "Map unavailable" : "Loading map..."}</span>}
       <span className="pin-map-marker" aria-hidden="true">●</span>
     </button>
     <div className="pin-map-controls"><button type="button" onClick={() => setZoom(Math.max(14, zoom - 1))}>− Zoom out</button><button type="button" onClick={() => setZoom(Math.min(19, zoom + 1))}>+ Zoom in</button></div>
-    {error && <small role="alert">{error}</small>}
+    {error && <div><small role="alert">{error}</small> <button type="button" className="text-button" onClick={() => { setError(''); setRetry((value) => value + 1) }}>Retry map</button></div>}
     <button type="button" className="primary-button" disabled={busy || !currentImage || (requireMove && !movedPin)} onClick={() => void confirm()}>{busy ? 'Checking pin…' : 'Use this pin'}</button>
     <small>Map data © OpenStreetMap contributors, rendered by Geoapify.</small>
   </div>
