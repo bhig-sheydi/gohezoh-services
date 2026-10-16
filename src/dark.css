@@ -215,3 +215,6 @@
 :root[data-theme='dark'] .customer-payment-summary>strong { color:#e8f2e9; }
 :root[data-theme='dark'] .finance-cancel,
 :root[data-theme='dark'] .timeline-alert { color:#ffc49c; }
+:root[data-theme='dark'] .address-suggestions,:root[data-theme='dark'] .pin-correction { background:#1b2c25; border-color:#3b5248; color:#e9f2ea; }
+:root[data-theme='dark'] .address-suggestions button { color:#e9f2ea; }
+:root[data-theme='dark'] .address-suggestions button:hover,:root[data-theme='dark'] .address-suggestions button:focus-visible { background:#2b493d; }

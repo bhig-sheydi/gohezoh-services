@@ -18,6 +18,8 @@ export type LocationAddressResult = {
 type Action =
   | { action: 'reverse'; latitude: number; longitude: number }
   | { action: 'search'; text: string }
+  | { action: 'suggest'; text: string }
+  | { action: 'map'; latitude: number; longitude: number; zoom: number }
   | { action: 'tile'; z: number; x: number; y: number }
 
 type Dependencies = {
@@ -49,10 +51,12 @@ function parseAction(body: unknown): Action {
   if (body.action === 'reverse' && validCoordinates(body.latitude, body.longitude)) {
     return { action: 'reverse', latitude: body.latitude as number, longitude: body.longitude as number }
   }
-  if (body.action === 'search' && typeof body.text === 'string') {
+  if ((body.action === 'search' || body.action === 'suggest') && typeof body.text === 'string') {
     const text = body.text.trim()
-    if (text.length >= 3 && text.length <= 300 && !Array.from(text).some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) return { action: 'search', text }
+    if (text.length >= 3 && text.length <= 300 && !Array.from(text).some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) return { action: body.action, text }
   }
+  if (body.action === 'map' && validCoordinates(body.latitude, body.longitude) && Number.isInteger(body.zoom) && body.zoom >= 14 && body.zoom <= 19)
+    return { action: 'map', latitude: body.latitude as number, longitude: body.longitude as number, zoom: body.zoom as number }
   if (body.action === 'tile' && Number.isInteger(body.z) && Number.isInteger(body.x) && Number.isInteger(body.y)) {
     const z = body.z as number, x = body.x as number, y = body.y as number
     // Geoapify supports 0..20; the correction map intentionally stops at zoom 19.
@@ -98,10 +102,13 @@ async function limitedBytes(response: Response | Request, maximum: number): Prom
   return bytes
 }
 
-function normalizeResult(payload: unknown): LocationAddressResult {
+function normalizeResults(payload: unknown): LocationAddressResult[] {
   if (!object(payload) || !Array.isArray(payload.results)) throw new Error('invalid schema')
   if (!payload.results.length) throw new LocationError(404, 'address_not_found', 'No mapped address was found. Enter your address manually or adjust the pin.')
-  const result: unknown = payload.results[0]
+  return payload.results.map(normalizeOneResult)
+}
+
+function normalizeOneResult(result: unknown): LocationAddressResult {
   if (!object(result) || !validCoordinates(result.lat, result.lon)) throw new Error('invalid coordinates')
   for (const key of ['address_line1', 'formatted', 'city', 'state', 'street', 'housenumber', 'result_type']) {
     if (result[key] !== undefined && (typeof result[key] !== 'string' || (result[key] as string).length > 1000)) throw new Error('invalid field')
@@ -135,14 +142,15 @@ export function createLocationAddressHandler(dependencies: Dependencies) {
   const fetcher = dependencies.fetcher ?? fetch
   const now = dependencies.now ?? Date.now
   const origins = new Set([dependencies.productionOrigin || 'https://gohezoh-services.vercel.app', 'http://localhost:3000', 'http://localhost:5173'])
-  const counters = new Map<string, { expires: number; addresses: number; tiles: number }>()
+  const counters = new Map<string, { expires: number; addresses: number; tiles: number; maps: number }>()
 
   async function upstream(url: URL): Promise<Response> {
     for (let attempt = 0; attempt < 2; attempt++) {
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), dependencies.upstreamTimeoutMs ?? 8000)
       try {
-        const response = await fetcher(url, { signal: controller.signal, redirect: 'error', headers: { Accept: url.hostname === 'maps.geoapify.com' ? 'image/png' : 'application/json' } })
+        const accept = url.pathname.startsWith('/v1/staticmap') ? 'image/jpeg' : url.hostname === 'maps.geoapify.com' ? 'image/png' : 'application/json'
+        const response = await fetcher(url, { signal: controller.signal, redirect: 'error', headers: { Accept: accept } })
         if (response.status >= 500 && attempt === 0) { await response.body?.cancel(); continue }
         if (!response.ok) {
           await response.body?.cancel()
@@ -192,21 +200,28 @@ export function createLocationAddressHandler(dependencies: Dependencies) {
       let count = counters.get(userId)
       if (!count) {
         if (counters.size >= MAX_RATE_ENTRIES) throw new LocationError(429, 'rate_limited', 'The address service is busy. Try again shortly.', 60)
-        count = { expires: time + WINDOW_MS, addresses: 0, tiles: 0 }
+        count = { expires: time + WINDOW_MS, addresses: 0, tiles: 0, maps: 0 }
         counters.set(userId, count)
       }
-      const isTile = action.action === 'tile'
-      const countKey = isTile ? 'tiles' : 'addresses'
-      if (++count[countKey] > (isTile ? 180 : 30)) throw new LocationError(429, 'rate_limited', 'Too many location requests. Try again shortly.', Math.max(1, Math.ceil((count.expires - time) / 1000)))
+      const isImage = action.action === 'tile' || action.action === 'map'
+      const countKey = action.action === 'map' ? 'maps' : isImage ? 'tiles' : 'addresses'
+      if (++count[countKey] > (action.action === 'map' ? 20 : isImage ? 180 : 30)) throw new LocationError(429, 'rate_limited', 'Too many location requests. Try again shortly.', Math.max(1, Math.ceil((count.expires - time) / 1000)))
       let url: URL
       if (action.action === 'tile') url = new URL(`https://maps.geoapify.com/v1/tile/osm-bright/${action.z}/${action.x}/${action.y}.png`)
+      else if (action.action === 'map') {
+        url = new URL('https://maps.geoapify.com/v1/staticmap')
+        url.searchParams.set('style', 'osm-bright'); url.searchParams.set('format', 'jpeg')
+        url.searchParams.set('width', '320'); url.searchParams.set('height', '220')
+        url.searchParams.set('center', `lonlat:${action.longitude},${action.latitude}`)
+        url.searchParams.set('zoom', String(action.zoom))
+      }
       else {
-        url = new URL(`https://api.geoapify.com/v1/geocode/${action.action === 'reverse' ? 'reverse' : 'search'}`)
-        url.searchParams.set('format', 'json'); url.searchParams.set('lang', 'en'); url.searchParams.set('limit', '1')
+        url = new URL(`https://api.geoapify.com/v1/geocode/${action.action === 'reverse' ? 'reverse' : action.action === 'suggest' ? 'autocomplete' : 'search'}`)
+        url.searchParams.set('format', 'json'); url.searchParams.set('lang', 'en'); url.searchParams.set('limit', action.action === 'suggest' ? '5' : '1')
         if (action.action === 'reverse') {
-          url.searchParams.set('lat', String(action.latitude)); url.searchParams.set('lon', String(action.longitude))
+          url.searchParams.set('lat', String(action.latitude)); url.searchParams.set('lon', String(action.longitude)); url.searchParams.set('countrycodes', 'ng')
         } else {
-          url.searchParams.set('text', action.text); url.searchParams.set('filter', 'countrycode:ng'); url.searchParams.set('bias', 'countrycode:none')
+          url.searchParams.set('text', action.text); url.searchParams.set('filter', 'countrycode:ng')
         }
       }
       url.searchParams.set('apiKey', dependencies.apiKey)
@@ -227,9 +242,18 @@ export function createLocationAddressHandler(dependencies: Dependencies) {
         headers.set('X-Image-Type', 'image/png')
         return new Response(bytes, { headers })
       }
+      if (action.action === 'map') {
+        if (response.headers.get('Content-Type')?.split(';')[0].trim().toLowerCase() !== 'image/jpeg') throw new LocationError(502, 'invalid_response', 'The pin map is unavailable. Confirm the address manually.')
+        const bytes = new Uint8Array(await response.arrayBuffer())
+        if (bytes.length < 3 || bytes[0] !== 255 || bytes[1] !== 216 || bytes[2] !== 255) throw new LocationError(502, 'invalid_response', 'The pin map is unavailable. Confirm the address manually.')
+        headers.set('Content-Type', 'application/octet-stream')
+        headers.set('X-Image-Type', 'image/jpeg')
+        return new Response(bytes, { headers })
+      }
       try {
         if (!response.headers.get('Content-Type')?.toLowerCase().includes('application/json')) throw new Error('invalid content type')
-        return json(normalizeResult(await response.json()), 200)
+        const results = normalizeResults(await response.json())
+        return json(action.action === 'suggest' ? { suggestions: results } : results[0], 200)
       } catch (error) {
         if (error instanceof LocationError) throw error
         throw new LocationError(502, 'invalid_response', 'The address service returned an invalid address. Enter your address manually.')

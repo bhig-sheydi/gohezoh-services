@@ -828,6 +828,9 @@ describe('partner assignment and delivery screens', () => {
     await user.click(screen.getByRole('button', { name: 'Find pickup address' }))
     await screen.findByText(/approximate address match/)
     await user.click(screen.getByLabelText('This is the pickup location.'))
+    await user.click(screen.getByRole('button', { name: 'Find delivery address' }))
+    await screen.findByLabelText('This is the delivery location.')
+    await user.click(screen.getByLabelText('This is the delivery location.'))
     fireEvent.change(screen.getByLabelText(/Declared worth/), { target: { value: '25000' } })
     fireEvent.change(screen.getByLabelText(/Price paid/), { target: { value: '18000' } })
     await user.click(screen.getByLabelText('I confirmed this delivery location with the recipient.'))
@@ -839,7 +842,7 @@ describe('partner assignment and delivery screens', () => {
     await waitFor(() => expect(mockState.upload).toHaveBeenCalledWith(expect.stringMatching(/\.png$/), parcelPhoto, { contentType: 'image/png', upsert: false }))
     await waitFor(() => expect(mockState.inserts).toContainEqual(expect.objectContaining({
       table:'service_requests',
-      data:expect.objectContaining({parcel_summary:'Books',pickup_latitude:6.45,pickup_longitude:3.4,pickup_location_source:'search',parcel_photo_path:expect.stringMatching(/\.png$/),parcel_items:[{description:'Books',quantity:2,weight_kg:1.3,length_cm:30,width_cm:20,height_cm:10,declared_value:25000,price:18000}]})
+      data:expect.objectContaining({parcel_summary:'Books',pickup_latitude:6.45,pickup_longitude:3.4,pickup_location_source:'search',delivery_latitude:6.45,delivery_longitude:3.4,parcel_photo_path:expect.stringMatching(/\.png$/),parcel_items:[{description:'Books',quantity:2,weight_kg:1.3,length_cm:30,width_cm:20,height_cm:10,declared_value:25000,price:18000}]})
     })))
   })
 

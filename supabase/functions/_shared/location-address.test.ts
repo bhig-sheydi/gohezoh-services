@@ -42,7 +42,19 @@ describe('authenticated location-address handler', () => {
     expect(url.pathname).toBe('/v1/geocode/search')
     expect(url.searchParams.get('text')).toBe('10 Market Road, Umuahia')
     expect(url.searchParams.get('filter')).toBe('countrycode:ng')
-    expect(url.searchParams.get('bias')).toBe('countrycode:none')
+    expect(url.searchParams.has('bias')).toBe(false)
+  })
+
+  it('returns several bounded Nigerian autocomplete candidates instead of silently choosing one', async () => {
+    const fetcher = vi.fn(async () => Response.json({ results: [record, { ...record, address_line1: '12 Market Road', lat: 5.5298 }] }))
+    const { handler } = setup({ fetcher })
+    const response = await handler(request({ action: 'suggest', text: 'Market Road, Umuahia' }))
+    expect(response.status).toBe(200)
+    expect((await response.json()).suggestions).toHaveLength(2)
+    const url = new URL(String(fetcher.mock.calls[0][0]))
+    expect(url.pathname).toBe('/v1/geocode/autocomplete')
+    expect(url.searchParams.get('filter')).toBe('countrycode:ng')
+    expect(url.searchParams.get('limit')).toBe('5')
   })
 
   it('does not fabricate city, confidence, precision or distance for coarse results', async () => {
@@ -89,6 +101,8 @@ describe('authenticated location-address handler', () => {
     { action: 'reverse', latitude: '5', longitude: 7 },
     { action: 'ip' }, { action: 'search', text: 'x' },
     { action: 'search', text: 'A'.repeat(301) },
+    { action: 'suggest', text: 'x' },
+    { action: 'map', latitude: 5, longitude: 7, zoom: 20 },
     { action: 'tile', z: 20, x: 0, y: 0 },
     { action: 'tile', z: 3, x: 8, y: 0 },
     { action: 'tile', z: 3, x: 0, y: -1 },
@@ -183,6 +197,20 @@ describe('authenticated location-address handler', () => {
   it('rejects fake PNG content', async () => {
     const { handler } = setup({ fetcher: vi.fn(async () => new Response('not an image', { headers: { 'Content-Type': 'image/png' } })) })
     expect((await handler(request({ action: 'tile', z: 0, x: 0, y: 0 }))).status).toBe(502)
+  })
+
+  it('serves a bounded static pin map without exposing the provider key', async () => {
+    const jpeg = new Uint8Array([255, 216, 255, 1, 2, 3])
+    const fetcher = vi.fn(async () => new Response(jpeg, { headers: { 'Content-Type': 'image/jpeg' } }))
+    const { handler } = setup({ fetcher })
+    const response = await handler(request({ action: 'map', latitude: 5.5296, longitude: 7.4861, zoom: 17 }))
+    expect(response.status).toBe(200)
+    expect(response.headers.get('X-Image-Type')).toBe('image/jpeg')
+    expect(new Uint8Array(await response.arrayBuffer())).toEqual(jpeg)
+    const url = new URL(String(fetcher.mock.calls[0][0]))
+    expect(url.pathname).toBe('/v1/staticmap')
+    expect(url.searchParams.get('center')).toBe('lonlat:7.4861,5.5296')
+    expect(url.searchParams.get('width')).toBe('320')
   })
 
   it('limits per-user requests and resets counters after expiry', async () => {

@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { requestAddressPosition, type PositionFix } from './proximity'
 
 export type LocationPoint = { latitude: number; longitude: number }
-export type LocationEvidence = LocationPoint & { accuracyMetres: number | null; capturedAt: number; source: 'browser' | 'native' | 'map' | 'search' }
+export type LocationEvidence = LocationPoint & { accuracyMetres: number | null; capturedAt: number; source: 'browser' | 'native' | 'map' | 'search' | 'saved' }
 export type AddressResult = LocationPoint & {
   address: string; city: string; state: string
   specificity: 'building' | 'street' | 'area'; resultType: string
@@ -85,6 +85,24 @@ export async function reverseAddress(client: SupabaseClient, evidence: LocationE
 export async function searchAddress(client: SupabaseClient, text: string, signal?: AbortSignal): Promise<AddressSuggestion> {
   const result = addressResult(await invoke(client, { action: 'search', text }, signal))
   return suggestion(result, { latitude: result.latitude, longitude: result.longitude, accuracyMetres: null, capturedAt: Date.now(), source: 'search' })
+}
+
+export async function suggestAddresses(client: SupabaseClient, text: string, signal?: AbortSignal): Promise<AddressSuggestion[]> {
+  const payload = await invoke(client, { action: 'suggest', text }, signal)
+  if (!payload || typeof payload !== 'object' || !('suggestions' in payload) || !Array.isArray(payload.suggestions) || payload.suggestions.length > 5)
+    throw new AddressLookupError('Address suggestions are unavailable. Enter the full address and try again.')
+  return payload.suggestions.map((candidate: unknown) => {
+    const result = addressResult(candidate)
+    return suggestion(result, { latitude: result.latitude, longitude: result.longitude, accuracyMetres: null, capturedAt: Date.now(), source: 'search' })
+  })
+}
+
+export async function staticPinMap(client: SupabaseClient, latitude: number, longitude: number, zoom: number, signal?: AbortSignal): Promise<Blob> {
+  const data = await invoke(client, { action: 'map', latitude, longitude, zoom }, signal)
+  if (!(data instanceof ArrayBuffer) || data.byteLength < 3) throw new AddressLookupError('Pin map unavailable. You can still confirm the address.')
+  const bytes = new Uint8Array(data)
+  if (bytes[0] !== 255 || bytes[1] !== 216 || bytes[2] !== 255) throw new AddressLookupError('Pin map returned an invalid image.')
+  return new Blob([data], { type: 'image/jpeg' })
 }
 
 /** Called only by an explicit user action. A device fix never guarantees a particular sensor or building. */

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ParcelDestination } from './ParcelPalsPanel'
-import { getAddressFromCurrentPosition, type AddressSuggestion } from './lib/geoapify-geocoding'
+import { getAddressFromCurrentPosition, suggestAddresses, type AddressSuggestion, type LocationEvidence } from './lib/geoapify-geocoding'
+import PinCorrection from './PinCorrection'
 
 type Props = { supabase: SupabaseClient; userId: string; destinations: ParcelDestination[]; onSaved: () => Promise<void>; onClose?: () => void; onError: (message: string) => void; onNotice: (message: string) => void }
 const fieldValue = (form: HTMLFormElement, name: string) => (form.elements.namedItem(name) as HTMLInputElement | null)?.value.trim() ?? ''
@@ -10,9 +11,12 @@ export default function DeliveryLocationsEditor({ supabase, userId, destinations
   const [busy, setBusy] = useState<{ slot: number; kind: 'lookup' | 'save' | 'remove' } | null>(null)
   const [feedback, setFeedback] = useState<{ slot: number; message: string; error: boolean } | null>(null)
   const [suggestion, setSuggestion] = useState<{ slot: number; at: number } | null>(null)
+  const [options, setOptions] = useState<{ slot: number; results: AddressSuggestion[] } | null>(null)
+  const [pinSlot, setPinSlot] = useState<number | null>(null)
+  const [pinInitial, setPinInitial] = useState<LocationEvidence | null>(null)
   const operation = useRef<AbortController | null>(null)
   const forms = useRef(new Map<number, HTMLFormElement>())
-  const coordinates = useRef(new Map<number, AddressSuggestion>())
+  const coordinates = useRef(new Map<number, LocationEvidence>())
   useEffect(() => () => { operation.current?.abort() }, [userId])
 
   function apply(slot: number, result: AddressSuggestion) {
@@ -23,9 +27,24 @@ export default function DeliveryLocationsEditor({ supabase, userId, destinations
       if (input instanceof HTMLInputElement && result[name]) input.value = result[name]
     }
     setSuggestion({ slot, at: result.evidence.capturedAt })
-    coordinates.current.set(slot, result)
+    coordinates.current.set(slot, result.evidence)
+    setOptions(null)
     const approximate = result.specificity !== 'building' || (result.evidence.accuracyMetres ?? 0) > 100 || (result.distanceMetres ?? 0) > 100 || (result.confidence !== null && result.confidence < 0.8)
     setFeedback({ slot, message: approximate ? 'Approximate address. Edit any incorrect details.' : 'Address filled. Check before saving.', error: false })
+  }
+  async function findOptions(slot: number) {
+    if (operation.current) return
+    const form = forms.current.get(slot)
+    if (!form) return
+    const address = fieldValue(form, 'address'), city = fieldValue(form, 'city')
+    if (address.length < 5 || !city) { setFeedback({ slot, message: 'Enter the street, building or landmark and city first.', error: true }); return }
+    const controller = new AbortController(); operation.current = controller
+    setBusy({ slot, kind: 'lookup' }); setOptions(null); setFeedback(null)
+    try {
+      const results = await suggestAddresses(supabase, `${address}, ${city}, Nigeria`, controller.signal)
+      if (!controller.signal.aborted) setOptions({ slot, results: results.filter((result) => result.specificity !== 'area') })
+    } catch (cause) { if (!controller.signal.aborted) setFeedback({ slot, message: cause instanceof Error ? cause.message : 'Address search failed.', error: true }) }
+    finally { if (operation.current === controller) { operation.current = null; setBusy(null) } }
   }
   async function detect(slot: number) {
     if (operation.current) return
@@ -44,14 +63,14 @@ export default function DeliveryLocationsEditor({ supabase, userId, destinations
     event.preventDefault()
     if (operation.current) return
     const form = event.currentTarget
-    const point = coordinates.current.get(slot)?.evidence
+    const point = coordinates.current.get(slot)
     const saved = destinations.find((destination) => destination.slot === slot)
     const unchanged = saved && ['address', 'city', 'state'].every((key) => fieldValue(form, key) === saved[key as 'address' | 'city' | 'state'])
     const payload = { user_id: userId, slot, label: slot === 1 ? 'Work' : slot === 2 ? 'Home' : 'Other', address: fieldValue(form, 'address'), city: fieldValue(form, 'city'), state: fieldValue(form, 'state'), secondary_phone: fieldValue(form, 'secondary_phone') || null,
-      latitude: point && (point.accuracyMetres ?? Infinity) <= 100 ? point.latitude : unchanged ? saved.latitude ?? null : null,
-      longitude: point && (point.accuracyMetres ?? Infinity) <= 100 ? point.longitude : unchanged ? saved.longitude ?? null : null,
-      location_source: point && (point.accuracyMetres ?? Infinity) <= 100 ? point.source : unchanged ? saved.location_source ?? null : null,
-      location_accuracy_metres: point && (point.accuracyMetres ?? Infinity) <= 100 ? point.accuracyMetres : unchanged ? saved.location_accuracy_metres ?? null : null,
+      latitude: point && (point.accuracyMetres === null || point.accuracyMetres <= 100) ? point.latitude : unchanged ? saved.latitude ?? null : null,
+      longitude: point && (point.accuracyMetres === null || point.accuracyMetres <= 100) ? point.longitude : unchanged ? saved.longitude ?? null : null,
+      location_source: point && (point.accuracyMetres === null || point.accuracyMetres <= 100) ? point.source : unchanged ? saved.location_source ?? null : null,
+      location_accuracy_metres: point && (point.accuracyMetres === null || point.accuracyMetres <= 100) ? point.accuracyMetres : unchanged ? saved.location_accuracy_metres ?? null : null,
     }
     const controller = new AbortController(); operation.current = controller
     setBusy({ slot, kind: 'save' }); onError(''); onNotice('')
@@ -60,7 +79,7 @@ export default function DeliveryLocationsEditor({ supabase, userId, destinations
       if (controller.signal.aborted) return
       if (error) throw new Error(error.message)
       onNotice(`${payload.label} delivery location saved.`)
-      setSuggestion(null); setFeedback(null)
+      setSuggestion(null); setFeedback(null); setOptions(null); setPinSlot(null)
       await onSaved()
     } catch (error) { if (!controller.signal.aborted) onError(error instanceof Error ? error.message : 'Could not save this delivery location.') }
     finally { if (operation.current === controller) { operation.current = null; if (!controller.signal.aborted) setBusy(null) } }
@@ -75,7 +94,7 @@ export default function DeliveryLocationsEditor({ supabase, userId, destinations
       if (error) throw new Error(error.message)
       const form = forms.current.get(slot)
       if (form) for (const name of ['address', 'city', 'state', 'secondary_phone']) { const input = form.elements.namedItem(name); if (input instanceof HTMLInputElement) input.value = '' }
-      setSuggestion(null); setFeedback(null)
+      setSuggestion(null); setFeedback(null); setOptions(null); setPinSlot(null); coordinates.current.delete(slot)
       onNotice('Delivery location removed.'); await onSaved()
     } catch (error) { if (!controller.signal.aborted) onError(error instanceof Error ? error.message : 'Could not remove this delivery location.') }
     finally { if (operation.current === controller) { operation.current = null; if (!controller.signal.aborted) setBusy(null) } }
@@ -94,8 +113,11 @@ export default function DeliveryLocationsEditor({ supabase, userId, destinations
           <div className="field-row"><label className="field"><span>City</span><input name="city" defaultValue={saved?.city ?? ''} required maxLength={100} /></label><label className="field"><span>State</span><input name="state" defaultValue={saved?.state ?? ''} required maxLength={100} /></label></div>
           <label className="field"><span>Second phone (optional)</span><input name="secondary_phone" type="tel" defaultValue={saved?.secondary_phone ?? ''} /></label>
         </fieldset>
-        <div className="parcel-pal-actions"><button className="secondary-button" type="button" disabled={!!busy} onClick={() => void detect(slot)}>{busy?.kind === 'lookup' && busy.slot === slot ? 'Getting address...' : 'Get address'}</button></div>
+        <div className="parcel-pal-actions"><button className="secondary-button" type="button" disabled={!!busy} onClick={() => void detect(slot)}>{busy?.kind === 'lookup' && busy.slot === slot ? 'Getting address...' : 'Get address'}</button><button className="secondary-button" type="button" disabled={!!busy} onClick={() => void findOptions(slot)}>Find options</button></div>
+        {options?.slot === slot && <div className="address-suggestions" role="group" aria-label={`${saved?.label ?? 'Delivery'} address suggestions`}>{options.results.map((result, index) => <button type="button" key={`${result.latitude}-${result.longitude}-${index}`} onClick={() => apply(slot, result)}><strong>{result.address}</strong><small>{result.city}, {result.state} · {result.specificity} match</small></button>)}</div>}
         {feedback?.slot === slot && <p className="parcel-pal-location-quality" role={feedback.error ? 'alert' : 'status'}>{feedback.message}</p>}
+        {suggestion?.slot === slot && <button className="text-button" type="button" onClick={() => { setPinInitial(coordinates.current.get(slot) ?? null); setPinSlot(slot) }}>Adjust pin</button>}
+        {pinSlot === slot && pinInitial && <PinCorrection supabase={supabase} initial={pinInitial} onClose={() => setPinSlot(null)} onChoose={(point, address) => { coordinates.current.set(slot, point); if (address) apply(slot, { ...address, evidence: point }); setPinSlot(null); setSuggestion({ slot, at: point.capturedAt }) }} />}
         {suggestion?.slot === slot && <label className="location-confirm" key={suggestion.at}><input type="checkbox" required />Address is correct.</label>}
         <div className="parcel-pal-actions"><button className="primary-button" disabled={!!busy}>{busy?.slot === slot && busy.kind === 'save' ? 'Saving...' : 'Save location'}</button>{saved && <button className="text-button" type="button" disabled={!!busy} onClick={() => void remove(slot)}>{busy?.slot === slot && busy.kind === 'remove' ? 'Removing...' : 'Remove'}</button>}</div>
         <small className="location-attribution">Address suggestions by <a href="https://www.geoapify.com/" target="_blank" rel="noreferrer">Geoapify</a> and <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a></small>

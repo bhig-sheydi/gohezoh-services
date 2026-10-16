@@ -8,7 +8,7 @@ import './dark.css'
 
 type RiderJob = { job_id: string; job_number: string; status: string; pickup_address: string; pickup_city: string;
   delivery_address: string; delivery_city: string; recipient_name: string; recipient_phone: string;
-  parcel_summary: string; company_name: string; latitude?: number | null; longitude?: number | null; sender_name?: string; sender_phone?: string }
+  parcel_summary: string; company_name: string; latitude?: number | null; longitude?: number | null; delivery_latitude?: number | null; delivery_longitude?: number | null; sender_name?: string; sender_phone?: string }
 const nextStatus: Record<string, string[]> = {
   partner_assigned: ['pickup_scheduled', 'picked_up', 'exception'], pickup_scheduled: ['picked_up', 'exception'],
   picked_up: ['in_transit', 'exception'], in_transit: ['out_for_delivery', 'exception'],
@@ -68,11 +68,15 @@ export default function RiderApp() {
     const { data: role } = await supabase.from('user_roles').select('role').eq('user_id', session.user.id).eq('role', 'rider').maybeSingle()
     setRider(Boolean(role))
     if (!role) return
-    const [{ data, error: loadError }, profile, pickupLocations] = await Promise.all([
-      supabase.rpc('list_my_rider_jobs'), supabase.rpc('my_rider_profile'), supabase.rpc('list_my_rider_pickup_locations'),
+    const [{ data, error: loadError }, profile, pickupLocations, deliveryLocations] = await Promise.all([
+      supabase.rpc('list_my_rider_jobs'), supabase.rpc('my_rider_profile'), supabase.rpc('list_my_rider_pickup_locations'), supabase.rpc('list_my_rider_delivery_locations'),
     ])
     if (loadError) setError(loadError.message)
-    else setJobs(((data ?? []) as RiderJob[]).map((job) => ({ ...job, ...(Array.isArray(pickupLocations.data) ? pickupLocations.data.find((location: { job_id: string }) => location.job_id === job.job_id) : {}) })))
+    else setJobs(((data ?? []) as RiderJob[]).map((job) => {
+      const delivery = Array.isArray(deliveryLocations.data) ? deliveryLocations.data.find((location: { job_id: string }) => location.job_id === job.job_id) : null
+      return { ...job, ...(Array.isArray(pickupLocations.data) ? pickupLocations.data.find((location: { job_id: string }) => location.job_id === job.job_id) : {}),
+        delivery_latitude: delivery?.latitude, delivery_longitude: delivery?.longitude }
+    }))
     if (!profile.error && profile.data?.[0]?.company_name) setCompanyName(String(profile.data[0].company_name))
   }, [session, supabase])
   useEffect(() => { const timer = window.setTimeout(() => { void load() }, 0); return () => window.clearTimeout(timer) }, [load])
@@ -144,6 +148,7 @@ export default function RiderApp() {
         <div className="review-title"><div><p className="eyebrow">{job.job_number}</p><h2>{label(job.status)}</h2></div></div>
         {job.latitude != null && job.longitude != null && <p><strong>{job.sender_name} · {job.sender_phone}</strong><br /><a href={`https://www.google.com/maps/search/?api=1&query=${job.latitude},${job.longitude}`} target="_blank" rel="noreferrer">Open pickup directions</a></p>}
         <p>{job.parcel_summary}</p><div className="partner-job-route"><div><small>PICKUP</small><p>{job.pickup_address}<br />{job.pickup_city}</p></div><div><small>DELIVER TO</small><p>{job.delivery_address}<br />{job.delivery_city}</p><strong>{job.recipient_name} · {job.recipient_phone}</strong></div></div>
+        {job.delivery_latitude != null && job.delivery_longitude != null && <p><a href={`https://www.google.com/maps/search/?api=1&query=${job.delivery_latitude},${job.delivery_longitude}`} target="_blank" rel="noreferrer">Open delivery pin</a></p>}
         {(nextStatus[job.status] ?? []).length > 0 && <label className="field"><span>Update delivery</span><select disabled={busy} value="" onChange={(event) => { if (event.target.value) void advance(job, event.target.value) }}><option value="">Choose next step</option>{nextStatus[job.status].map((status) => <option key={status} value={status}>{label(status)}</option>)}</select></label>}
         {job.status === 'out_for_delivery' && <section className="delivery-otp-panel"><button className="secondary-button" disabled={busy} onClick={() => void sendCode(job)}>Send recipient code</button><label className="field"><span>Recipient code</span><input inputMode="numeric" value={codes[job.job_id] ?? ''} onChange={(event) => setCodes((current) => ({ ...current, [job.job_id]: event.target.value.replace(/\D/g, '').slice(0, 6) }))} maxLength={6} /></label><button className="primary-button" disabled={busy || (codes[job.job_id] ?? '').length !== 6} onClick={() => void verifyCode(job)}>Confirm delivery</button></section>}
       </article>)}</div>}
