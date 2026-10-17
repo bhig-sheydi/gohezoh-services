@@ -309,7 +309,7 @@ function App() {
       customer_id: customer.id,
       service_id: String(form.get('service_id')),
       created_by: session.user.id,
-      pickup_address: String(form.get('pickup_address')),
+      pickup_address: [form.get('pickup_address'), form.get('pickup_community')].map((part) => String(part ?? '').trim()).filter(Boolean).join(', '),
       pickup_latitude: form.has('pickup_latitude') ? Number(form.get('pickup_latitude')) : null,
       pickup_longitude: form.has('pickup_longitude') ? Number(form.get('pickup_longitude')) : null,
       pickup_accuracy_metres: form.get('pickup_accuracy_metres') ? Number(form.get('pickup_accuracy_metres')) : null,
@@ -1098,9 +1098,9 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
         <label className="field"><span>Service</span><select name="service_id" required value={serviceId} onChange={(event) => { setServiceId(event.target.value); setOriginId(''); setDestinationId('') }}><option value="" disabled>Select service</option>{services.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}</select></label>
         <div className="form-divider">PICKUP</div>
         <div className="field-row"><Field label="Pickup contact" name="sender_name" required /><Field label="Pickup phone" name="sender_phone" type="tel" required /></div>
-        <Field label="Pickup street" name="pickup_address" required />
-        {['SRV-0001', 'SRV-0002'].includes(serviceCode ?? '') && <PickupLocation supabase={supabase} userId={userId} onCitySelected={(city) => { setOriginId(coverageLocations.find((location) => location.name.toLowerCase() === city.toLowerCase())?.id ?? ''); setDestinationId('') }} />}
+        <div className="field-row"><Field label="Pickup community" name="pickup_community" placeholder="e.g. Eliozu" required /><Field label="Pickup street" name="pickup_address" placeholder="e.g. Orji Woko Close" required /></div>
         <div className="field-row"><label className="field"><span>Pickup city</span><select name="pickup_city" required value={originId ? coverageLocations.find((location) => location.id === originId)?.name ?? '' : ''} onChange={(event) => { setOriginId(coverageLocations.find((location) => location.name === event.target.value)?.id ?? ''); setDestinationId('') }}><option value="">Select city</option>{origins.map((location) => <option key={location.id} value={location.name}>{location.name}</option>)}</select></label><input type="hidden" name="pickup_state" value={coverageLocations.find((location) => location.id === originId)?.state ?? ''} /><Field label="Pickup time" name="preferred_pickup_at" type="datetime-local" min={new Date().toISOString().slice(0, 16)} /></div>
+        {['SRV-0001', 'SRV-0002'].includes(serviceCode ?? '') && <PickupLocation supabase={supabase} userId={userId} onCitySelected={(city) => { setOriginId(coverageLocations.find((location) => location.name.toLowerCase() === city.toLowerCase())?.id ?? ''); setDestinationId('') }} />}
         <div className="form-divider">DELIVER TO</div>
         {selectedPal && <div className="selected-saved-parcel"><span><strong>Parcel Pal: {selectedPal.contact.full_name || selectedPal.contact.code}</strong><small>{selectedPal.destination.label} location selected. Confirm it with the recipient below.</small></span><button className="text-button" type="button" onClick={() => setSelectedPal(null)}>Clear</button></div>}
         <div className="field-row"><Field label="Recipient name" name="recipient_name" defaultValue={selectedPal?.contact.full_name ?? ''} required /><Field label="Recipient phone" name="recipient_phone" type="tel" defaultValue={selectedPal?.contact.phone ?? ''} required /></div>

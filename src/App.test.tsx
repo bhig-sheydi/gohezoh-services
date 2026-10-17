@@ -811,7 +811,7 @@ describe('partner assignment and delivery screens', () => {
     await screen.findByRole('heading', {name: 'Delivery details'})
     await user.selectOptions(screen.getByLabelText('Service'), 'service-1')
     for (const [label,value] of Object.entries({
-      'Pickup contact':'Ada','Pickup phone':'08000000001','Pickup street':'1 Lagos Road',
+      'Pickup contact':'Ada','Pickup phone':'08000000001','Pickup community':'Ikeja','Pickup street':'1 Lagos Road',
       'Recipient name':'Bola','Recipient phone':'08000000002','Delivery street':'2 Lagos Road',
       'Description':'Books',
     })) fireEvent.change(screen.getByLabelText(label),{target:{value}})
@@ -827,6 +827,7 @@ describe('partner assignment and delivery screens', () => {
     await user.selectOptions(screen.getByLabelText('Delivery city'), 'Lagos')
     await user.click(screen.getByRole('button', { name: 'Find pickup street' }))
     await screen.findByText(/approximate address match/)
+    expect(screen.getByRole('figure', { name: 'Selected pickup street on map' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Find delivery street (optional)' }))
     await screen.findByText(/approximate street match/)
     fireEvent.change(screen.getByLabelText(/Declared worth/), { target: { value: '25000' } })
@@ -840,7 +841,7 @@ describe('partner assignment and delivery screens', () => {
     await waitFor(() => expect(mockState.upload).toHaveBeenCalledWith(expect.stringMatching(/\.png$/), parcelPhoto, { contentType: 'image/png', upsert: false }))
     await waitFor(() => expect(mockState.inserts).toContainEqual(expect.objectContaining({
       table:'service_requests',
-      data:expect.objectContaining({parcel_summary:'Books',pickup_latitude:6.45,pickup_longitude:3.4,pickup_location_source:'search',delivery_latitude:6.45,delivery_longitude:3.4,parcel_photo_path:expect.stringMatching(/\.png$/),parcel_items:[{description:'Books',quantity:2,weight_kg:1.3,length_cm:30,width_cm:20,height_cm:10,declared_value:25000,price:18000}]})
+      data:expect.objectContaining({parcel_summary:'Books',pickup_address:'1 Lagos Road, Ikeja',pickup_latitude:6.45,pickup_longitude:3.4,pickup_location_source:'search',delivery_latitude:6.45,delivery_longitude:3.4,parcel_photo_path:expect.stringMatching(/\.png$/),parcel_items:[{description:'Books',quantity:2,weight_kg:1.3,length_cm:30,width_cm:20,height_cm:10,declared_value:25000,price:18000}]})
     })))
   })
 

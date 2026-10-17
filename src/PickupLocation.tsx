@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { searchAddress, suggestAddresses, type AddressSuggestion, type LocationEvidence } from './lib/geoapify-geocoding'
 import type { ParcelDestination } from './ParcelPalsPanel'
+import PickupMapPreview from './PickupMapPreview'
 type PickupFix = Omit<LocationEvidence, 'source'> & { source: LocationEvidence['source'] | 'saved' }
 
 export default function PickupLocation({ supabase, userId, onCitySelected }: {
@@ -29,7 +30,7 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
     const form = container.current?.closest('form')
     const clear = () => { pending.current?.abort(); pending.current = null; setFix(null); setMatched(''); setBusy(false); setSuggestions([]) }
     const changed = (event: Event) => {
-      if (['pickup_address', 'pickup_city', 'service_id'].includes((event.target as HTMLInputElement).name)) {
+      if (['pickup_address', 'pickup_community', 'pickup_city', 'service_id'].includes((event.target as HTMLInputElement).name)) {
         clear(); setSlot(''); setQuery((event.target as HTMLInputElement).name === 'pickup_address' ? (event.target as HTMLInputElement).value.trim() : '')
       }
     }
@@ -41,7 +42,9 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
       const city = (container.current?.closest('form')?.elements.namedItem('pickup_city') as HTMLSelectElement | null)?.value ?? ''
-      void suggestAddresses(supabase, `${query}${city ? `, ${city}` : ''}`, controller.signal)
+      const community = (container.current?.closest('form')?.elements.namedItem('pickup_community') as HTMLInputElement | null)?.value.trim() ?? ''
+      if (!community) return
+      void suggestAddresses(supabase, [query, community, city, 'Nigeria'].filter(Boolean).join(', '), controller.signal)
         .then((results) => { if (!controller.signal.aborted) setSuggestions(results.filter((result) => result.specificity !== 'area' && (!city || result.city.toLowerCase() === city.toLowerCase()))) })
         .catch(() => { if (!controller.signal.aborted) setSuggestions([]) })
     }, 700)
@@ -75,9 +78,10 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
         const form = container.current!.closest('form')!
         const values = new FormData(form)
         const address = String(values.get('pickup_address') ?? '').trim()
+        const community = String(values.get('pickup_community') ?? '').trim()
         const city = String(values.get('pickup_city') ?? '').trim()
-        if (!address || !city) throw new Error('Enter the pickup address and choose its city first.')
-        const result = await searchAddress(supabase, `${address}, ${city}, ${values.get('pickup_state') || ''}, Nigeria`, controller.signal)
+        if (!community || !address || !city) throw new Error('Enter the pickup community and street, then choose its city.')
+        const result = await searchAddress(supabase, `${address}, ${community}, ${city}, ${values.get('pickup_state') || ''}, Nigeria`, controller.signal)
         if (result.city && result.city.toLowerCase() !== city.toLowerCase()) throw new Error('The mapped address is in another city. Check the pickup city and try again.')
         if (result.specificity === 'area') throw new Error('Only a broad area was found. Choose a street suggestion or enter a more specific street name.')
         if (!controller.signal.aborted) { setFix(result.evidence); setMatched(`${result.address}, ${result.city}, ${result.state}`) }
@@ -95,6 +99,7 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
     {fix && <>
       {slot && <input type="hidden" name="pickup_saved_slot" value={slot} />}
       <small role="status">{matched}{fix.source === 'search' ? ' · approximate address match' : fix.source === 'saved' ? ' · saved location' : ` · GPS ±${Math.round(fix.accuracyMetres ?? 0)} m`}</small>
+      <PickupMapPreview supabase={supabase} latitude={fix.latitude} longitude={fix.longitude} label={matched} />
       <input type="hidden" name="pickup_latitude" value={fix.latitude} />
       <input type="hidden" name="pickup_longitude" value={fix.longitude} />
       <input type="hidden" name="pickup_accuracy_metres" value={fix.accuracyMetres ?? ''} />
