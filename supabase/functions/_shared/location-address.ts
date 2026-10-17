@@ -251,7 +251,7 @@ export function createLocationAddressHandler(dependencies: Dependencies) {
         url.searchParams.set('limit', '30'); url.searchParams.set('lang', 'en')
       } else {
         url = new URL(`https://api.geoapify.com/v1/geocode/${action.action === 'reverse' ? 'reverse' : action.action === 'suggest' || action.action === 'nearby_suggest' ? 'autocomplete' : 'search'}`)
-        url.searchParams.set('format', 'json'); url.searchParams.set('lang', 'en'); url.searchParams.set('limit', action.action === 'suggest' ? '5' : action.action === 'nearby_suggest' ? '8' : '1')
+        url.searchParams.set('format', 'json'); url.searchParams.set('lang', 'en'); url.searchParams.set('limit', action.action === 'suggest' ? '5' : action.action === 'nearby_suggest' ? action.kind === 'amenity' ? '20' : '8' : '1')
         if (action.action === 'reverse') {
           url.searchParams.set('lat', String(action.latitude)); url.searchParams.set('lon', String(action.longitude)); url.searchParams.set('countrycodes', 'ng')
         } else if (action.action === 'nearby_suggest') {
@@ -293,7 +293,7 @@ export function createLocationAddressHandler(dependencies: Dependencies) {
         const payload = await response.json()
         if (action.action === 'nearby_places') return json({ suggestions: normalizeNearbyPlaces(payload, action.street) }, 200)
         const results = action.action === 'nearby_suggest' && action.kind === 'amenity' && action.street && object(payload) && Array.isArray(payload.results)
-          ? normalizeResults({ results: payload.results.filter((result: unknown) => object(result) && typeof result.street === 'string' && streetKey(result.street) === streetKey(action.street!)) })
+          ? normalizeResults({ results: payload.results.filter((result: unknown) => object(result) && typeof result.street === 'string' && streetKey(result.street) === streetKey(action.street!)).slice(0, 8) })
           : normalizeResults(payload)
         return json(action.action === 'suggest' || action.action === 'nearby_suggest' ? { suggestions: results } : results[0], 200)
       } catch (error) {

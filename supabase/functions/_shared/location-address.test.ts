@@ -78,7 +78,9 @@ describe('authenticated location-address handler', () => {
     const response = await handler(request({ action: 'nearby_suggest', text: 'Market', kind: 'amenity', latitude: 5.5296, longitude: 7.4861, street: 'Market Road' }))
     expect(response.status).toBe(200)
     expect((await response.json()).suggestions.map((item: { address: string }) => item.address)).toEqual(['Main Market'])
-    expect(new URL(String(fetcher.mock.calls[0][0])).searchParams.get('type')).toBe('amenity')
+    const url = new URL(String(fetcher.mock.calls[0][0]))
+    expect(url.searchParams.get('type')).toBe('amenity')
+    expect(url.searchParams.get('limit')).toBe('20')
   })
 
   it('returns only named mapped places within the requested vicinity', async () => {
