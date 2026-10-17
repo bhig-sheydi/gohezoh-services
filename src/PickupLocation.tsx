@@ -14,8 +14,11 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [matched, setMatched] = useState('')
+  const [communityQuery, setCommunityQuery] = useState('')
+  const [communitySuggestions, setCommunitySuggestions] = useState<AddressSuggestion[]>([])
   const [query, setQuery] = useState('')
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([])
+  const [suggestionStatus, setSuggestionStatus] = useState('')
   const container = useRef<HTMLDivElement>(null)
   const pending = useRef<AbortController | null>(null)
   useEffect(() => {
@@ -28,37 +31,66 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
   }, [supabase, userId])
   useEffect(() => {
     const form = container.current?.closest('form')
-    const clear = () => { pending.current?.abort(); pending.current = null; setFix(null); setMatched(''); setBusy(false); setSuggestions([]) }
+    const clear = () => { pending.current?.abort(); pending.current = null; setFix(null); setMatched(''); setBusy(false); setSuggestions([]); setCommunitySuggestions([]); setSuggestionStatus('') }
     const changed = (event: Event) => {
-      if (['pickup_address', 'pickup_community', 'pickup_city', 'service_id'].includes((event.target as HTMLInputElement).name)) {
-        clear(); setSlot(''); setQuery((event.target as HTMLInputElement).name === 'pickup_address' ? (event.target as HTMLInputElement).value.trim() : '')
+      const target = event.target as HTMLInputElement
+      if (event.type === 'change' && ['pickup_address', 'pickup_community'].includes(target.name)) return
+      if (event.type === 'input' && ['pickup_city', 'service_id'].includes(target.name)) return
+      if (['pickup_address', 'pickup_community', 'pickup_city', 'service_id'].includes(target.name)) {
+        clear(); setSlot('')
+        if (target.name === 'pickup_community') { setCommunityQuery(target.value.trim()); setQuery('') }
+        else if (target.name === 'pickup_address') { setQuery(target.value.trim()); setCommunityQuery('') }
+        else { setQuery(''); setCommunityQuery('') }
       }
     }
     form?.addEventListener('change', changed); form?.addEventListener('input', changed); form?.addEventListener('reset', clear)
     return () => { pending.current?.abort(); form?.removeEventListener('change', changed); form?.removeEventListener('input', changed); form?.removeEventListener('reset', clear) }
   }, [])
   useEffect(() => {
-    if (query.length < 5) return
+    if (communityQuery.length < 3) return
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => {
+      const city = (container.current?.closest('form')?.elements.namedItem('pickup_city') as HTMLSelectElement | null)?.value ?? ''
+      void suggestAddresses(supabase, [communityQuery, city, 'Nigeria'].filter(Boolean).join(', '), controller.signal)
+        .then((results) => { if (!controller.signal.aborted) setCommunitySuggestions(results.filter((result) => ['suburb', 'district', 'city', 'county'].includes(result.resultType))) })
+        .catch(() => { if (!controller.signal.aborted) setCommunitySuggestions([]) })
+    }, 400)
+    return () => { window.clearTimeout(timer); controller.abort() }
+  }, [communityQuery, supabase])
+  useEffect(() => {
+    if (query.length < 3) return
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
       const city = (container.current?.closest('form')?.elements.namedItem('pickup_city') as HTMLSelectElement | null)?.value ?? ''
       const community = (container.current?.closest('form')?.elements.namedItem('pickup_community') as HTMLInputElement | null)?.value.trim() ?? ''
-      if (!community) return
+      if (!community) { setSuggestionStatus('Enter the pickup community first.'); return }
+      setSuggestionStatus('Searching streets…')
       void suggestAddresses(supabase, [query, community, city, 'Nigeria'].filter(Boolean).join(', '), controller.signal)
-        .then((results) => { if (!controller.signal.aborted) setSuggestions(results.filter((result) => result.specificity !== 'area' && (!city || result.city.toLowerCase() === city.toLowerCase()))) })
-        .catch(() => { if (!controller.signal.aborted) setSuggestions([]) })
-    }, 700)
+        .then((results) => {
+          if (controller.signal.aborted) return
+          const streets = results.filter((result) => result.specificity !== 'area' && (!city || !result.city || result.city.toLowerCase() === city.toLowerCase()))
+          setSuggestions(streets)
+          setSuggestionStatus(streets.length ? '' : 'No mapped street suggestions. Try another spelling or use Find pickup street.')
+        })
+        .catch(() => { if (!controller.signal.aborted) { setSuggestions([]); setSuggestionStatus('Street suggestions are unavailable. Use Find pickup street.') } })
+    }, 400)
     return () => { window.clearTimeout(timer); controller.abort() }
   }, [query, supabase])
+  function chooseCommunity(result: AddressSuggestion) {
+    const input = container.current?.closest('form')?.elements.namedItem('pickup_community')
+    if (input instanceof HTMLInputElement) input.value = result.address.split(',')[0].trim()
+    if (result.city) onCitySelected(result.city)
+    setCommunitySuggestions([]); setCommunityQuery(''); setSuggestions([]); setSuggestionStatus(''); setError('')
+  }
   function chooseSuggestion(result: AddressSuggestion) {
     const input = container.current?.closest('form')?.elements.namedItem('pickup_address')
     if (input instanceof HTMLInputElement) input.value = result.address
     if (result.city) onCitySelected(result.city)
     setFix(result.evidence); setMatched(`${result.address}, ${result.city}`)
-    setSuggestions([]); setQuery(''); setSlot(''); setError('')
+    setSuggestions([]); setQuery(''); setSlot(''); setError(''); setSuggestionStatus('')
   }
   function choose(value: string) {
-    pending.current?.abort(); pending.current = null; setBusy(false); setFix(null); setError(''); setSlot(value); setMatched(''); setSuggestions([]); setQuery('')
+    pending.current?.abort(); pending.current = null; setBusy(false); setFix(null); setError(''); setSlot(value); setMatched(''); setSuggestions([]); setCommunitySuggestions([]); setQuery(''); setCommunityQuery(''); setSuggestionStatus('')
     const item = saved.find((address) => String(address.slot) === value)
     const input = container.current?.closest('form')?.elements.namedItem('pickup_address')
     if (!item || !(input instanceof HTMLInputElement)) return
@@ -93,7 +125,9 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
     {saved.length > 0 && <label className="field"><span>My pickup addresses</span><select value={slot} onChange={(event) => choose(event.target.value)}>
       <option value="">Use a new address</option>{saved.map((address) => <option key={address.slot} value={address.slot}>{address.label} — {address.address}</option>)}
     </select></label>}
+    {communitySuggestions.length > 0 && <div className="address-suggestions" role="group" aria-label="Pickup community suggestions">{communitySuggestions.map((result, index) => <button type="button" key={`${result.latitude}-${result.longitude}-${index}`} onClick={() => chooseCommunity(result)}><strong>{result.address}</strong><small>{result.city}, {result.state}</small></button>)}</div>}
     {suggestions.length > 0 && <div className="address-suggestions" role="group" aria-label="Pickup address suggestions">{suggestions.map((result, index) => <button type="button" key={`${result.latitude}-${result.longitude}-${index}`} onClick={() => chooseSuggestion(result)}><strong>{result.address}</strong><small>{result.city}, {result.state} · {result.specificity} match</small></button>)}</div>}
+    {suggestionStatus && <small role="status">{suggestionStatus}</small>}
     <button type="button" className="secondary-button" disabled={busy} onClick={() => void locate()}>{busy ? 'Finding pickup street…' : 'Find pickup street'}</button>
     {error && <small role="alert">{error}</small>}
     {fix && <>
