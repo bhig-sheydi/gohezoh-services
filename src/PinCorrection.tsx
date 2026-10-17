@@ -45,7 +45,7 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
   }, [supabase, point.latitude, point.longitude, zoom, retry])
 
   useEffect(() => {
-    if (query.trim().length < 2) return
+    if (query.trim().length < 2 || (selectedStreet && query === selectedStreet)) return
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
       void suggestNearby(supabase, query.trim(), 'street', point, controller.signal)
@@ -53,7 +53,7 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
         .catch((cause) => { if (!controller.signal.aborted) { setSuggestions([]); setLookupError(cause instanceof Error ? cause.message : 'No nearby matches found.') } })
     }, 400)
     return () => { window.clearTimeout(timer); controller.abort() }
-  }, [supabase, query, point])
+  }, [supabase, query, point, selectedStreet])
 
   useEffect(() => {
     if (!selectedStreet || landmarkQuery.trim().length < 2) return
@@ -87,7 +87,7 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
   }
   function chooseSuggestion(result: AddressSuggestion) {
     setPoint({ latitude: result.latitude, longitude: result.longitude }); setZoom(17)
-    setQuery(''); setSelectedLabel(result.address); setSuggestions([]); setMovedPin(false)
+    setQuery(result.address); setSelectedLabel(result.address); setSuggestions([]); setMovedPin(false)
     setSelectedStreet(result.address); setLandmarkQuery(''); setLandmarkSuggestions([]); setLandmarkStatus('idle')
   }
   function choosePlace(result: AddressSuggestion) {
@@ -105,7 +105,7 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
   return <div className="pin-correction" aria-label="Adjust location pin">
     <div className="pin-map-controls"><strong>Choose the entrance</strong><button type="button" onClick={onClose} aria-label="Close pin map">Close</button></div>
     <p>Drag the map under the pin, or tap a location.</p>
-    <label className="field"><span>Search street</span><input aria-label="Street name" value={query} placeholder="Type a street name" onChange={(event) => { setQuery(event.target.value); setSuggestions([]) }} /></label>
+    <label className="field"><span>Search street</span><input aria-label="Street name" value={query} placeholder="Type a street name" onChange={(event) => { setQuery(event.target.value); setSelectedStreet(''); setLandmarkQuery(''); setLandmarkSuggestions([]); setLandmarkStatus('idle'); setSuggestions([]) }} /></label>
     {suggestions.length > 0 && <div className="address-suggestions" role="group" aria-label="Nearby mapped suggestions">{suggestions.map((result, index) => <button type="button" key={`${result.latitude}-${result.longitude}-${index}`} onClick={() => chooseSuggestion(result)}>{result.address}{result.city ? `, ${result.city}` : ''}</button>)}</div>}
     {selectedStreet && <label className="field"><span>Search landmark on {selectedStreet}</span><input aria-label="Search landmark on this street" value={landmarkQuery} placeholder="Type a shop, school or landmark" onChange={(event) => { setLandmarkQuery(event.target.value); setLandmarkSuggestions([]); setLandmarkStatus(event.target.value.trim().length >= 2 ? 'loading' : 'idle') }} /></label>}
     {landmarkSuggestions.length > 0 && <div className="address-suggestions" role="group" aria-label="Landmark search results on selected street">{landmarkSuggestions.map((result, index) => <button type="button" key={`${result.latitude}-${result.longitude}-${index}`} onClick={() => choosePlace(result)}>{result.address}</button>)}</div>}

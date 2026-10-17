@@ -34,6 +34,7 @@ describe('mobile pin correction', () => {
     render(<PinCorrection supabase={{} as SupabaseClient} initial={{ latitude: 5.52, longitude: 7.48 }} requireMove onChoose={vi.fn()} onClose={vi.fn()} />)
     await userEvent.setup().type(screen.getByRole('textbox', { name: 'Street name' }), 'Market')
     await userEvent.setup().click(await screen.findByRole('button', { name: 'Market Road, Umuahia' }))
+    expect(screen.getByRole('textbox', { name: 'Street name' })).toHaveValue('Market Road')
     expect(screen.getByRole('textbox', { name: 'Search landmark on this street' })).toBeInTheDocument()
     await userEvent.setup().type(screen.getByRole('textbox', { name: 'Search landmark on this street' }), 'Main')
     await waitFor(() => expect(suggestNearby).toHaveBeenCalledWith(expect.anything(), 'Main', 'amenity', expect.anything(), expect.anything(), 'Market Road'))
