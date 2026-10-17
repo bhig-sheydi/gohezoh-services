@@ -1,15 +1,32 @@
-import { useEffect, useRef, useState, type PointerEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { reverseAddress, staticPinMap, suggestNearby, type AddressSuggestion, type LocationEvidence } from './lib/geoapify-geocoding'
+import { mapTile, reverseAddress, suggestNearby, type AddressSuggestion, type LocationEvidence } from './lib/geoapify-geocoding'
 
 type Point = { latitude: number; longitude: number }
-const width = 320, height = 220
-function shifted(point: Point, dx: number, dy: number, zoom: number): Point {
-  const size = 256 * 2 ** zoom
+const tileSize = 256
+function project(point: Point, zoom: number) {
+  const size = tileSize * 2 ** zoom
   const lat = Math.max(-85, Math.min(85, point.latitude)) * Math.PI / 180
-  const x = (point.longitude + 180) / 360 * size + dx
-  const y = (1 - Math.log(Math.tan(lat) + 1 / Math.cos(lat)) / Math.PI) / 2 * size + dy
+  return { x: (point.longitude + 180) / 360 * size, y: (1 - Math.log(Math.tan(lat) + 1 / Math.cos(lat)) / Math.PI) / 2 * size }
+}
+function shifted(point: Point, dx: number, dy: number, zoom: number): Point {
+  const size = tileSize * 2 ** zoom
+  const center = project(point, zoom)
+  const x = center.x + dx, y = center.y + dy
   return { longitude: x / size * 360 - 180, latitude: Math.atan(Math.sinh(Math.PI * (1 - 2 * y / size))) * 180 / Math.PI }
+}
+
+function MapTile({ supabase, z, x, y, left, top, onFailure }: { supabase: SupabaseClient; z: number; x: number; y: number; left: number; top: number; onFailure: () => void }) {
+  const [url, setUrl] = useState('')
+  useEffect(() => {
+    const controller = new AbortController()
+    let objectUrl = ''
+    void mapTile(supabase, z, x, y, controller.signal)
+      .then((blob) => { if (!controller.signal.aborted) { objectUrl = URL.createObjectURL(blob); setUrl(objectUrl) } })
+      .catch(() => { if (!controller.signal.aborted) onFailure() })
+    return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl) }
+  }, [supabase, z, x, y, onFailure])
+  return url ? <img className="pin-map-tile" src={url} alt="" draggable={false} style={{ left, top }} /> : null
 }
 
 export default function PinCorrection({ supabase, initial, onChoose, onClose, requireMove = false }: {
@@ -17,12 +34,12 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
 }) {
   const [point, setPoint] = useState(initial)
   const [zoom, setZoom] = useState(requireMove ? 15 : 17)
-  const [image, setImage] = useState<{ key: string; url: string } | null>(null)
+  const [viewport, setViewport] = useState({ width: 360, height: 320 })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [movedPin, setMovedPin] = useState(false)
-  const [retry, setRetry] = useState(0)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
+  const mapRef = useRef<HTMLButtonElement | null>(null)
   const drag = useRef<{ id: number; x: number; y: number } | null>(null)
   const [query, setQuery] = useState('')
   const [landmarkQuery, setLandmarkQuery] = useState('')
@@ -33,17 +50,27 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
   const [sideStreetSuggestions, setSideStreetSuggestions] = useState<AddressSuggestion[]>([])
   const [landmarkStatus, setLandmarkStatus] = useState<'idle' | 'loading' | 'empty' | 'results'>('idle')
   const [lookupError, setLookupError] = useState('')
-  const mapKey = `${point.latitude}:${point.longitude}:${zoom}`
-  const currentImage = image?.key === mapKey ? image.url : ''
-
+  const tileFailed = useCallback(() => setError('Some map tiles could not load. Try moving or zooming the map.'), [])
   useEffect(() => {
-    const controller = new AbortController()
-    let url = ''
-    void staticPinMap(supabase, point.latitude, point.longitude, zoom, controller.signal)
-      .then((blob) => { if (!controller.signal.aborted) { url = URL.createObjectURL(blob); setImage({ key: `${point.latitude}:${point.longitude}:${zoom}`, url }); setError('') } })
-      .catch((cause) => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Map unavailable') })
-    return () => { controller.abort(); if (url) URL.revokeObjectURL(url) }
-  }, [supabase, point.latitude, point.longitude, zoom, retry])
+    const element = mapRef.current
+    if (!element) return
+    const resize = () => setViewport({ width: element.clientWidth || 360, height: element.clientHeight || 320 })
+    resize()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(resize)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+  const center = project(point, zoom)
+  const tiles: { x: number; y: number; left: number; top: number }[] = []
+  const firstX = Math.floor((center.x - viewport.width / 2) / tileSize) - 1
+  const lastX = Math.floor((center.x + viewport.width / 2) / tileSize) + 1
+  const firstY = Math.floor((center.y - viewport.height / 2) / tileSize) - 1
+  const lastY = Math.floor((center.y + viewport.height / 2) / tileSize) + 1
+  for (let x = firstX; x <= lastX; x++) for (let y = firstY; y <= lastY; y++) {
+    if (x >= 0 && y >= 0 && x < 2 ** zoom && y < 2 ** zoom)
+      tiles.push({ x, y, left: x * tileSize - center.x + viewport.width / 2, top: y * tileSize - center.y + viewport.height / 2 })
+  }
 
   useEffect(() => {
     if (query.trim().length < 2 || (selectedStreet && query === selectedStreet)) return
@@ -77,7 +104,6 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
   }, [supabase, landmarkQuery, point, selectedStreet])
 
   function beginDrag(event: PointerEvent<HTMLButtonElement>) {
-    if (!currentImage) return
     drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY }
     event.currentTarget.setPointerCapture(event.pointerId)
   }
@@ -87,12 +113,12 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
   }
   function endDrag(event: PointerEvent<HTMLButtonElement>) {
     const start = drag.current
-    if (!start || start.id !== event.pointerId || !currentImage) return
+    if (!start || start.id !== event.pointerId) return
     const rect = event.currentTarget.getBoundingClientRect()
     const dx = event.clientX - start.x, dy = event.clientY - start.y
     const next = Math.hypot(dx, dy) > 6
-      ? shifted(point, -dx * width / rect.width, -dy * height / rect.height, zoom)
-      : shifted(point, ((event.clientX - rect.left) / rect.width - 0.5) * width, ((event.clientY - rect.top) / rect.height - 0.5) * height, zoom)
+      ? shifted(point, -dx, -dy, zoom)
+      : shifted(point, event.clientX - rect.left - rect.width / 2, event.clientY - rect.top - rect.height / 2, zoom)
     drag.current = null; setOffset({ x: 0, y: 0 }); setPoint(next); setMovedPin(true)
   }
   function chooseSuggestion(result: AddressSuggestion) {
@@ -124,13 +150,13 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
     {landmarkStatus === 'empty' && !lookupError && <small role="status">No mapped street, close or landmark with that name by {selectedStreet}. Try a shorter name or place the pin at the house.</small>}
     {selectedLabel && <small role="status">Near {selectedLabel}. Drag or tap to choose the exact entrance.</small>}
     {lookupError && <small role="status">{lookupError}</small>}
-    <button type="button" className="pin-map-image" onPointerDown={beginDrag} onPointerMove={moving} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setOffset({ x: 0, y: 0 }) }} aria-label="Drag or tap map to choose a point">
-      {currentImage ? <img src={currentImage} alt="Street map around the selected address" draggable={false} style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }} /> : <span>{error ? 'Map unavailable' : 'Loading map...'}</span>}
-      <span className="pin-map-marker" aria-hidden="true">●</span>
+    <button type="button" ref={mapRef} className="pin-map-image" onPointerDown={beginDrag} onPointerMove={moving} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setOffset({ x: 0, y: 0 }) }} aria-label="Drag or tap map to choose a point">
+      <span className="pin-map-tile-layer" aria-hidden="true" style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}>{tiles.map((tile) => <MapTile key={`${zoom}/${tile.x}/${tile.y}`} supabase={supabase} z={zoom} x={tile.x} y={tile.y} left={tile.left} top={tile.top} onFailure={tileFailed} />)}</span>
+      <span className="pin-map-marker" aria-hidden="true" />
     </button>
     <div className="pin-map-controls"><button type="button" onClick={() => setZoom(Math.max(14, zoom - 1))}>− Zoom out</button><button type="button" onClick={() => setZoom(Math.min(19, zoom + 1))}>+ Zoom in</button></div>
-    {error && <div><small role="alert">{error}</small> <button type="button" className="text-button" onClick={() => { setError(''); setRetry((value) => value + 1) }}>Retry map</button></div>}
-    <button type="button" className="primary-button" disabled={busy || !currentImage || (requireMove && !movedPin)} onClick={() => void confirm()}>{busy ? 'Checking pin...' : 'Use this pin'}</button>
-    <small>Mapped streets and places may be incomplete. <a href="https://www.geoapify.com/" target="_blank" rel="noreferrer">Powered by Geoapify</a> · <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors</a></small>
+    {error && <small role="alert">{error}</small>}
+    <button type="button" className="primary-button" disabled={busy || (requireMove && !movedPin)} onClick={() => void confirm()}>{busy ? 'Checking pin...' : 'Use this pin'}</button>
+    <small>Mapped streets and places may be incomplete. <a href="https://www.geoapify.com/" target="_blank" rel="noreferrer">Geoapify</a> · <a href="https://openmaptiles.org/" target="_blank" rel="noreferrer">© OpenMapTiles</a> · <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors</a></small>
   </div>
 }

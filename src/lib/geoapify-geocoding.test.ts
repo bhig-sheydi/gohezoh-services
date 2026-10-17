@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getAddressFromCurrentPosition, reverseAddress, staticPinMap, suggestNearby, type AddressResult } from './geoapify-geocoding'
+import { getAddressFromCurrentPosition, mapTile, reverseAddress, staticPinMap, suggestNearby, type AddressResult } from './geoapify-geocoding'
 import { requestAddressPosition } from './proximity'
 
 vi.mock('./proximity', () => ({ requestAddressPosition: vi.fn() }))
@@ -75,6 +75,12 @@ describe('authenticated location lookup', () => {
   it('rejects invalid map bytes', async () => {
     const { client } = setup(new Blob(['not a JPEG']))
     await expect(staticPinMap(client, 6.45, 3.4, 17)).rejects.toThrow('invalid image')
+  })
+  it('accepts validated PNG map tiles through the authenticated function', async () => {
+    const png = new Blob([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1])])
+    const { client, invoke } = setup(png)
+    await expect(mapTile(client, 17, 68178, 63094)).resolves.toMatchObject({ type: 'image/png' })
+    expect(invoke).toHaveBeenCalledWith('location-address', expect.objectContaining({ body: { action: 'tile', z: 17, x: 68178, y: 63094 } }))
   })
   it('finds mapped schools when the customer calls one school gate', async () => {
     const { client, invoke } = setup()
