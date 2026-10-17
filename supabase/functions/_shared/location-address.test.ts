@@ -83,6 +83,14 @@ describe('authenticated location-address handler', () => {
     expect(url.searchParams.get('limit')).toBe('20')
   })
 
+  it('bounds side-street searches to the selected street vicinity', async () => {
+    const { handler, fetcher } = setup()
+    const response = await handler(request({ action: 'nearby_suggest', text: 'School', kind: 'street', latitude: 5.5296, longitude: 7.4861, street: 'Market Road' }))
+    expect(response.status).toBe(200)
+    const url = new URL(String(fetcher.mock.calls[0][0]))
+    expect(url.searchParams.get('filter')).toBe('circle:7.4861,5.5296,750')
+  })
+
   it('returns only named mapped places within the requested vicinity', async () => {
     const fetcher = vi.fn(async () => Response.json({ features: [
       { properties: { name: 'Main Market', street: 'Market Rd', city: 'Umuahia', state: 'Abia', lat: 5.53, lon: 7.49, distance: 250 } },

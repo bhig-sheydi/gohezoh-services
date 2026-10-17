@@ -30,6 +30,7 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
   const [selectedStreet, setSelectedStreet] = useState('')
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([])
   const [landmarkSuggestions, setLandmarkSuggestions] = useState<AddressSuggestion[]>([])
+  const [sideStreetSuggestions, setSideStreetSuggestions] = useState<AddressSuggestion[]>([])
   const [landmarkStatus, setLandmarkStatus] = useState<'idle' | 'loading' | 'empty' | 'results'>('idle')
   const [lookupError, setLookupError] = useState('')
   const mapKey = `${point.latitude}:${point.longitude}:${zoom}`
@@ -59,9 +60,18 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
     if (!selectedStreet || landmarkQuery.trim().length < 2) return
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
-      void suggestNearby(supabase, landmarkQuery.trim(), 'amenity', point, controller.signal, selectedStreet)
-        .then((results) => { if (!controller.signal.aborted) { setLandmarkSuggestions(results); setLandmarkStatus(results.length ? 'results' : 'empty'); setLookupError('') } })
-        .catch((cause) => { if (!controller.signal.aborted) { setLandmarkSuggestions([]); setLandmarkStatus('empty'); setLookupError(cause instanceof Error ? cause.message : 'Landmark search is unavailable.') } })
+      void Promise.allSettled([
+        suggestNearby(supabase, landmarkQuery.trim(), 'street', point, controller.signal, selectedStreet),
+        suggestNearby(supabase, landmarkQuery.trim(), 'amenity', point, controller.signal, selectedStreet),
+      ]).then(([streetsResult, landmarksResult]) => {
+        if (controller.signal.aborted) return
+        const streets = streetsResult.status === 'fulfilled'
+          ? streetsResult.value.filter((item) => item.address.toLowerCase() !== selectedStreet.toLowerCase()).slice(0, 5) : []
+        const landmarks = landmarksResult.status === 'fulfilled' ? landmarksResult.value.slice(0, 5) : []
+        setSideStreetSuggestions(streets); setLandmarkSuggestions(landmarks)
+        setLandmarkStatus(streets.length || landmarks.length ? 'results' : 'empty')
+        setLookupError(streetsResult.status === 'rejected' && landmarksResult.status === 'rejected' ? 'Nearby place search is unavailable. You can still place the pin manually.' : '')
+      })
     }, 400)
     return () => { window.clearTimeout(timer); controller.abort() }
   }, [supabase, landmarkQuery, point, selectedStreet])
@@ -88,11 +98,11 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
   function chooseSuggestion(result: AddressSuggestion) {
     setPoint({ latitude: result.latitude, longitude: result.longitude }); setZoom(17)
     setQuery(result.address); setSelectedLabel(result.address); setSuggestions([]); setMovedPin(false)
-    setSelectedStreet(result.address); setLandmarkQuery(''); setLandmarkSuggestions([]); setLandmarkStatus('idle')
+    setSelectedStreet(result.address); setLandmarkQuery(''); setLandmarkSuggestions([]); setSideStreetSuggestions([]); setLandmarkStatus('idle')
   }
   function choosePlace(result: AddressSuggestion) {
     setPoint({ latitude: result.latitude, longitude: result.longitude }); setZoom(18)
-    setSelectedLabel(result.address); setLandmarkQuery(''); setLandmarkSuggestions([]); setLandmarkStatus('idle'); setMovedPin(false)
+    setSelectedLabel(result.address); setLandmarkQuery(''); setLandmarkSuggestions([]); setSideStreetSuggestions([]); setLandmarkStatus('idle'); setMovedPin(false)
   }
   async function confirm() {
     setBusy(true); setError('')
@@ -105,12 +115,13 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
   return <div className="pin-correction" aria-label="Adjust location pin">
     <div className="pin-map-controls"><strong>Choose the entrance</strong><button type="button" onClick={onClose} aria-label="Close pin map">Close</button></div>
     <p>Drag the map under the pin, or tap a location.</p>
-    <label className="field"><span>Search street</span><input aria-label="Street name" value={query} placeholder="Type a street name" onChange={(event) => { setQuery(event.target.value); setSelectedStreet(''); setLandmarkQuery(''); setLandmarkSuggestions([]); setLandmarkStatus('idle'); setSuggestions([]) }} /></label>
+    <label className="field"><span>Search street</span><input aria-label="Street name" value={query} placeholder="Type a street name" onChange={(event) => { setQuery(event.target.value); setSelectedStreet(''); setLandmarkQuery(''); setLandmarkSuggestions([]); setSideStreetSuggestions([]); setLandmarkStatus('idle'); setSuggestions([]) }} /></label>
     {suggestions.length > 0 && <div className="address-suggestions" role="group" aria-label="Nearby mapped suggestions">{suggestions.map((result, index) => <button type="button" key={`${result.latitude}-${result.longitude}-${index}`} onClick={() => chooseSuggestion(result)}>{result.address}{result.city ? `, ${result.city}` : ''}</button>)}</div>}
-    {selectedStreet && <label className="field"><span>Search landmark on {selectedStreet}</span><input aria-label="Search landmark on this street" value={landmarkQuery} placeholder="Type a shop, school or landmark" onChange={(event) => { setLandmarkQuery(event.target.value); setLandmarkSuggestions([]); setLandmarkStatus(event.target.value.trim().length >= 2 ? 'loading' : 'idle') }} /></label>}
-    {landmarkSuggestions.length > 0 && <div className="address-suggestions" role="group" aria-label="Landmark search results on selected street">{landmarkSuggestions.map((result, index) => <button type="button" key={`${result.latitude}-${result.longitude}-${index}`} onClick={() => choosePlace(result)}>{result.address}</button>)}</div>}
-    {landmarkStatus === 'loading' && <small role="status">Searching mapped landmarks...</small>}
-    {landmarkStatus === 'empty' && !lookupError && <small role="status">No mapped landmark with that name on {selectedStreet}. Try a shorter name or place the pin at the house.</small>}
+    {selectedStreet && <label className="field"><span>Search a close, side street or landmark off {selectedStreet}</span><input aria-label="Search close, side street or landmark" value={landmarkQuery} placeholder="Type a close, side street or landmark" onChange={(event) => { setLandmarkQuery(event.target.value); setLandmarkSuggestions([]); setSideStreetSuggestions([]); setLandmarkStatus(event.target.value.trim().length >= 2 ? 'loading' : 'idle') }} /></label>}
+    {sideStreetSuggestions.length > 0 && <div className="address-suggestions" role="group" aria-label="Streets and closes by selected street"><small>Select only if this road connects to {selectedStreet}.</small>{sideStreetSuggestions.map((result, index) => <button type="button" key={`${result.latitude}-${result.longitude}-${index}`} onClick={() => chooseSuggestion(result)}>{result.address}{result.city ? `, ${result.city}` : ''}</button>)}</div>}
+    {landmarkSuggestions.length > 0 && <div className="address-suggestions" role="group" aria-label="Landmarks on selected street">{landmarkSuggestions.map((result, index) => <button type="button" key={`${result.latitude}-${result.longitude}-${index}`} onClick={() => choosePlace(result)}>{result.address}</button>)}</div>}
+    {landmarkStatus === 'loading' && <small role="status">Searching streets, closes and landmarks...</small>}
+    {landmarkStatus === 'empty' && !lookupError && <small role="status">No mapped street, close or landmark with that name by {selectedStreet}. Try a shorter name or place the pin at the house.</small>}
     {selectedLabel && <small role="status">Near {selectedLabel}. Drag or tap to choose the exact entrance.</small>}
     {lookupError && <small role="status">{lookupError}</small>}
     <button type="button" className="pin-map-image" onPointerDown={beginDrag} onPointerMove={moving} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setOffset({ x: 0, y: 0 }) }} aria-label="Drag or tap map to choose a point">

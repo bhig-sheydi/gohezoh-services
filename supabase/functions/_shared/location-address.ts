@@ -61,7 +61,7 @@ function parseAction(body: unknown): Action {
     const text = body.text.trim()
     if (text.length >= 2 && text.length <= 120 && !Array.from(text).some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127))
       return { action: 'nearby_suggest', text, kind: body.kind, latitude: body.latitude as number, longitude: body.longitude as number,
-        ...(body.kind === 'amenity' && typeof body.street === 'string' && body.street.trim().length >= 2 && body.street.length <= 120 ? { street: body.street.trim() } : {}) }
+        ...(typeof body.street === 'string' && body.street.trim().length >= 2 && body.street.length <= 120 ? { street: body.street.trim() } : {}) }
   }
   if (body.action === 'nearby_places' && validCoordinates(body.latitude, body.longitude) && typeof body.street === 'string' && body.street.trim().length >= 2 && body.street.length <= 120)
     return { action: 'nearby_places', latitude: body.latitude as number, longitude: body.longitude as number, street: body.street.trim() }
@@ -256,7 +256,7 @@ export function createLocationAddressHandler(dependencies: Dependencies) {
           url.searchParams.set('lat', String(action.latitude)); url.searchParams.set('lon', String(action.longitude)); url.searchParams.set('countrycodes', 'ng')
         } else if (action.action === 'nearby_suggest') {
           url.searchParams.set('text', action.text); url.searchParams.set('type', action.kind)
-          url.searchParams.set('filter', `circle:${action.longitude},${action.latitude},10000`)
+          url.searchParams.set('filter', `circle:${action.longitude},${action.latitude},${action.kind === 'street' && action.street ? 750 : 10000}`)
           url.searchParams.set('bias', `proximity:${action.longitude},${action.latitude}`)
         } else {
           url.searchParams.set('text', action.text); url.searchParams.set('filter', 'countrycode:ng')
