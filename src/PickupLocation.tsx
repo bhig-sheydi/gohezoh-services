@@ -21,6 +21,7 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
   const [mapPoint, setMapPoint] = useState({ latitude: 9.082, longitude: 8.6753 })
   const [mapVersion, setMapVersion] = useState(0)
   const [streetSeed, setStreetSeed] = useState('')
+  const streetDraft = useRef('')
   const [needsPin, setNeedsPin] = useState(false)
   const container = useRef<HTMLDivElement>(null)
   const pending = useRef<AbortController | null>(null)
@@ -37,20 +38,19 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
     const clear = () => { pending.current?.abort(); pending.current = null; setFix(null); setMatched(''); setBusy(false); setCommunitySuggestions([]); setNeedsPin(false) }
     const changed = (event: Event) => {
       const target = event.target as HTMLInputElement
-      if (event.type === 'change' && ['pickup_address', 'pickup_community'].includes(target.name)) return
+      if (target.name === 'pickup_address') return
+      if (event.type === 'change' && target.name === 'pickup_community') return
       if (event.type === 'input' && ['pickup_city', 'service_id'].includes(target.name)) return
-      if (['pickup_address', 'pickup_community', 'pickup_city', 'service_id'].includes(target.name)) {
-        if (target.name !== 'pickup_address') {
-          const street = form?.elements.namedItem('pickup_address')
-          if (target.name !== 'pickup_community' || street instanceof HTMLInputElement && street.value) setMapVersion((value) => value + 1)
-          setStreetSeed('')
-        } else setStreetSeed(target.value)
+      if (['pickup_community', 'pickup_city', 'service_id'].includes(target.name)) {
+        const street = form?.elements.namedItem('pickup_address')
+        if (target.name !== 'pickup_community' || street instanceof HTMLInputElement && street.value) setMapVersion((value) => value + 1)
+        streetDraft.current = ''; setStreetSeed('')
         clear(); setSlot('')
-        if (target.name !== 'pickup_address') setCommunityPlaceId('')
+        setCommunityPlaceId('')
         setCommunityQuery(target.name === 'pickup_community' ? target.value.trim() : '')
       }
     }
-    const reset = () => { clear(); setStreetSeed(''); setMapPoint({ latitude: 9.082, longitude: 8.6753 }); setMapVersion((value) => value + 1) }
+    const reset = () => { clear(); streetDraft.current = ''; setStreetSeed(''); setMapPoint({ latitude: 9.082, longitude: 8.6753 }); setMapVersion((value) => value + 1) }
     form?.addEventListener('change', changed); form?.addEventListener('input', changed); form?.addEventListener('reset', reset)
     return () => { pending.current?.abort(); form?.removeEventListener('change', changed); form?.removeEventListener('input', changed); form?.removeEventListener('reset', reset) }
   }, [])
@@ -69,6 +69,7 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
     const input = container.current?.closest('form')?.elements.namedItem('pickup_community')
     if (input instanceof HTMLInputElement) input.value = result.address.split(',')[0].trim()
     if (result.city) onCitySelected(result.city)
+    streetDraft.current = ''; setStreetSeed('')
     setMapPoint({ latitude: result.latitude, longitude: result.longitude }); setMapVersion((value) => value + 1)
     setCommunityPlaceId(result.placeId ?? '')
     setCommunitySuggestions([]); setCommunityQuery(''); setError('')
@@ -76,7 +77,7 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
   function choose(value: string) {
     pending.current?.abort(); pending.current = null; setBusy(false); setFix(null); setError(''); setSlot(value); setMatched(''); setCommunitySuggestions([]); setCommunityQuery(''); setCommunityPlaceId(''); setNeedsPin(false)
     const item = saved.find((address) => String(address.slot) === value)
-    setStreetSeed(item?.address ?? ''); setMapVersion((version) => version + 1)
+    streetDraft.current = item?.address ?? ''; setStreetSeed(streetDraft.current); setMapVersion((version) => version + 1)
     if (!item) return
     onCitySelected(item.city)
     if (item.latitude != null && item.longitude != null && item.location_source) {
@@ -94,7 +95,7 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
       if (gps) {
         const result = await requestAddressPosition({ signal: controller.signal })
         if (result.accuracyMetres > 100) throw new Error('GPS is too imprecise. Find your typed address instead, or try outdoors.')
-        if (!controller.signal.aborted) { setMapPoint(result); setMapVersion((value) => value + 1); setFix(result); setMatched('Current phone location') }
+        if (!controller.signal.aborted) { setMapPoint(result); setStreetSeed(streetDraft.current); setMapVersion((value) => value + 1); setFix(result); setMatched('Current phone location') }
       } else {
         const form = container.current!.closest('form')!
         const values = new FormData(form)
@@ -105,7 +106,7 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
         const result = await searchAddress(supabase, communityPlaceId ? address : `${address}, ${community}, ${city}, ${values.get('pickup_state') || ''}, Nigeria`, controller.signal, communityPlaceId || undefined)
         if (result.city && result.city.toLowerCase() !== city.toLowerCase()) throw new Error('The mapped address is in another city. Check the pickup city and try again.')
         const broad = result.specificity === 'area' || (result.confidence !== null && result.confidence < 0.7)
-        if (!controller.signal.aborted) { setMapPoint(result.evidence); setMapVersion((value) => value + 1); setFix(result.evidence); setMatched(broad ? 'Only a broad area was found. Adjust its pin to confirm pickup.' : `${result.address}, ${result.city}, ${result.state}`); setNeedsPin(broad) }
+        if (!controller.signal.aborted) { setMapPoint(result.evidence); setStreetSeed(streetDraft.current); setMapVersion((value) => value + 1); setFix(result.evidence); setMatched(broad ? 'Only a broad area was found. Adjust its pin to confirm pickup.' : `${result.address}, ${result.city}, ${result.state}`); setNeedsPin(broad) }
       }
     } catch (cause) { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Location unavailable') }
     finally { if (pending.current === controller) { pending.current = null; if (!controller.signal.aborted) setBusy(false) } }
@@ -119,7 +120,7 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
       <button type="button" className="text-button" disabled={busy} onClick={() => void locate(true)}>I’m here — use GPS</button></div>
     {error && <small role="alert">{error}</small>}
     <PinCorrection key={mapVersion} supabase={supabase} initial={mapPoint} initialStreet={streetSeed} streetInputName="pickup_address" requireMove={needsPin}
-      onStreetChange={(street) => { setStreetSeed(street); setFix(null); setMatched(''); setSlot('') }}
+      onStreetChange={(street) => { streetDraft.current = street; setFix(null); setMatched(''); setSlot('') }}
       onPointChange={() => { setFix(null); setMatched('') }}
       onChoose={(evidence, address) => { setMapPoint(evidence); setFix(evidence); setMatched(address?.address ? `${address.address}, ${address.city}` : 'Pin selected'); setNeedsPin(false) }} />
     {fix && <>
