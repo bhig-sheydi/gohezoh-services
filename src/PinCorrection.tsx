@@ -29,9 +29,9 @@ function MapTile({ supabase, z, x, y, left, top, onFailure }: { supabase: Supaba
   return url ? <img className="pin-map-tile" src={url} alt="" draggable={false} style={{ left, top }} /> : null
 }
 
-export default function PinCorrection({ supabase, initial, onChoose, onClose, requireMove = false, streetInputName, initialStreet = '', onStreetChange, searchContext = '', expectedCity = '', mapEnabled = true }: {
+export default function PinCorrection({ supabase, initial, onChoose, onClose, requireMove = false, streetInputName, initialStreet = '', onStreetChange, onPointChange }: {
   supabase: SupabaseClient; initial: Point; onChoose: (evidence: LocationEvidence, address: AddressSuggestion | null) => void; onClose?: () => void; requireMove?: boolean
-  streetInputName?: string; initialStreet?: string; onStreetChange?: (street: string) => void; searchContext?: string; expectedCity?: string; mapEnabled?: boolean
+  streetInputName?: string; initialStreet?: string; onStreetChange?: (street: string) => void; onPointChange?: () => void
 }) {
   const [point, setPoint] = useState(initial)
   const [zoom, setZoom] = useState(requireMove ? 15 : 17)
@@ -81,13 +81,12 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
       void suggestNearby(supabase, query.trim(), 'street', point, controller.signal)
-        .then(async (nearby) => nearby.length || query.trim().length < 3 ? nearby : (await suggestAddresses(supabase, [query.trim(), searchContext].filter(Boolean).join(', '), controller.signal)).filter((item) => item.resultType === 'street' || item.specificity === 'street'))
-        .then((results) => expectedCity ? results.filter((item) => !item.city || item.city.toLowerCase() === expectedCity.toLowerCase()) : results)
+        .then(async (nearby) => nearby.length || query.trim().length < 3 ? nearby : (await suggestAddresses(supabase, query.trim(), controller.signal)).filter((item) => item.resultType === 'street' || item.specificity === 'street'))
         .then((results) => { if (!controller.signal.aborted) { setSuggestions(results); setStreetStatus(results.length ? 'results' : 'empty'); setLookupError('') } })
         .catch((cause) => { if (!controller.signal.aborted) { setSuggestions([]); setStreetStatus('empty'); setLookupError(cause instanceof Error ? cause.message : 'Street search is unavailable.') } })
     }, 400)
     return () => { window.clearTimeout(timer); controller.abort() }
-  }, [supabase, query, point, selectedStreet, searchContext, expectedCity])
+  }, [supabase, query, point, selectedStreet])
 
   useEffect(() => {
     if (!selectedStreet || landmarkQuery.trim().length < 2) return
@@ -110,7 +109,6 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
   }, [supabase, landmarkQuery, point, selectedStreet])
 
   function beginDrag(event: PointerEvent<HTMLButtonElement>) {
-    onStreetChange?.(query)
     drag.current = { id: event.pointerId, x: event.clientX, y: event.clientY }
     event.currentTarget.setPointerCapture(event.pointerId)
   }
@@ -126,7 +124,7 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
     const next = Math.hypot(dx, dy) > 6
       ? shifted(point, -dx, -dy, zoom)
       : shifted(point, event.clientX - rect.left - rect.width / 2, event.clientY - rect.top - rect.height / 2, zoom)
-    drag.current = null; setOffset({ x: 0, y: 0 }); setPoint(next); setMovedPin(true)
+    drag.current = null; setOffset({ x: 0, y: 0 }); onPointChange?.(); setPoint(next); setMovedPin(true)
   }
   function chooseSuggestion(result: AddressSuggestion) {
     onStreetChange?.(result.address)
@@ -135,7 +133,6 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
     setSelectedStreet(result.address); setStreetStatus('idle'); setLandmarkQuery(''); setLandmarkSuggestions([]); setSideStreetSuggestions([]); setLandmarkStatus('idle')
   }
   function choosePlace(result: AddressSuggestion) {
-    onStreetChange?.(query)
     setPoint({ latitude: result.latitude, longitude: result.longitude }); setZoom(18)
     setSelectedLabel(result.address); setLandmarkQuery(''); setLandmarkSuggestions([]); setSideStreetSuggestions([]); setLandmarkStatus('idle'); setMovedPin(false)
   }
@@ -161,13 +158,13 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
     {landmarkStatus === 'empty' && !lookupError && <small role="status">No mapped street, close or landmark with that name by {selectedStreet}. Try a shorter name or place the pin at the house.</small>}
     {selectedLabel && <small role="status">Near {selectedLabel}. Drag or tap to choose the exact entrance.</small>}
     {lookupError && <small role="status">{lookupError}</small>}
-    <button type="button" ref={mapRef} className="pin-map-image" disabled={!mapEnabled} onPointerDown={beginDrag} onPointerMove={moving} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setOffset({ x: 0, y: 0 }) }} aria-label="Drag or tap map to choose a point">
-      {mapEnabled ? <span className="pin-map-tile-layer" aria-hidden="true" style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}>{tiles.map((tile) => <MapTile key={`${zoom}/${tile.x}/${tile.y}`} supabase={supabase} z={zoom} x={tile.x} y={tile.y} left={tile.left} top={tile.top} onFailure={tileFailed} />)}</span> : <span>Select a pickup city or community to load the map.</span>}
+    <button type="button" ref={mapRef} className="pin-map-image" onPointerDown={beginDrag} onPointerMove={moving} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setOffset({ x: 0, y: 0 }) }} aria-label="Drag or tap map to choose a point">
+      <span className="pin-map-tile-layer" aria-hidden="true" style={{ transform: `translate(${offset.x}px, ${offset.y}px)` }}>{tiles.map((tile) => <MapTile key={`${zoom}/${tile.x}/${tile.y}`} supabase={supabase} z={zoom} x={tile.x} y={tile.y} left={tile.left} top={tile.top} onFailure={tileFailed} />)}</span>
       <span className="pin-map-marker" aria-hidden="true" />
     </button>
     <div className="pin-map-controls"><button type="button" onClick={() => setZoom(Math.max(14, zoom - 1))}>− Zoom out</button><button type="button" onClick={() => setZoom(Math.min(19, zoom + 1))}>+ Zoom in</button></div>
     {error && <small role="alert">{error}</small>}
-    <button type="button" className="primary-button" disabled={busy || !mapEnabled || (requireMove && !movedPin) || (!!streetInputName && !query.trim())} onClick={() => void confirm()}>{busy ? 'Checking pin...' : 'Use this pin'}</button>
+    <button type="button" className="primary-button" disabled={busy || (requireMove && !movedPin)} onClick={() => void confirm()}>{busy ? 'Checking pin...' : 'Use this pin'}</button>
     <small>Mapped streets and places may be incomplete. <a href="https://www.geoapify.com/" target="_blank" rel="noreferrer">Geoapify</a> · <a href="https://openmaptiles.org/" target="_blank" rel="noreferrer">© OpenMapTiles</a> · <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors</a></small>
   </div>
 }
