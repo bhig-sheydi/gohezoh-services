@@ -129,13 +129,20 @@ export async function staticPinMap(client: SupabaseClient, latitude: number, lon
 
 /** A labeled 256px map tile; tile coordinates are validated by the server. */
 export async function mapTile(client: SupabaseClient, z: number, x: number, y: number, signal?: AbortSignal): Promise<Blob> {
-  const data = await invoke(client, { action: 'tile', z, x, y }, signal)
+  // Keep imagery from occupying every connection while an address search is running.
+  const slot = nextTileSlot++ % tileSlots.length
+  const task = tileSlots[slot].then(() => invoke(client, { action: 'tile', z, x, y }, signal))
+  tileSlots[slot] = task.then(() => {}, () => {})
+  const data = await task
   const blob = data instanceof Blob ? data : data instanceof ArrayBuffer ? new Blob([data]) : null
   if (!blob || blob.size < 8 || blob.size > 512 * 1024) throw new AddressLookupError('Map tile unavailable.')
   const bytes = new Uint8Array(await blob.slice(0, 8).arrayBuffer())
   if (![137, 80, 78, 71, 13, 10, 26, 10].every((byte, index) => bytes[index] === byte)) throw new AddressLookupError('Map tile returned an invalid image.')
   return new Blob([blob], { type: 'image/png' })
 }
+
+const tileSlots: Promise<void>[] = [Promise.resolve(), Promise.resolve(), Promise.resolve()]
+let nextTileSlot = 0
 
 /** Called only by an explicit user action. A device fix never guarantees a particular sensor or building. */
 export async function getAddressFromCurrentPosition(client: SupabaseClient, options: { signal?: AbortSignal; onPosition?: (fix: PositionFix) => void } = {}): Promise<AddressSuggestion> {

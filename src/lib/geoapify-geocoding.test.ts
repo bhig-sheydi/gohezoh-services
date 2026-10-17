@@ -82,6 +82,18 @@ describe('authenticated location lookup', () => {
     await expect(mapTile(client, 17, 68178, 63094)).resolves.toMatchObject({ type: 'image/png' })
     expect(invoke).toHaveBeenCalledWith('location-address', expect.objectContaining({ body: { action: 'tile', z: 17, x: 68178, y: 63094 } }))
   })
+  it('limits concurrent tile requests so street lookup has a free connection', async () => {
+    const png = new Blob([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 1])])
+    const pending: Array<(value: { data: Blob; error: null }) => void> = []
+    const invoke = vi.fn(() => new Promise<{ data: Blob; error: null }>((resolve) => pending.push(resolve)))
+    const client = { functions: { invoke } } as unknown as SupabaseClient
+    const requests = [1, 2, 3, 4].map((x) => mapTile(client, 3, x, 2))
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(3))
+    pending.splice(0).forEach((resolve) => resolve({ data: png, error: null }))
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(4))
+    pending.splice(0).forEach((resolve) => resolve({ data: png, error: null }))
+    await expect(Promise.all(requests)).resolves.toHaveLength(4)
+  })
   it('finds mapped schools when the customer calls one school gate', async () => {
     const { client, invoke } = setup()
     invoke.mockResolvedValueOnce({ data: null, error: { context: new Response('{}', { status: 404 }) } })

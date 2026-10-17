@@ -1,11 +1,12 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import PinCorrection from './PinCorrection'
-import { mapTile, suggestNearby, type AddressSuggestion } from './lib/geoapify-geocoding'
+import { mapTile, suggestAddresses, suggestNearby, type AddressSuggestion } from './lib/geoapify-geocoding'
 
-vi.mock('./lib/geoapify-geocoding', () => ({ mapTile: vi.fn(), reverseAddress: vi.fn(), suggestNearby: vi.fn(), nearbyPlaces: vi.fn() }))
+vi.mock('./lib/geoapify-geocoding', () => ({ mapTile: vi.fn(), reverseAddress: vi.fn(), suggestNearby: vi.fn(), suggestAddresses: vi.fn() }))
+beforeEach(() => { vi.mocked(suggestAddresses).mockResolvedValue([]) })
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks() })
 
 describe('mobile pin correction', () => {
@@ -55,6 +56,26 @@ describe('mobile pin correction', () => {
     await userEvent.setup().click(await screen.findByRole('button', { name: 'Market Road, Umuahia' }))
     await userEvent.setup().type(screen.getByRole('textbox', { name: 'Search close, side street or landmark' }), 'Unknown')
     expect(await screen.findByText(/No mapped street, close or landmark with that name by Market Road/)).toBeInTheDocument()
+  })
+  it('shows a matching Nigerian street when the nearby pin is in the wrong area', async () => {
+    const street: AddressSuggestion = { address: 'Ibeku Road', city: 'Umuahia', state: 'Abia', latitude: 5.5296, longitude: 7.4861, specificity: 'street', resultType: 'street', confidence: null,
+      distanceMetres: null, evidence: { latitude: 5.5296, longitude: 7.4861, accuracyMetres: null, capturedAt: Date.now(), source: 'search' }, qualityNote: '' }
+    vi.mocked(mapTile).mockResolvedValue(new Blob(['png'], { type: 'image/png' }))
+    vi.mocked(suggestNearby).mockResolvedValue([])
+    vi.mocked(suggestAddresses).mockResolvedValue([street])
+    vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:map'), revokeObjectURL: vi.fn() })
+    render(<PinCorrection supabase={{} as SupabaseClient} initial={{ latitude: 4.85, longitude: 7.01 }} onChoose={vi.fn()} onClose={vi.fn()} />)
+    await userEvent.setup().type(screen.getByRole('textbox', { name: 'Street name' }), 'Ibeku')
+    expect(await screen.findByRole('button', { name: 'Ibeku Road, Umuahia' })).toBeInTheDocument()
+    expect(suggestAddresses).toHaveBeenCalledWith(expect.anything(), 'Ibeku', expect.anything())
+  })
+  it('explains when neither nearby nor wider street search finds a match', async () => {
+    vi.mocked(mapTile).mockResolvedValue(new Blob(['png'], { type: 'image/png' }))
+    vi.mocked(suggestNearby).mockResolvedValue([])
+    vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:map'), revokeObjectURL: vi.fn() })
+    render(<PinCorrection supabase={{} as SupabaseClient} initial={{ latitude: 4.85, longitude: 7.01 }} onChoose={vi.fn()} onClose={vi.fn()} />)
+    await userEvent.setup().type(screen.getByRole('textbox', { name: 'Street name' }), 'Unmapped')
+    expect(await screen.findByText(/No mapped street found/)).toBeInTheDocument()
   })
   it('lets customers choose a mapped close connected to the selected street', async () => {
     const street: AddressSuggestion = { address: 'Market Road', city: 'Umuahia', state: 'Abia', latitude: 5.5296, longitude: 7.4861, specificity: 'street', resultType: 'street', confidence: null,
