@@ -19,7 +19,7 @@ type Action =
   | { action: 'reverse'; latitude: number; longitude: number }
   | { action: 'search'; text: string }
   | { action: 'suggest'; text: string }
-  | { action: 'nearby_suggest'; text: string; kind: 'street' | 'amenity'; latitude: number; longitude: number }
+  | { action: 'nearby_suggest'; text: string; kind: 'street' | 'amenity'; latitude: number; longitude: number; street?: string }
   | { action: 'nearby_places'; latitude: number; longitude: number; street: string }
   | { action: 'map'; latitude: number; longitude: number; zoom: number }
   | { action: 'tile'; z: number; x: number; y: number }
@@ -60,7 +60,8 @@ function parseAction(body: unknown): Action {
   if (body.action === 'nearby_suggest' && typeof body.text === 'string' && (body.kind === 'street' || body.kind === 'amenity') && validCoordinates(body.latitude, body.longitude)) {
     const text = body.text.trim()
     if (text.length >= 2 && text.length <= 120 && !Array.from(text).some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127))
-      return { action: 'nearby_suggest', text, kind: body.kind, latitude: body.latitude as number, longitude: body.longitude as number }
+      return { action: 'nearby_suggest', text, kind: body.kind, latitude: body.latitude as number, longitude: body.longitude as number,
+        ...(body.kind === 'amenity' && typeof body.street === 'string' && body.street.trim().length >= 2 && body.street.length <= 120 ? { street: body.street.trim() } : {}) }
   }
   if (body.action === 'nearby_places' && validCoordinates(body.latitude, body.longitude) && typeof body.street === 'string' && body.street.trim().length >= 2 && body.street.length <= 120)
     return { action: 'nearby_places', latitude: body.latitude as number, longitude: body.longitude as number, street: body.street.trim() }
@@ -291,7 +292,9 @@ export function createLocationAddressHandler(dependencies: Dependencies) {
         if (!response.headers.get('Content-Type')?.toLowerCase().includes('application/json')) throw new Error('invalid content type')
         const payload = await response.json()
         if (action.action === 'nearby_places') return json({ suggestions: normalizeNearbyPlaces(payload, action.street) }, 200)
-        const results = normalizeResults(payload)
+        const results = action.action === 'nearby_suggest' && action.kind === 'amenity' && action.street && object(payload) && Array.isArray(payload.results)
+          ? normalizeResults({ results: payload.results.filter((result: unknown) => object(result) && typeof result.street === 'string' && streetKey(result.street) === streetKey(action.street!)) })
+          : normalizeResults(payload)
         return json(action.action === 'suggest' || action.action === 'nearby_suggest' ? { suggestions: results } : results[0], 200)
       } catch (error) {
         if (error instanceof LocationError) throw error

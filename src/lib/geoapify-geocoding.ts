@@ -101,8 +101,8 @@ function suggestionPayload(payload: unknown, maximum: number): AddressSuggestion
   })
 }
 
-export async function suggestNearby(client: SupabaseClient, text: string, kind: 'street' | 'amenity', point: LocationPoint, signal?: AbortSignal): Promise<AddressSuggestion[]> {
-  try { return suggestionPayload(await invoke(client, { action: 'nearby_suggest', text, kind, ...point }, signal), 8) }
+export async function suggestNearby(client: SupabaseClient, text: string, kind: 'street' | 'amenity', point: LocationPoint, signal?: AbortSignal, street?: string): Promise<AddressSuggestion[]> {
+  try { return suggestionPayload(await invoke(client, { action: 'nearby_suggest', text, kind, ...point, ...(street ? { street } : {}) }, signal), 8) }
   catch (error) { if (error instanceof AddressLookupError && error.status === 404) return []; throw error }
 }
 

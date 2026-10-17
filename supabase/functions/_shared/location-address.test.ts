@@ -69,6 +69,18 @@ describe('authenticated location-address handler', () => {
     expect(url.searchParams.get('bias')).toBe('proximity:7.4861,5.5296')
   })
 
+  it('limits searched landmarks to the street the customer selected', async () => {
+    const fetcher = vi.fn(async () => Response.json({ results: [
+      { ...record, result_type: 'amenity', address_line1: 'Main Market', street: 'Market Rd', housenumber: undefined },
+      { ...record, result_type: 'amenity', address_line1: 'Other Market', street: 'Station Road', housenumber: undefined },
+    ] }))
+    const { handler } = setup({ fetcher })
+    const response = await handler(request({ action: 'nearby_suggest', text: 'Market', kind: 'amenity', latitude: 5.5296, longitude: 7.4861, street: 'Market Road' }))
+    expect(response.status).toBe(200)
+    expect((await response.json()).suggestions.map((item: { address: string }) => item.address)).toEqual(['Main Market'])
+    expect(new URL(String(fetcher.mock.calls[0][0])).searchParams.get('type')).toBe('amenity')
+  })
+
   it('returns only named mapped places within the requested vicinity', async () => {
     const fetcher = vi.fn(async () => Response.json({ features: [
       { properties: { name: 'Main Market', street: 'Market Rd', city: 'Umuahia', state: 'Abia', lat: 5.53, lon: 7.49, distance: 250 } },
