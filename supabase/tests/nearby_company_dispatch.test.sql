@@ -22,8 +22,6 @@ begin
   insert into public.customer_users(customer_id,user_id) values(v_customer,v_customer_user);
   insert into public.logistics_partners(id,partner_name,contact_person,phone,status) values
     (v_company,'Near Company','Manager','08000000002','active'),(v_far_company,'Far Company','Manager','08000000003','active');
-  insert into public.partner_corridor_coverage(partner_id,corridor_id,is_enabled,capacity_available) values
-    (v_company,v_corridor,true,true),(v_far_company,v_corridor,true,true) on conflict(partner_id,corridor_id) do update set is_enabled=true,capacity_available=true;
   insert into public.partner_users(partner_id,user_id,membership_role) values
     (v_company,v_manager,'manager'),(v_far_company,v_far_manager,'manager'),
     (v_company,v_rider,'rider'),(v_company,v_rider2,'rider'),(v_far_company,v_far_rider,'rider');
@@ -60,6 +58,8 @@ begin
     '[{"description":"Books","quantity":1,"weight_kg":1,"length_cm":10,"width_cm":10,"height_cm":10,"declared_value":1000,"price":500}]'::jsonb,v_path,
     6.45,3.4,18,now(),'browser');
   if (select count(*) from public.company_bid_invitations where request_id=v_request)<>1 then raise exception 'Expected one invitation to the near company only'; end if;
+  if exists(select 1 from public.partner_corridor_coverage where partner_id in (v_company,v_far_company)) then
+    raise exception 'Proximity fixture must not depend on manual route assignments'; end if;
   if not exists(select 1 from public.company_bid_invitations where request_id=v_request and partner_id=v_company and rider_id=v_rider) then
     raise exception 'Nearest rider did not source the company invitation'; end if;
   if (select dispatch_match_status from public.service_requests where id=v_request)<>'bidding' then raise exception 'Customer matching status is wrong'; end if;

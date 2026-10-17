@@ -20,10 +20,10 @@ export default function RiderAvailability({ supabase }: { supabase: SupabaseClie
     })
   }, [enabled, supabase])
   return <section className="form-card rider-availability" aria-label="Rider availability">
-    <div><h2>{enabled ? 'On duty' : 'Off duty'}</h2><p role="status">{status}</p>
+    <div><h2>{enabled && status.startsWith('Online') ? 'On duty' : enabled ? 'Connecting' : 'Off duty'}</h2><p role="status">{status}</p>
       <small>Keep this screen open. Nearby jobs go to your company for bidding.</small></div>
     <button type="button" className="primary-button" onClick={() => {
-      if (enabled) setStatus('Offline')
+      setStatus(enabled ? 'Offline' : 'Getting your location…')
       setEnabled(!enabled)
     }}>{enabled ? 'Go offline' : 'Go online'}</button>
   </section>
