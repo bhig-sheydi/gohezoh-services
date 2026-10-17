@@ -57,6 +57,18 @@ describe('authenticated location-address handler', () => {
     expect(url.searchParams.get('limit')).toBe('5')
   })
 
+  it('uses a selected community boundary when suggesting its streets', async () => {
+    const placeId = '51f07665660fc4024059dc0a96dfac6c'
+    const fetcher = vi.fn(async () => Response.json({ results: [{ ...record, place_id: placeId }] }))
+    const { handler } = setup({ fetcher })
+    const response = await handler(request({ action: 'suggest', text: 'Orji', placeId }))
+    expect(response.status).toBe(200)
+    expect((await response.json()).suggestions[0].placeId).toBe(placeId)
+    const url = new URL(String(fetcher.mock.calls[0][0]))
+    expect(url.searchParams.get('filter')).toBe(`place:${placeId}`)
+    expect(url.searchParams.get('text')).toBe('Orji')
+  })
+
   it('limits typed street suggestions to a nearby circle', async () => {
     const { handler, fetcher } = setup()
     const response = await handler(request({ action: 'nearby_suggest', text: 'Market', kind: 'street', latitude: 5.5296, longitude: 7.4861 }))

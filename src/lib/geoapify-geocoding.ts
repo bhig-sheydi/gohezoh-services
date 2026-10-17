@@ -7,6 +7,7 @@ export type AddressResult = LocationPoint & {
   address: string; city: string; state: string
   specificity: 'building' | 'street' | 'area'; resultType: string
   distanceMetres: number | null; confidence: number | null
+  placeId?: string
 }
 export type AddressSuggestion = AddressResult & { evidence: LocationEvidence; qualityNote: string }
 export class AddressLookupError extends Error {
@@ -57,7 +58,8 @@ function addressResult(value: unknown): AddressResult {
     !Number.isFinite(result.latitude) || Math.abs(result.latitude) > 90 ||
     !Number.isFinite(result.longitude) || Math.abs(result.longitude) > 180 ||
     !(result.distanceMetres === null || (Number.isFinite(result.distanceMetres) && result.distanceMetres >= 0)) ||
-    !(result.confidence === null || (Number.isFinite(result.confidence) && result.confidence >= 0 && result.confidence <= 1))) {
+    !(result.confidence === null || (Number.isFinite(result.confidence) && result.confidence >= 0 && result.confidence <= 1)) ||
+    (result.placeId !== undefined && (typeof result.placeId !== 'string' || !/^[a-zA-Z0-9]{8,256}$/.test(result.placeId)))) {
     throw new AddressLookupError('The address service returned an invalid result. Enter the address manually.')
   }
   return result
@@ -82,13 +84,13 @@ export async function reverseAddress(client: SupabaseClient, evidence: LocationE
 }
 
 /** Explicit address lookup; geocoder coordinates are not a GPS accuracy measurement. */
-export async function searchAddress(client: SupabaseClient, text: string, signal?: AbortSignal): Promise<AddressSuggestion> {
-  const result = addressResult(await invoke(client, { action: 'search', text }, signal))
+export async function searchAddress(client: SupabaseClient, text: string, signal?: AbortSignal, placeId?: string): Promise<AddressSuggestion> {
+  const result = addressResult(await invoke(client, { action: 'search', text, ...(placeId ? { placeId } : {}) }, signal))
   return suggestion(result, { latitude: result.latitude, longitude: result.longitude, accuracyMetres: null, capturedAt: Date.now(), source: 'search' })
 }
 
-export async function suggestAddresses(client: SupabaseClient, text: string, signal?: AbortSignal): Promise<AddressSuggestion[]> {
-  const payload = await invoke(client, { action: 'suggest', text }, signal)
+export async function suggestAddresses(client: SupabaseClient, text: string, signal?: AbortSignal, placeId?: string): Promise<AddressSuggestion[]> {
+  const payload = await invoke(client, { action: 'suggest', text, ...(placeId ? { placeId } : {}) }, signal)
   return suggestionPayload(payload, 5)
 }
 

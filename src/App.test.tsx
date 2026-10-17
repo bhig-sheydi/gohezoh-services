@@ -812,7 +812,7 @@ describe('partner assignment and delivery screens', () => {
     await user.selectOptions(screen.getByLabelText('Service'), 'service-1')
     for (const [label,value] of Object.entries({
       'Pickup contact':'Ada','Pickup phone':'08000000001','Pickup community':'Ikeja','Pickup street':'1 Lagos Road',
-      'Recipient name':'Bola','Recipient phone':'08000000002','Delivery street':'2 Lagos Road',
+      'Recipient name':'Bola','Recipient phone':'08000000002','Delivery address':'2 Lagos Road',
       'Description':'Books',
     })) fireEvent.change(screen.getByLabelText(label),{target:{value}})
     const quantity = screen.getByLabelText('Items for this destination') as HTMLSelectElement
@@ -825,14 +825,16 @@ describe('partner assignment and delivery screens', () => {
     await user.selectOptions(screen.getByLabelText(/Height/), '10')
     await user.selectOptions(screen.getByLabelText('Pickup city'), 'Lagos')
     await user.selectOptions(screen.getByLabelText('Delivery city'), 'Lagos')
-    await user.click(screen.getByRole('button', { name: 'Find pickup street' }))
+    await user.click(screen.getByRole('button', { name: 'Find pickup address' }))
     await screen.findByText(/approximate address match/)
-    expect(screen.getByRole('figure', { name: 'Selected pickup street on map' })).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Find delivery street (optional)' }))
-    await screen.findByText(/approximate street match/)
+    expect(screen.getByRole('button', { name: 'Adjust pin' })).toBeInTheDocument()
+    await user.click(screen.getByLabelText('This is the pickup location.'))
+    await user.click(screen.getByRole('button', { name: 'Find delivery address' }))
+    await screen.findByLabelText('This is the delivery location.')
+    await user.click(screen.getByLabelText('This is the delivery location.'))
     fireEvent.change(screen.getByLabelText(/Declared worth/), { target: { value: '25000' } })
     fireEvent.change(screen.getByLabelText(/Price paid/), { target: { value: '18000' } })
-    expect(screen.getByText(/A rider will call the pickup and recipient contacts when nearby/)).toBeInTheDocument()
+    await user.click(screen.getByLabelText('I confirmed this delivery location with the recipient.'))
     const parcelPhoto = new File(['parcel photo'], 'parcel.png', { type: 'image/png' })
     await user.upload(screen.getByLabelText('Photo of goods'), parcelPhoto)
     expect((screen.getByLabelText('Photo of goods') as HTMLInputElement).files?.[0]).toEqual(parcelPhoto)

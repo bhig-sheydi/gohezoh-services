@@ -13,12 +13,13 @@ export type LocationAddressResult = {
   resultType: string
   distanceMetres: number | null
   confidence: number | null
+  placeId?: string
 }
 
 type Action =
   | { action: 'reverse'; latitude: number; longitude: number }
-  | { action: 'search'; text: string }
-  | { action: 'suggest'; text: string }
+  | { action: 'search'; text: string; placeId?: string }
+  | { action: 'suggest'; text: string; placeId?: string }
   | { action: 'nearby_suggest'; text: string; kind: 'street' | 'amenity'; latitude: number; longitude: number; street?: string }
   | { action: 'nearby_places'; latitude: number; longitude: number; street: string }
   | { action: 'map'; latitude: number; longitude: number; zoom: number }
@@ -55,7 +56,13 @@ function parseAction(body: unknown): Action {
   }
   if ((body.action === 'search' || body.action === 'suggest') && typeof body.text === 'string') {
     const text = body.text.trim()
-    if (text.length >= 3 && text.length <= 300 && !Array.from(text).some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) return { action: body.action, text }
+    if (text.length >= 3 && text.length <= 300 && !Array.from(text).some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) {
+      if (body.placeId !== undefined) {
+        if (typeof body.placeId !== 'string' || !/^[a-zA-Z0-9]{8,256}$/.test(body.placeId)) throw new LocationError(400, 'invalid_request', 'Choose a mapped community again.')
+        return { action: body.action, text, placeId: body.placeId }
+      }
+      return { action: body.action, text }
+    }
   }
   if (body.action === 'nearby_suggest' && typeof body.text === 'string' && (body.kind === 'street' || body.kind === 'amenity') && validCoordinates(body.latitude, body.longitude)) {
     const text = body.text.trim()
@@ -125,6 +132,7 @@ function normalizeOneResult(result: unknown): LocationAddressResult {
   }
   const address = String(result.address_line1 || result.formatted || '').trim()
   const resultType = String(result.result_type || 'unknown')
+  if (result.place_id !== undefined && (typeof result.place_id !== 'string' || !/^[a-zA-Z0-9]{8,256}$/.test(result.place_id))) throw new Error('invalid place id')
   if (!address || !resultTypes.has(resultType)) throw new Error('invalid address')
   const distance = result.distance ?? null
   if (distance !== null && (!finite(distance) || distance < 0)) throw new Error('invalid distance')
@@ -142,6 +150,7 @@ function normalizeOneResult(result: unknown): LocationAddressResult {
     resultType,
     distanceMetres: distance as number | null,
     confidence: confidence as number | null,
+    ...(typeof result.place_id === 'string' ? { placeId: result.place_id } : {}),
   }
 }
 
@@ -259,7 +268,7 @@ export function createLocationAddressHandler(dependencies: Dependencies) {
           url.searchParams.set('filter', `circle:${action.longitude},${action.latitude},${action.kind === 'street' && action.street ? 750 : 10000}`)
           url.searchParams.set('bias', `proximity:${action.longitude},${action.latitude}`)
         } else {
-          url.searchParams.set('text', action.text); url.searchParams.set('filter', 'countrycode:ng')
+          url.searchParams.set('text', action.text); url.searchParams.set('filter', action.placeId ? `place:${action.placeId}` : 'countrycode:ng')
         }
       }
       url.searchParams.set('apiKey', dependencies.apiKey)
