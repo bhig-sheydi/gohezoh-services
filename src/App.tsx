@@ -259,13 +259,9 @@ function App() {
     if (!session || !customer) return
     const formElement = event.currentTarget
     const form = new FormData(formElement)
-    if (['SRV-0001', 'SRV-0002'].includes(services.find((service) => service.id === form.get('service_id'))?.code ?? '') && (!form.has('pickup_latitude') || !form.get('pickup_location_confirmed'))) {
-      setError('Choose or find your pickup address and confirm its location.'); return
+    if (['SRV-0001', 'SRV-0002'].includes(services.find((service) => service.id === form.get('service_id'))?.code ?? '') && !form.has('pickup_latitude')) {
+      setError('Choose or find your pickup street so we can offer the job to nearby companies.'); return
     }
-    if (!form.has('delivery_latitude') || !form.get('delivery_location_confirmed')) {
-      setError('Choose or find the delivery address and confirm its location.'); return
-    }
-    if (!form.get('recipient_location_confirmed')) { setError('Confirm the recipient has agreed to this delivery location before you submit.'); return }
     setBusy(true); setError(''); setNotice('')
     let weightKg: number | null
     try { weightKg = weightInKilograms(form.get('parcel_weight'), String(form.get('parcel_weight_unit'))) }
@@ -325,8 +321,8 @@ function App() {
       sender_name: String(form.get('sender_name')),
       sender_phone: String(form.get('sender_phone')),
       delivery_address: String(form.get('delivery_address')),
-      delivery_latitude: Number(form.get('delivery_latitude')),
-      delivery_longitude: Number(form.get('delivery_longitude')),
+      delivery_latitude: form.has('delivery_latitude') ? Number(form.get('delivery_latitude')) : null,
+      delivery_longitude: form.has('delivery_longitude') ? Number(form.get('delivery_longitude')) : null,
       delivery_accuracy_metres: form.get('delivery_accuracy_metres') ? Number(form.get('delivery_accuracy_metres')) : null,
       delivery_location_source: form.get('delivery_location_source') || null,
       delivery_captured_at: form.get('delivery_captured_at') || null,
@@ -922,7 +918,7 @@ function PartnerPortal({ supabase, userId, canRespond, onError, onNotice }: {
       const partnerStatuses: Record<string, string[]> = { partner_assigned: ['picked_up', 'exception'], pickup_scheduled: ['picked_up', 'exception'], picked_up: ['in_transit', 'exception'], in_transit: ['out_for_delivery', 'exception'], out_for_delivery: ['exception'], exception: ['pickup_scheduled', 'picked_up', 'in_transit', 'out_for_delivery'] }
       return <article className="form-card partner-job-card" key={assignment.id}>
         <div className="review-title"><div><p className="eyebrow">{job.job_number}</p><h2>{formatStatus(job.status)}</h2></div><span className={`assignment-status assignment-${assignment.status}`}>{assignment.status === 'assigned' ? 'Awaiting response' : assignment.status === 'completed' ? 'Delivered' : 'Accepted'}</span></div>
-        <div className="partner-job-route"><div><small>PICKUP</small><p>{job.pickup_address}<br />{job.pickup_city}</p></div><div><small>DELIVER TO</small><p>{job.delivery_address}<br />{job.delivery_city}</p><strong>{job.recipient_name} | {job.recipient_phone}</strong>{job.recipient_phone_secondary && <small>Alternate: {job.recipient_phone_secondary}</small>}{job.delivery_latitude != null && job.delivery_longitude != null && <p><a href={`https://www.google.com/maps/search/?api=1&query=${job.delivery_latitude},${job.delivery_longitude}`} target="_blank" rel="noreferrer">Open delivery pin</a></p>}</div></div><ParcelIdentifiers parcels={job.job_parcels??[]} />
+        <div className="partner-job-route"><div><small>PICKUP</small><p>{job.pickup_address}<br />{job.pickup_city}</p></div><div><small>DELIVER TO</small><p>{job.delivery_address}<br />{job.delivery_city}</p><strong>{job.recipient_name} | {job.recipient_phone}</strong>{job.recipient_phone_secondary && <small>Alternate: {job.recipient_phone_secondary}</small>}{job.delivery_latitude != null && job.delivery_longitude != null && <p><a href={`https://www.google.com/maps/search/?api=1&query=${job.delivery_latitude},${job.delivery_longitude}`} target="_blank" rel="noreferrer">Open approximate delivery street</a></p>}</div></div><ParcelIdentifiers parcels={job.job_parcels??[]} />
         {assignment.status === 'assigned' ? <div className="partner-response-actions"><button className="secondary-button" disabled={!canRespond || busy} onClick={() => void respond(assignment, false)}>Decline job</button><button className="primary-button" disabled={!canRespond || busy} onClick={() => void respond(assignment, true)}>{busy ? 'Saving...' : 'Accept job'}</button></div> : <>
           <label className="field partner-progress-control"><span>Update delivery progress</span><select value="" disabled={!canRespond || busy || !partnerStatuses[job.status]?.length} onChange={(event) => { if (event.target.value) void updateProgress(assignment, event.target.value) }}><option value="">{busy ? 'Saving...' : 'Choose next status'}</option>{(partnerStatuses[job.status] ?? []).map((status) => <option key={status} value={status}>{formatStatus(status)}</option>)}</select></label>
           {job.status === 'out_for_delivery' && <section className="delivery-otp-panel" aria-label={`Recipient confirmation for ${job.job_number}`}>
@@ -1102,16 +1098,16 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
         <label className="field"><span>Service</span><select name="service_id" required value={serviceId} onChange={(event) => { setServiceId(event.target.value); setOriginId(''); setDestinationId('') }}><option value="" disabled>Select service</option>{services.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}</select></label>
         <div className="form-divider">PICKUP</div>
         <div className="field-row"><Field label="Pickup contact" name="sender_name" required /><Field label="Pickup phone" name="sender_phone" type="tel" required /></div>
-        <Field label="Pickup address" name="pickup_address" required />
+        <Field label="Pickup street" name="pickup_address" required />
         {['SRV-0001', 'SRV-0002'].includes(serviceCode ?? '') && <PickupLocation supabase={supabase} userId={userId} onCitySelected={(city) => { setOriginId(coverageLocations.find((location) => location.name.toLowerCase() === city.toLowerCase())?.id ?? ''); setDestinationId('') }} />}
         <div className="field-row"><label className="field"><span>Pickup city</span><select name="pickup_city" required value={originId ? coverageLocations.find((location) => location.id === originId)?.name ?? '' : ''} onChange={(event) => { setOriginId(coverageLocations.find((location) => location.name === event.target.value)?.id ?? ''); setDestinationId('') }}><option value="">Select city</option>{origins.map((location) => <option key={location.id} value={location.name}>{location.name}</option>)}</select></label><input type="hidden" name="pickup_state" value={coverageLocations.find((location) => location.id === originId)?.state ?? ''} /><Field label="Pickup time" name="preferred_pickup_at" type="datetime-local" min={new Date().toISOString().slice(0, 16)} /></div>
         <div className="form-divider">DELIVER TO</div>
         {selectedPal && <div className="selected-saved-parcel"><span><strong>Parcel Pal: {selectedPal.contact.full_name || selectedPal.contact.code}</strong><small>{selectedPal.destination.label} location selected. Confirm it with the recipient below.</small></span><button className="text-button" type="button" onClick={() => setSelectedPal(null)}>Clear</button></div>}
         <div className="field-row"><Field label="Recipient name" name="recipient_name" defaultValue={selectedPal?.contact.full_name ?? ''} required /><Field label="Recipient phone" name="recipient_phone" type="tel" defaultValue={selectedPal?.contact.phone ?? ''} required /></div>
-        <div className="field-row"><Field label="Second phone (optional)" name="recipient_phone_secondary" type="tel" defaultValue={selectedPal?.destination.secondary_phone ?? ''} /><Field label="Delivery address" name="delivery_address" defaultValue={selectedPal?.destination.address ?? ''} required /></div>
+        <div className="field-row"><Field label="Second phone (optional)" name="recipient_phone_secondary" type="tel" defaultValue={selectedPal?.destination.secondary_phone ?? ''} /><Field label="Delivery street" name="delivery_address" defaultValue={selectedPal?.destination.address ?? ''} required /></div>
         <div className="field-row"><label className="field"><span>Delivery city</span><select name="delivery_city" required value={destinationId ? coverageLocations.find((location) => location.id === destinationId)?.name ?? selectedPal?.destination.city ?? '' : selectedPal?.destination.city ?? ''} onChange={(event) => setDestinationId(destinations.find((location) => location.name === event.target.value)?.id ?? '')}><option value="">Select city</option>{selectedPal && !destinations.some((location) => location.name === selectedPal.destination.city) && <option value={selectedPal.destination.city}>{selectedPal.destination.city} (Parcel Pal location)</option>}{destinations.map((location) => <option key={location.id} value={location.name}>{location.name}</option>)}</select></label><input type="hidden" name="delivery_state" value={coverageLocations.find((location) => location.id === destinationId)?.state ?? selectedPal?.destination.state ?? ''} /></div>
         <DeliveryPoint supabase={supabase} destination={selectedPal?.destination} onCitySelected={(city) => setDestinationId(destinations.find((location) => location.name.toLowerCase() === city.toLowerCase())?.id ?? '')} />
-        <label className="recipient-location-confirm"><input type="checkbox" name="recipient_location_confirmed" value="yes" required /><span>I confirmed this delivery location with the recipient.</span></label>
+        <p className="parcel-capacity-help">A rider will call the pickup and recipient contacts when nearby. Please keep those phones close.</p>
         <div className="form-divider">PARCEL</div><p className="parcel-capacity-help">Enter size and weight per item. We check the selected count against shipment capacity.</p>
         <div className="field-row"><Field label="Description" name="parcel_description" placeholder="Household items" required defaultValue={selectedParcel?.description} /><label className="field"><span>Items for this destination</span><select name="parcel_quantity" required defaultValue="1">{Array.from({ length: PARCEL_MAX_QUANTITY }, (_, index) => index + 1).map((quantity) => <option key={quantity} value={quantity}>{quantity}</option>)}</select></label><ParcelWeightField name="parcel_weight" defaultValue={selectedParcel?.weight_kg} /></div>
         <ParcelMeasureFields names={{ length: 'parcel_length_cm', width: 'parcel_width_cm', height: 'parcel_height_cm' }} defaults={{ length: selectedParcel?.length_cm, width: selectedParcel?.width_cm, height: selectedParcel?.height_cm }} />
