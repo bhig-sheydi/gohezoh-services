@@ -20,7 +20,7 @@ type Action =
   | { action: 'search'; text: string }
   | { action: 'suggest'; text: string }
   | { action: 'nearby_suggest'; text: string; kind: 'street' | 'amenity'; latitude: number; longitude: number }
-  | { action: 'nearby_places'; latitude: number; longitude: number }
+  | { action: 'nearby_places'; latitude: number; longitude: number; street: string }
   | { action: 'map'; latitude: number; longitude: number; zoom: number }
   | { action: 'tile'; z: number; x: number; y: number }
 
@@ -62,8 +62,8 @@ function parseAction(body: unknown): Action {
     if (text.length >= 2 && text.length <= 120 && !Array.from(text).some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127))
       return { action: 'nearby_suggest', text, kind: body.kind, latitude: body.latitude as number, longitude: body.longitude as number }
   }
-  if (body.action === 'nearby_places' && validCoordinates(body.latitude, body.longitude))
-    return { action: 'nearby_places', latitude: body.latitude as number, longitude: body.longitude as number }
+  if (body.action === 'nearby_places' && validCoordinates(body.latitude, body.longitude) && typeof body.street === 'string' && body.street.trim().length >= 2 && body.street.length <= 120)
+    return { action: 'nearby_places', latitude: body.latitude as number, longitude: body.longitude as number, street: body.street.trim() }
   if (body.action === 'map' && validCoordinates(body.latitude, body.longitude) && Number.isInteger(body.zoom) && body.zoom >= 14 && body.zoom <= 19)
     return { action: 'map', latitude: body.latitude as number, longitude: body.longitude as number, zoom: body.zoom as number }
   if (body.action === 'tile' && Number.isInteger(body.z) && Number.isInteger(body.x) && Number.isInteger(body.y)) {
@@ -144,16 +144,22 @@ function normalizeOneResult(result: unknown): LocationAddressResult {
   }
 }
 
-function normalizeNearbyPlaces(payload: unknown): LocationAddressResult[] {
+function streetKey(value: string): string {
+  return value.toLowerCase().replace(/\broad\b|\brd\b/g, 'road').replace(/\bstreet\b|\bst\b/g, 'street').replace(/\bavenue\b|\bave\b/g, 'avenue').replace(/[^a-z0-9]/g, '')
+}
+
+function normalizeNearbyPlaces(payload: unknown, street: string): LocationAddressResult[] {
   if (!object(payload) || !Array.isArray(payload.features)) throw new Error('invalid places schema')
-  return payload.features.slice(0, 12).flatMap((feature: unknown) => {
+  const selectedStreet = streetKey(street)
+  return payload.features.slice(0, 30).flatMap((feature: unknown) => {
     if (!object(feature) || !object(feature.properties)) return []
     const item = feature.properties
-    if (!validCoordinates(item.lat, item.lon) || typeof item.name !== 'string' || !item.name.trim() || item.name.length > 160) return []
+    if (!validCoordinates(item.lat, item.lon) || typeof item.name !== 'string' || !item.name.trim() || item.name.length > 160 ||
+      typeof item.street !== 'string' || streetKey(item.street) !== selectedStreet) return []
     return [{ address: item.name.trim(), city: typeof item.city === 'string' ? item.city : '', state: typeof item.state === 'string' ? item.state : '',
       latitude: item.lat as number, longitude: item.lon as number, specificity: 'area' as const, resultType: 'amenity',
       distanceMetres: finite(item.distance) && item.distance >= 0 ? item.distance : null, confidence: null }]
-  })
+  }).slice(0, 12)
 }
 
 /** In-memory counters are best-effort per isolate, not a distributed quota guarantee.
@@ -178,7 +184,7 @@ export function createLocationAddressHandler(dependencies: Dependencies) {
           return new Response(null, { status: response.status, headers: response.headers })
         }
         // The fetch abort controller remains active while consuming the bounded body.
-        const maximum = url.hostname === 'maps.geoapify.com' ? 512 * 1024 : 64 * 1024
+        const maximum = url.hostname === 'maps.geoapify.com' ? 512 * 1024 : url.pathname === '/v2/places' ? 128 * 1024 : 64 * 1024
         const bytes = await limitedBytes(response, maximum)
         return new Response(bytes, { status: response.status, headers: response.headers })
       } catch (error) {
@@ -239,9 +245,9 @@ export function createLocationAddressHandler(dependencies: Dependencies) {
       else if (action.action === 'nearby_places') {
         url = new URL('https://api.geoapify.com/v2/places')
         url.searchParams.set('categories', 'commercial,catering,education,healthcare,public_transport,tourism')
-        url.searchParams.set('filter', `circle:${action.longitude},${action.latitude},700`)
+        url.searchParams.set('filter', `circle:${action.longitude},${action.latitude},1000`)
         url.searchParams.set('bias', `proximity:${action.longitude},${action.latitude}`)
-        url.searchParams.set('limit', '12'); url.searchParams.set('lang', 'en')
+        url.searchParams.set('limit', '30'); url.searchParams.set('lang', 'en')
       } else {
         url = new URL(`https://api.geoapify.com/v1/geocode/${action.action === 'reverse' ? 'reverse' : action.action === 'suggest' || action.action === 'nearby_suggest' ? 'autocomplete' : 'search'}`)
         url.searchParams.set('format', 'json'); url.searchParams.set('lang', 'en'); url.searchParams.set('limit', action.action === 'suggest' ? '5' : action.action === 'nearby_suggest' ? '8' : '1')
@@ -284,7 +290,7 @@ export function createLocationAddressHandler(dependencies: Dependencies) {
       try {
         if (!response.headers.get('Content-Type')?.toLowerCase().includes('application/json')) throw new Error('invalid content type')
         const payload = await response.json()
-        if (action.action === 'nearby_places') return json({ suggestions: normalizeNearbyPlaces(payload) }, 200)
+        if (action.action === 'nearby_places') return json({ suggestions: normalizeNearbyPlaces(payload, action.street) }, 200)
         const results = normalizeResults(payload)
         return json(action.action === 'suggest' || action.action === 'nearby_suggest' ? { suggestions: results } : results[0], 200)
       } catch (error) {

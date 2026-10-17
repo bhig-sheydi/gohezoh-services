@@ -24,11 +24,14 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
   const [retry, setRetry] = useState(0)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const drag = useRef<{ id: number; x: number; y: number } | null>(null)
+  const placesRequest = useRef(0)
   const [kind, setKind] = useState<'street' | 'amenity'>('street')
   const [query, setQuery] = useState('')
   const [selectedLabel, setSelectedLabel] = useState('')
+  const [selectedStreet, setSelectedStreet] = useState('')
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([])
   const [places, setPlaces] = useState<AddressSuggestion[]>([])
+  const [placesLoaded, setPlacesLoaded] = useState(false)
   const [lookupError, setLookupError] = useState('')
   const mapKey = `${point.latitude}:${point.longitude}:${zoom}`
   const currentImage = image?.key === mapKey ? image.url : ''
@@ -70,19 +73,22 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
     const next = Math.hypot(dx, dy) > 6
       ? shifted(point, -dx * width / rect.width, -dy * height / rect.height, zoom)
       : shifted(point, ((event.clientX - rect.left) / rect.width - 0.5) * width, ((event.clientY - rect.top) / rect.height - 0.5) * height, zoom)
-    drag.current = null; setOffset({ x: 0, y: 0 }); setPoint(next); setMovedPin(true); setPlaces([])
+    drag.current = null; placesRequest.current++; setOffset({ x: 0, y: 0 }); setPoint(next); setMovedPin(true); setPlaces([])
   }
   function chooseSuggestion(result: AddressSuggestion) {
     setPoint({ latitude: result.latitude, longitude: result.longitude }); setZoom(kind === 'street' ? 17 : 18)
-    setQuery(''); setSelectedLabel(result.address); setSuggestions([]); setPlaces([]); setMovedPin(false)
+    setQuery(''); setSelectedLabel(result.address); setSuggestions([]); setPlaces([]); setPlacesLoaded(false); setMovedPin(false)
     if (kind === 'street') {
-      void nearbyPlaces(supabase, { latitude: result.latitude, longitude: result.longitude })
-        .then((results) => setPlaces(results)).catch(() => setPlaces([]))
+      setSelectedStreet(result.address)
+      const request = ++placesRequest.current
+      void nearbyPlaces(supabase, { latitude: result.latitude, longitude: result.longitude }, result.address)
+        .then((results) => { if (request === placesRequest.current) { setPlaces(results); setPlacesLoaded(true) } })
+        .catch(() => { if (request === placesRequest.current) { setPlaces([]); setPlacesLoaded(true) } })
     }
   }
   function choosePlace(result: AddressSuggestion) {
     setPoint({ latitude: result.latitude, longitude: result.longitude }); setZoom(18)
-    setSelectedLabel(result.address); setPlaces([]); setMovedPin(false)
+    placesRequest.current++; setSelectedLabel(result.address); setPlaces([]); setMovedPin(false)
   }
   async function confirm() {
     setBusy(true); setError('')
@@ -95,10 +101,11 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
   return <div className="pin-correction" aria-label="Adjust location pin">
     <div className="pin-map-controls"><strong>Choose the entrance</strong><button type="button" onClick={onClose} aria-label="Close pin map">Close</button></div>
     <p>Drag the map under the pin, or tap a location.</p>
-    <div className="pin-map-search"><label className="field"><span>Find a mapped street or place</span><select value={kind} onChange={(event) => { setKind(event.target.value as 'street' | 'amenity'); setQuery(''); setSuggestions([]); setPlaces([]) }}><option value="street">Street</option><option value="amenity">Landmark</option></select></label>
+    <div className="pin-map-search"><label className="field"><span>Find a mapped street or place</span><select value={kind} onChange={(event) => { placesRequest.current++; setKind(event.target.value as 'street' | 'amenity'); setQuery(''); setSuggestions([]); setPlaces([]) }}><option value="street">Street</option><option value="amenity">Landmark</option></select></label>
       <input aria-label={kind === 'street' ? 'Street name' : 'Landmark name'} value={query} placeholder={kind === 'street' ? 'Type a street name' : 'Type a landmark name'} onChange={(event) => { setQuery(event.target.value); setSuggestions([]) }} /></div>
     {suggestions.length > 0 && <div className="address-suggestions" role="group" aria-label="Nearby mapped suggestions">{suggestions.map((result, index) => <button type="button" key={`${result.latitude}-${result.longitude}-${index}`} onClick={() => chooseSuggestion(result)}>{result.address}{result.city ? `, ${result.city}` : ''}</button>)}</div>}
-    {places.length > 0 && <div className="address-suggestions" role="group" aria-label="Nearby mapped places"><small>Mapped places near this street</small>{places.map((result, index) => <button type="button" key={`${result.latitude}-${result.longitude}-${index}`} onClick={() => choosePlace(result)}>{result.address}</button>)}</div>}
+    {places.length > 0 && <div className="address-suggestions" role="group" aria-label="Landmarks on selected street"><small>Landmarks mapped on {selectedStreet}</small>{places.map((result, index) => <button type="button" key={`${result.latitude}-${result.longitude}-${index}`} onClick={() => choosePlace(result)}>{result.address}{result.distanceMetres != null ? ` · about ${Math.round(result.distanceMetres)} m away` : ''}</button>)}</div>}
+    {selectedStreet && placesLoaded && places.length === 0 && <small role="status">No mapped landmarks found on {selectedStreet}. Search one by name or place the pin at the house.</small>}
     {selectedLabel && <small role="status">Near {selectedLabel}. Drag or tap to choose the exact entrance.</small>}
     {lookupError && <small role="status">{lookupError}</small>}
     <button type="button" className="pin-map-image" onPointerDown={beginDrag} onPointerMove={moving} onPointerUp={endDrag} onPointerCancel={() => { drag.current = null; setOffset({ x: 0, y: 0 }) }} aria-label="Drag or tap map to choose a point">

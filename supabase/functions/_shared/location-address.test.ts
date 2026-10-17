@@ -71,18 +71,18 @@ describe('authenticated location-address handler', () => {
 
   it('returns only named mapped places within the requested vicinity', async () => {
     const fetcher = vi.fn(async () => Response.json({ features: [
-      { properties: { name: 'Main Market', city: 'Umuahia', state: 'Abia', lat: 5.53, lon: 7.49, distance: 250 } },
-      { properties: { city: 'Umuahia', lat: 5.531, lon: 7.491 } },
+      { properties: { name: 'Main Market', street: 'Market Rd', city: 'Umuahia', state: 'Abia', lat: 5.53, lon: 7.49, distance: 250 } },
+      { properties: { name: 'Other Market', street: 'Station Road', city: 'Umuahia', lat: 5.531, lon: 7.491 } },
     ] }))
     const { handler } = setup({ fetcher })
-    const response = await handler(request({ action: 'nearby_places', latitude: 5.5296, longitude: 7.4861 }))
+    const response = await handler(request({ action: 'nearby_places', latitude: 5.5296, longitude: 7.4861, street: 'Market Road' }))
     expect(response.status).toBe(200)
     expect((await response.json()).suggestions).toEqual([{ address: 'Main Market', city: 'Umuahia', state: 'Abia', latitude: 5.53, longitude: 7.49,
       specificity: 'area', resultType: 'amenity', distanceMetres: 250, confidence: null }])
     const url = new URL(String(fetcher.mock.calls[0][0]))
     expect(url.pathname).toBe('/v2/places')
-    expect(url.searchParams.get('filter')).toBe('circle:7.4861,5.5296,700')
-    expect(url.searchParams.get('limit')).toBe('12')
+    expect(url.searchParams.get('filter')).toBe('circle:7.4861,5.5296,1000')
+    expect(url.searchParams.get('limit')).toBe('30')
   })
 
   it('does not fabricate city, confidence, precision or distance for coarse results', async () => {

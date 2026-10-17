@@ -106,8 +106,8 @@ export async function suggestNearby(client: SupabaseClient, text: string, kind: 
   catch (error) { if (error instanceof AddressLookupError && error.status === 404) return []; throw error }
 }
 
-export async function nearbyPlaces(client: SupabaseClient, point: LocationPoint, signal?: AbortSignal): Promise<AddressSuggestion[]> {
-  return suggestionPayload(await invoke(client, { action: 'nearby_places', ...point }, signal), 12)
+export async function nearbyPlaces(client: SupabaseClient, point: LocationPoint, street: string, signal?: AbortSignal): Promise<AddressSuggestion[]> {
+  return suggestionPayload(await invoke(client, { action: 'nearby_places', ...point, street }, signal), 12)
 }
 
 export async function staticPinMap(client: SupabaseClient, latitude: number, longitude: number, zoom: number, signal?: AbortSignal): Promise<Blob> {
