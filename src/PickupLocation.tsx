@@ -1,10 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { requestAddressPosition } from './lib/proximity'
-import { searchAddress, suggestAddresses, type AddressSuggestion, type LocationEvidence } from './lib/geoapify-geocoding'
+import { suggestAddresses, type AddressSuggestion, type LocationEvidence } from './lib/geoapify-geocoding'
 import type { ParcelDestination } from './ParcelPalsPanel'
 import PinCorrection from './PinCorrection'
 type PickupFix = Omit<LocationEvidence, 'source'> & { source: LocationEvidence['source'] | 'saved' }
+const cityCentres: Record<string, { latitude: number; longitude: number }> = {
+  'port harcourt': { latitude: 4.8156, longitude: 7.0498 },
+  lagos: { latitude: 6.5244, longitude: 3.3792 },
+  umuahia: { latitude: 5.5333, longitude: 7.4833 },
+}
+const nigeriaCentre = { latitude: 9.082, longitude: 8.6753 }
 
 export default function PickupLocation({ supabase, userId, onCitySelected }: {
   supabase: SupabaseClient; userId: string; onCitySelected: (city: string) => void
@@ -16,12 +22,12 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
   const [error, setError] = useState('')
   const [matched, setMatched] = useState('')
   const [communityQuery, setCommunityQuery] = useState('')
-  const [communityPlaceId, setCommunityPlaceId] = useState('')
   const [communitySuggestions, setCommunitySuggestions] = useState<AddressSuggestion[]>([])
-  const [query, setQuery] = useState('')
-  const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([])
-  const [pinOpen, setPinOpen] = useState(false)
-  const [needsPin, setNeedsPin] = useState(false)
+  const [anchor, setAnchor] = useState(nigeriaCentre)
+  const [streetSeed, setStreetSeed] = useState('')
+  const [pinVersion, setPinVersion] = useState(0)
+  const [contextCity, setContextCity] = useState('')
+  const [contextCommunity, setContextCommunity] = useState('')
   const container = useRef<HTMLDivElement>(null)
   const pending = useRef<AbortController | null>(null)
   useEffect(() => {
@@ -34,20 +40,23 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
   }, [supabase, userId])
   useEffect(() => {
     const form = container.current?.closest('form')
-    const clear = () => { pending.current?.abort(); pending.current = null; setFix(null); setMatched(''); setBusy(false); setSuggestions([]); setCommunitySuggestions([]); setPinOpen(false); setNeedsPin(false) }
+    const clear = () => { pending.current?.abort(); pending.current = null; setFix(null); setMatched(''); setBusy(false); setCommunitySuggestions([]); setStreetSeed('') }
     const changed = (event: Event) => {
       const target = event.target as HTMLInputElement
-      if (event.type === 'change' && ['pickup_address', 'pickup_community'].includes(target.name)) return
+      if (event.type === 'change' && target.name === 'pickup_community') return
       if (event.type === 'input' && ['pickup_city', 'service_id'].includes(target.name)) return
-      if (['pickup_address', 'pickup_community', 'pickup_city', 'service_id'].includes(target.name)) {
+      if (['pickup_community', 'pickup_city', 'service_id'].includes(target.name)) {
+        const street = form?.elements.namedItem('pickup_address')
+        if (target.name !== 'pickup_community' || street instanceof HTMLInputElement && street.value) setPinVersion((value) => value + 1)
         clear(); setSlot('')
-        if (target.name !== 'pickup_address') setCommunityPlaceId('')
-        setQuery(target.name === 'pickup_address' ? target.value.trim() : '')
         setCommunityQuery(target.name === 'pickup_community' ? target.value.trim() : '')
+        if (target.name === 'pickup_community') setContextCommunity(target.value.trim())
+        if (target.name === 'pickup_city') { setContextCity(target.value); setAnchor(cityCentres[target.value.toLowerCase()] ?? nigeriaCentre) }
       }
     }
-    form?.addEventListener('change', changed); form?.addEventListener('input', changed); form?.addEventListener('reset', clear)
-    return () => { pending.current?.abort(); form?.removeEventListener('change', changed); form?.removeEventListener('input', changed); form?.removeEventListener('reset', clear) }
+    const reset = () => { clear(); setAnchor(nigeriaCentre); setCommunityQuery(''); setContextCommunity(''); setContextCity(''); setPinVersion((value) => value + 1) }
+    form?.addEventListener('change', changed); form?.addEventListener('input', changed); form?.addEventListener('reset', reset)
+    return () => { pending.current?.abort(); form?.removeEventListener('change', changed); form?.removeEventListener('input', changed); form?.removeEventListener('reset', reset) }
   }, [])
   useEffect(() => {
     if (communityQuery.length < 3) return
@@ -60,66 +69,44 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
     }, 400)
     return () => { window.clearTimeout(timer); controller.abort() }
   }, [communityQuery, supabase])
-  useEffect(() => {
-    if (query.length < 3) return
-    const controller = new AbortController()
-    const timer = window.setTimeout(() => {
-      const city = (container.current?.closest('form')?.elements.namedItem('pickup_city') as HTMLSelectElement | null)?.value ?? ''
-      const community = (container.current?.closest('form')?.elements.namedItem('pickup_community') as HTMLInputElement | null)?.value.trim() ?? ''
-      if (!community) return
-      void suggestAddresses(supabase, communityPlaceId ? query : [query, community, city, 'Nigeria'].filter(Boolean).join(', '), controller.signal, communityPlaceId || undefined)
-        .then((results) => { if (!controller.signal.aborted) setSuggestions(results.filter((result) => result.specificity !== 'area' && (!city || !result.city || result.city.toLowerCase() === city.toLowerCase()))) })
-        .catch(() => { if (!controller.signal.aborted) setSuggestions([]) })
-    }, 400)
-    return () => { window.clearTimeout(timer); controller.abort() }
-  }, [query, supabase, communityPlaceId])
   function chooseCommunity(result: AddressSuggestion) {
     const input = container.current?.closest('form')?.elements.namedItem('pickup_community')
     if (input instanceof HTMLInputElement) input.value = result.address.split(',')[0].trim()
     if (result.city) onCitySelected(result.city)
-    setCommunityPlaceId(result.placeId ?? '')
-    setCommunitySuggestions([]); setCommunityQuery(''); setSuggestions([]); setError('')
-  }
-  function chooseSuggestion(result: AddressSuggestion) {
-    const input = container.current?.closest('form')?.elements.namedItem('pickup_address')
-    if (input instanceof HTMLInputElement) input.value = result.address
-    if (result.city) onCitySelected(result.city)
-    setFix(result.evidence); setMatched(`${result.address}, ${result.city}`); setNeedsPin(false)
-    setSuggestions([]); setQuery(''); setSlot(''); setError(''); setCommunitySuggestions([])
+    setContextCommunity(result.address.split(',')[0].trim()); setContextCity(result.city ?? '')
+    setAnchor({ latitude: result.latitude, longitude: result.longitude })
+    setFix(null); setMatched(''); setStreetSeed(''); setPinVersion((value) => value + 1)
+    setCommunitySuggestions([]); setCommunityQuery(''); setError('')
   }
   function choose(value: string) {
-    pending.current?.abort(); pending.current = null; setBusy(false); setFix(null); setError(''); setSlot(value); setMatched(''); setSuggestions([]); setCommunitySuggestions([]); setQuery(''); setCommunityQuery(''); setCommunityPlaceId(''); setNeedsPin(false)
+    pending.current?.abort(); pending.current = null; setBusy(false); setFix(null); setError(''); setSlot(value); setMatched(''); setCommunitySuggestions([]); setCommunityQuery('')
     const item = saved.find((address) => String(address.slot) === value)
-    const input = container.current?.closest('form')?.elements.namedItem('pickup_address')
-    if (!item || !(input instanceof HTMLInputElement)) return
-    input.value = item.address; onCitySelected(item.city)
+    setStreetSeed(item?.address ?? ''); setPinVersion((version) => version + 1)
+    if (!item) return
+    onCitySelected(item.city)
+    setContextCity(item.city)
+    const community = container.current?.closest('form')?.elements.namedItem('pickup_community')
+    if (community instanceof HTMLInputElement && !community.value) {
+      community.value = item.address.split(',').slice(1).join(',').trim()
+      setContextCommunity(community.value)
+    }
+    setAnchor(item.latitude != null && item.longitude != null
+      ? { latitude: item.latitude, longitude: item.longitude }
+      : cityCentres[item.city.toLowerCase()] ?? nigeriaCentre)
     if (item.latitude != null && item.longitude != null && item.location_source) {
       setFix({ latitude: item.latitude, longitude: item.longitude, accuracyMetres: null,
         source: 'saved', capturedAt: Date.now() })
       setMatched(`${item.address}, ${item.city}`)
     }
   }
-  async function locate(gps: boolean) {
+  async function locate() {
     if (pending.current) return
-    setBusy(true); setError(''); setFix(null); setMatched(''); setNeedsPin(false)
+    setBusy(true); setError(''); setFix(null); setMatched('')
     const controller = new AbortController(); pending.current = controller
     try {
-      if (gps) {
-        const result = await requestAddressPosition({ signal: controller.signal })
-        if (result.accuracyMetres > 100) throw new Error('GPS is too imprecise. Find your typed address instead, or try outdoors.')
-        if (!controller.signal.aborted) { setFix(result); setMatched('Current phone location') }
-      } else {
-        const form = container.current!.closest('form')!
-        const values = new FormData(form)
-        const address = String(values.get('pickup_address') ?? '').trim()
-        const community = String(values.get('pickup_community') ?? '').trim()
-        const city = String(values.get('pickup_city') ?? '').trim()
-        if (!community || !address || !city) throw new Error('Enter the pickup community and street, then choose its city.')
-        const result = await searchAddress(supabase, communityPlaceId ? address : `${address}, ${community}, ${city}, ${values.get('pickup_state') || ''}, Nigeria`, controller.signal, communityPlaceId || undefined)
-        if (result.city && result.city.toLowerCase() !== city.toLowerCase()) throw new Error('The mapped address is in another city. Check the pickup city and try again.')
-        const broad = result.specificity === 'area' || (result.confidence !== null && result.confidence < 0.7)
-        if (!controller.signal.aborted) { setFix(result.evidence); setMatched(broad ? 'Only a broad area was found. Adjust its pin to confirm pickup.' : `${result.address}, ${result.city}, ${result.state}`); setNeedsPin(broad) }
-      }
+      const result = await requestAddressPosition({ signal: controller.signal })
+      if (result.accuracyMetres > 100) throw new Error('GPS is too imprecise. Try outdoors or choose the pickup point on the map.')
+      if (!controller.signal.aborted) { setAnchor(result); setPinVersion((value) => value + 1); setFix(result); setMatched('Current phone location') }
     } catch (cause) { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Location unavailable') }
     finally { if (pending.current === controller) { pending.current = null; if (!controller.signal.aborted) setBusy(false) } }
   }
@@ -128,21 +115,21 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
       <option value="">Use a new address</option>{saved.map((address) => <option key={address.slot} value={address.slot}>{address.label} — {address.address}</option>)}
     </select></label>}
     {communitySuggestions.length > 0 && <div className="address-suggestions" role="group" aria-label="Pickup community suggestions">{communitySuggestions.map((result, index) => <button type="button" key={`${result.latitude}-${result.longitude}-${index}`} onClick={() => chooseCommunity(result)}><strong>{result.address}</strong><small>{result.city}, {result.state}</small></button>)}</div>}
-    {suggestions.length > 0 && <div className="address-suggestions" role="group" aria-label="Pickup address suggestions">{suggestions.map((result, index) => <button type="button" key={`${result.latitude}-${result.longitude}-${index}`} onClick={() => chooseSuggestion(result)}><strong>{result.address}</strong><small>{result.city}, {result.state} · {result.specificity} match</small></button>)}</div>}
-    <div className="field-row"><button type="button" className="secondary-button" disabled={busy} onClick={() => void locate(false)}>{busy ? 'Finding pickup…' : 'Find pickup address'}</button>
-      <button type="button" className="text-button" disabled={busy} onClick={() => void locate(true)}>I’m here — use GPS</button></div>
+    <button type="button" className="text-button" disabled={busy} onClick={() => void locate()}>{busy ? 'Getting your location…' : 'I’m here — use GPS'}</button>
     {error && <small role="alert">{error}</small>}
+    <PinCorrection key={pinVersion} supabase={supabase} initial={anchor} initialStreet={streetSeed} streetInputName="pickup_address" mapEnabled={!!contextCity}
+      searchContext={[contextCommunity, contextCity, 'Nigeria'].filter(Boolean).join(', ')} expectedCity={contextCity}
+      onStreetChange={() => { setFix(null); setMatched(''); setSlot('') }}
+      onChoose={(evidence, address) => { setFix(evidence); setMatched(address?.address ? `${address.address}, ${address.city}` : 'Pin selected') }} />
     {fix && <>
       {slot && <input type="hidden" name="pickup_saved_slot" value={slot} />}
-      <small role="status">{matched}{fix.source === 'search' ? ' · approximate address match' : fix.source === 'saved' ? ' · saved location' : ` · GPS ±${Math.round(fix.accuracyMetres ?? 0)} m`}</small>
-      <button type="button" className="text-button" onClick={() => setPinOpen(true)}>Adjust pin</button>
-      {!needsPin && <label key={`${fix.latitude}:${fix.longitude}:${fix.capturedAt}`}><input type="checkbox" name="pickup_location_confirmed" value="yes" required />This is the pickup location.</label>}
+      <small role="status">{matched}{fix.source === 'saved' ? ' · saved location' : fix.source === 'browser' || fix.source === 'native' ? ` · GPS ±${Math.round(fix.accuracyMetres ?? 0)} m` : ' · chosen on map'}</small>
+      <label key={`${fix.latitude}:${fix.longitude}:${fix.capturedAt}`}><input type="checkbox" name="pickup_location_confirmed" value="yes" required />This is the pickup location.</label>
       <input type="hidden" name="pickup_latitude" value={fix.latitude} />
       <input type="hidden" name="pickup_longitude" value={fix.longitude} />
       <input type="hidden" name="pickup_accuracy_metres" value={fix.accuracyMetres ?? ''} />
       <input type="hidden" name="pickup_location_source" value={fix.source} />
       <input type="hidden" name="pickup_captured_at" value={new Date(fix.capturedAt).toISOString()} />
     </>}
-    {pinOpen && fix && <PinCorrection supabase={supabase} initial={fix} requireMove={needsPin} onClose={() => setPinOpen(false)} onChoose={(evidence, address) => { setFix(evidence); setMatched(address?.address ? `${address.address}, ${address.city}` : 'Pin selected'); setNeedsPin(false); setPinOpen(false) }} />}
   </div>
 }
