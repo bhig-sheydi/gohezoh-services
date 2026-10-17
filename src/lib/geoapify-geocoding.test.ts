@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getAddressFromCurrentPosition, reverseAddress, staticPinMap, type AddressResult } from './geoapify-geocoding'
+import { getAddressFromCurrentPosition, reverseAddress, staticPinMap, suggestNearby, type AddressResult } from './geoapify-geocoding'
 import { requestAddressPosition } from './proximity'
 
 vi.mock('./proximity', () => ({ requestAddressPosition: vi.fn() }))
@@ -8,7 +8,7 @@ afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 const fix = { latitude: 6.45, longitude: 3.4, accuracyMetres: 18, capturedAt: Date.now(), source: 'browser' as const }
 const address: AddressResult = { address: '10 Palm Street', city: 'Umuahia', state: 'Abia', latitude: 6.45, longitude: 3.4, specificity: 'building', resultType: 'building', distanceMetres: 12, confidence: null }
 function setup(data: unknown = address, error: unknown = null) {
-  const invoke = vi.fn(async () => ({ data, error }))
+  const invoke = vi.fn(async (_name: string, _options: { body: Record<string, unknown> }) => ({ data, error }))
   return { invoke, client: { functions: { invoke } } as unknown as SupabaseClient }
 }
 
@@ -75,5 +75,24 @@ describe('authenticated location lookup', () => {
   it('rejects invalid map bytes', async () => {
     const { client } = setup(new Blob(['not a JPEG']))
     await expect(staticPinMap(client, 6.45, 3.4, 17)).rejects.toThrow('invalid image')
+  })
+  it('finds mapped schools when the customer calls one school gate', async () => {
+    const { client, invoke } = setup()
+    invoke.mockResolvedValueOnce({ data: null, error: { context: new Response('{}', { status: 404 }) } })
+      .mockResolvedValueOnce({ data: { suggestions: [{ ...address, address: 'Umuawa-Alaocha Central School', resultType: 'amenity' }] }, error: null })
+    const matches = await suggestNearby(client, 'school gate', 'amenity', fix, undefined, 'Market Road')
+    expect(matches.map((match) => match.address)).toEqual(['Umuawa-Alaocha Central School'])
+    expect(invoke.mock.calls.map((call) => call[1].body.text)).toEqual(['school gate', 'school'])
+    expect(invoke.mock.calls[1][1].body.street).toBe('Market Road')
+  })
+  it('keeps an exact mapped result without a second request', async () => {
+    const { client, invoke } = setup({ suggestions: [address] })
+    await expect(suggestNearby(client, 'school gate', 'amenity', fix)).resolves.toHaveLength(1)
+    expect(invoke).toHaveBeenCalledTimes(1)
+  })
+  it('does not retry a rate-limited landmark search with a simpler word', async () => {
+    const { client, invoke } = setup(null, { context: new Response('{}', { status: 429 }) })
+    await expect(suggestNearby(client, 'school gate', 'amenity', fix)).rejects.toMatchObject({ status: 429 })
+    expect(invoke).toHaveBeenCalledTimes(1)
   })
 })

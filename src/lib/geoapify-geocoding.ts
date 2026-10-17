@@ -102,8 +102,15 @@ function suggestionPayload(payload: unknown, maximum: number): AddressSuggestion
 }
 
 export async function suggestNearby(client: SupabaseClient, text: string, kind: 'street' | 'amenity', point: LocationPoint, signal?: AbortSignal, street?: string): Promise<AddressSuggestion[]> {
-  try { return suggestionPayload(await invoke(client, { action: 'nearby_suggest', text, kind, ...point, ...(street ? { street } : {}) }, signal), 8) }
-  catch (error) { if (error instanceof AddressLookupError && error.status === 404) return []; throw error }
+  async function search(query: string): Promise<AddressSuggestion[]> {
+    try { return suggestionPayload(await invoke(client, { action: 'nearby_suggest', text: query, kind, ...point, ...(street ? { street } : {}) }, signal), 8) }
+    catch (error) { if (error instanceof AddressLookupError && error.status === 404) return []; throw error }
+  }
+  const results = await search(text)
+  if (results.length) return results
+  // Common directions such as "school gate" are not usually part of a mapped name.
+  const simpler = text.trim().replace(/(?:\s+(?:main\s+)?(?:gate|entrance|junction|bus\s+stop|roundabout))$/i, '').trim()
+  return simpler.length >= 2 && simpler !== text.trim() ? search(simpler) : results
 }
 
 export async function nearbyPlaces(client: SupabaseClient, point: LocationPoint, street: string, signal?: AbortSignal): Promise<AddressSuggestion[]> {
