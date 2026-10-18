@@ -34,7 +34,8 @@ export function startRiderTracking({ report, offline, status, failed, getPositio
     running = true
     controller = new AbortController()
     try {
-      const fix = await getPosition({ signal: controller.signal })
+      const fix = await getPosition({ signal: controller.signal,
+        positionOptions: { enableHighAccuracy: true, maximumAge: 15_000, timeout: 20_000 } })
       if (stopped || !active()) return
       if (fix.accuracyMetres > 100) throw new Error('GPS is too imprecise. Move outdoors and try again.')
       if (!lastSent || Date.now() - lastSentAt >= 60_000 || metresBetween(lastSent, fix) >= 50) {
@@ -50,12 +51,11 @@ export function startRiderTracking({ report, offline, status, failed, getPositio
       failures++
       const fatal = error instanceof LocationError && ['permission_denied', 'insecure'].includes(error.code)
       status(error instanceof Error ? error.message : 'Location unavailable. Trying again.')
-      clearPresence()
-      lastSent = undefined
-      if (fatal || failures >= 3) { stopped = true; failed(); return }
+      if (fatal) { stopped = true; clearPresence(); failed(); return }
+      // Let the server expire a stale fix rather than removing a still-valid one.
     } finally {
       running = false
-      if (!stopped && active()) timer = window.setTimeout(() => void tick(), Math.min(60_000, 30_000 * Math.max(1, failures)))
+      if (!stopped && active()) timer = window.setTimeout(() => void tick(), failures ? 10_000 : 30_000)
     }
   }
   function visibility() {
@@ -63,7 +63,7 @@ export function startRiderTracking({ report, offline, status, failed, getPositio
     if (!active()) {
       lastSent = undefined
       status(document.hidden ? 'Paused while the app is in the background' : 'Offline · waiting for internet')
-      clearPresence()
+      // A brief app switch should not remove a valid fix; the server expires it.
     } else if (!stopped && !running) { status('Getting your location…'); void tick() }
   }
   document.addEventListener('visibilitychange', visibility)

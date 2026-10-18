@@ -1,6 +1,6 @@
 export type PositionFix = { latitude: number; longitude: number; accuracyMetres: number; capturedAt: number; source: 'browser' | 'native' }
 export type LocationErrorCode = 'permission_denied' | 'unavailable' | 'timeout' | 'invalid' | 'aborted' | 'insecure'
-export type LocationRequestOptions = { signal?: AbortSignal }
+export type LocationRequestOptions = { signal?: AbortSignal; positionOptions?: PositionOptions }
 
 export class LocationError extends Error {
   readonly code: LocationErrorCode
@@ -47,13 +47,13 @@ function deviceError(code?: number | LocationErrorCode): LocationError {
   return new LocationError('unavailable', 'Your device could not provide a location. Try again or enter the address manually.')
 }
 
-function browserPosition({ signal }: LocationRequestOptions): Promise<PositionFix> {
+function browserPosition({ signal, positionOptions = browserOptions }: LocationRequestOptions): Promise<PositionFix> {
   if (signal?.aborted) return Promise.reject(aborted())
   if (window.isSecureContext === false) return Promise.reject(new LocationError('insecure', 'Location access requires HTTPS. Open the secure app or enter the address manually.'))
   if (!navigator.geolocation) return Promise.reject(deviceError('unavailable'))
   return new Promise((resolve, reject) => {
     let settled = false
-    const timer = window.setTimeout(() => finish(deviceError('timeout')), browserOptions.timeout)
+    const timer = window.setTimeout(() => finish(deviceError('timeout')), positionOptions.timeout)
     const onAbort = () => finish(aborted())
     function finish(result: PositionFix | LocationError) {
       if (settled) return
@@ -68,7 +68,7 @@ function browserPosition({ signal }: LocationRequestOptions): Promise<PositionFi
       navigator.geolocation.getCurrentPosition(
         (position) => finish(validFix({ latitude: position?.coords?.latitude, longitude: position?.coords?.longitude, accuracyMetres: position?.coords?.accuracy, capturedAt: position?.timestamp }, 'browser') ?? invalidReading()),
         (error) => finish(deviceError(error.code)),
-        browserOptions,
+        positionOptions,
       )
     } catch {
       finish(deviceError('unavailable'))
