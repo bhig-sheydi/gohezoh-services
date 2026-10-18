@@ -6,6 +6,7 @@ import { CustomerQuotePanel, PartnerBidQueue } from './QuotePanels'
 function client(rows: Record<string, Array<Record<string, unknown>>>) {
   const rpc = vi.fn(async (name: string) => name === 'list_eligible_delivery_requests'
     ? { data: rows.eligible ?? [], error: null }
+    : name === 'list_customer_bid_offers' ? { data: rows.offers ?? [], error: null }
     : { data: null, error: null })
   const from = vi.fn((table: string) => {
     const query: Record<string, unknown> = {}
@@ -13,7 +14,8 @@ function client(rows: Record<string, Array<Record<string, unknown>>>) {
     query.then = (resolve: (value: unknown) => unknown) => Promise.resolve({ data: rows[table] ?? [], error: null }).then(resolve)
     return query
   })
-  return { supabase: { from, rpc } as unknown as SupabaseClient, rpc, from }
+  const storage = { from: vi.fn(() => ({ createSignedUrl: vi.fn(async () => ({ data: { signedUrl: 'https://example.test/rider-photo' }, error: null })) })) }
+  return { supabase: { from, rpc, storage } as unknown as SupabaseClient, rpc, from }
 }
 
 describe('customer delivery quotes', () => {
@@ -32,6 +34,29 @@ describe('customer delivery quotes', () => {
     render(<CustomerQuotePanel supabase={supabase} requestIds={['request-1']} onError={vi.fn()} onNotice={vi.fn()} onRefresh={vi.fn()} />)
     expect(await screen.findByText('Quote under review')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Accept quote' })).not.toBeInTheDocument()
+  })
+
+  it('shows matching progress while the one-minute window is open', async () => {
+    const { supabase } = client({ delivery_quote_windows: [{ request_id: 'request-1', deadline_at: new Date(Date.now() + 45_000).toISOString(), status: 'open' }] })
+    render(<CustomerQuotePanel supabase={supabase} requestIds={['request-1']} pendingRequestIds={['request-1']} onError={vi.fn()} onNotice={vi.fn()} onRefresh={vi.fn()} />)
+    expect(await screen.findByRole('progressbar', { name: 'Bidding window' })).toBeInTheDocument()
+    expect(screen.getByText('Finding interested riders')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Choose this company' })).not.toBeInTheDocument()
+  })
+
+  it('shows company and rider details only after closing, then saves the customer choice', async () => {
+    const { supabase, rpc } = client({
+      delivery_quote_windows: [{ request_id: 'request-1', deadline_at: '2020-01-01T00:00:00Z', status: 'awaiting_customer_selection' }],
+      offers: [{ bid_id: 'bid-1', partner_name: 'Swift Bikes', partner_phone: '08012345678', rider_name: 'Ada Rider',
+        rider_phone: null, rider_photo_path: 'photo.jpg', bid_amount_ngn: 2500, eta_hours: 1 }],
+    })
+    render(<CustomerQuotePanel supabase={supabase} requestIds={['request-1']} onError={vi.fn()} onNotice={vi.fn()} onRefresh={vi.fn()} />)
+    expect(await screen.findByText('You have 1 interested company')).toBeInTheDocument()
+    expect(screen.getByAltText('Ada Rider profile')).toHaveAttribute('src', 'https://example.test/rider-photo')
+    expect(screen.getByText('Rider: Number not supplied')).toBeInTheDocument()
+    expect(screen.getByText('Company: 08012345678')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Choose this company' }))
+    await waitFor(() => expect(rpc).toHaveBeenCalledWith('select_customer_partner_bid', { p_request_id: 'request-1', p_bid_id: 'bid-1' }))
   })
 })
 

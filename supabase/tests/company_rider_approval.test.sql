@@ -8,6 +8,7 @@ begin
   if v_admin is null then raise exception 'No allowlisted Super Admin is available for this test'; end if;
   insert into public.logistics_partners(partner_name,contact_person,phone,status)
     values('Rollback Rider Review Test','Test Manager','+2348010000977','active') returning id into v_partner;
+  insert into public.partner_users(partner_id,user_id,membership_role) values(v_partner,v_admin,'manager');
   insert into public.company_riders(partner_id,full_name,nin,nin_document_path,licence_document_path)
     values(v_partner,'Rollback Test Rider','12345678901','test/nin.png','test/licence.png') returning id into v_rider;
   insert into storage.objects(bucket_id,name,owner_id,metadata) values
@@ -17,6 +18,13 @@ begin
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_admin,'role','authenticated')::text,true);
   if not public.has_role(v_admin,'admin') then raise exception 'Allowlisted Super Admin role was not recognized'; end if;
   execute 'set local role authenticated';
+  perform public.set_company_rider_phone(v_rider,'+2348010000978');
+  if (select phone from public.company_riders where id=v_rider)<>'+2348010000978' then
+    raise exception 'Company manager could not save rider phone'; end if;
+  begin
+    perform public.set_company_rider_phone(v_rider,'invalid');
+    raise exception 'Invalid rider phone was accepted';
+  exception when check_violation then null; end;
   perform 1 from public.company_riders where id=v_rider;
   if not found then raise exception 'Super Admin cannot read pending company rider'; end if;
   perform public.review_company_rider(v_rider,true,null);

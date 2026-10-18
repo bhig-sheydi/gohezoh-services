@@ -33,7 +33,7 @@ Deno.serve(async (request) => {
     const partnerId = String(body.partnerId ?? '')
     if (!await managerFor(admin, user.id, partnerId)) return reply({ error: 'Only this company manager can manage riders' }, 403)
     if (action === 'list') {
-      const { data, error } = await admin.from('company_riders').select('id,full_name,status,rejection_reason,photo_path,source_vehicle_id,created_at,rider_credentials(user_id,device_bound_at,device_label,password_revoked_at,revoked_at)')
+      const { data, error } = await admin.from('company_riders').select('id,full_name,phone,status,rejection_reason,photo_path,source_vehicle_id,created_at,rider_credentials(user_id,device_bound_at,device_label,password_revoked_at,revoked_at)')
         .eq('partner_id', partnerId).order('created_at', { ascending: false }).limit(100)
       return error ? reply({ error: 'Could not load riders' }, 500) : reply({ riders: data })
     }

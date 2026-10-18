@@ -63,7 +63,27 @@ begin
     where request_id=v_request;
   update public.partner_quotes set submitted_at=now()-interval '2 seconds' where id=v_bid;
   v_result:=public.close_delivery_quote_window(v_request);
-  if v_result->>'status'<>'quoted' then raise exception 'Valid bid was not selected'; end if;
+  if v_result->>'status'<>'awaiting_customer_selection' then raise exception 'Customer choice was not opened'; end if;
+  if exists(select 1 from public.customer_delivery_quotes where request_id=v_request) then
+    raise exception 'Company was selected without customer choice'; end if;
+  perform set_config('request.jwt.claim.sub',v_partner_user::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_partner_user,'role','authenticated')::text,true);
+  if exists(select 1 from public.list_customer_bid_offers(v_request)) then raise exception 'Partner saw customer bid choices'; end if;
+  begin
+    perform public.select_customer_partner_bid(v_request,v_bid);
+    raise exception 'Partner chose a company for the customer';
+  exception when insufficient_privilege then null; end;
+  perform set_config('request.jwt.claim.sub',v_customer_user::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_customer_user,'role','authenticated')::text,true);
+  if (select count(*) from public.list_customer_bid_offers(v_request) where bid_id=v_bid and partner_phone='+2348010000002')<>1 then
+    raise exception 'Customer cannot see the company bid and contact'; end if;
+  perform public.select_customer_partner_bid(v_request,v_bid);
+  begin
+    perform public.select_customer_partner_bid(v_request,v_bid);
+    raise exception 'Customer selected twice';
+  exception when object_not_in_prerequisite_state then null; end;
+  perform set_config('request.jwt.claim.sub',v_admin::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_admin,'role','authenticated')::text,true);
   if (select unrounded_price_ngn from public.customer_delivery_quotes where request_id=v_request)<>10000 then
     raise exception 'Cost / 0.75 pricing incorrect'; end if;
   if (select customer_price_ngn from public.customer_delivery_quotes where request_id=v_request) is not null then
