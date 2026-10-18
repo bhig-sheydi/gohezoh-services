@@ -812,7 +812,7 @@ describe('partner assignment and delivery screens', () => {
     await user.selectOptions(screen.getByLabelText('Service'), 'service-1')
     for (const [label,value] of Object.entries({
       'Pickup contact':'Ada','Pickup phone':'08000000001','Pickup community':'Ikeja',
-      'Recipient name':'Bola','Recipient phone':'08000000002','Delivery address':'2 Lagos Road',
+      'Recipient name':'Bola','Recipient phone':'08000000002','Delivery community':'Ikeja',
       'Description':'Books',
     })) fireEvent.change(screen.getByLabelText(label),{target:{value}})
     const quantity = screen.getByLabelText('Items for this destination') as HTMLSelectElement
@@ -825,15 +825,18 @@ describe('partner assignment and delivery screens', () => {
     await user.selectOptions(screen.getByLabelText(/Height/), '10')
     await user.selectOptions(screen.getByLabelText('Pickup city'), 'Lagos')
     await user.selectOptions(screen.getByLabelText('Delivery city'), 'Lagos')
-    const streetInput = screen.getByRole('textbox', { name: 'Street name' })
+    const streetInput = document.querySelector('.pickup-location [name=pickup_address]') as HTMLInputElement
     await user.click(streetInput)
     expect(streetInput).toHaveFocus()
     await user.type(streetInput, '1 Lagos Road')
-    expect(screen.getByRole('textbox', { name: 'Street name' })).toHaveValue('1 Lagos Road')
+    expect(streetInput).toHaveValue('1 Lagos Road')
     await user.click(screen.getByRole('button', { name: 'Find pickup address' }))
     await screen.findByText(/approximate address match/)
     expect(document.querySelector('.pickup-location .pin-correction')).toBeInTheDocument()
     await user.click(screen.getByLabelText('This is the pickup location.'))
+    const deliveryStreet = document.querySelector('.delivery-location [name=delivery_address]') as HTMLInputElement
+    await user.type(deliveryStreet, '2 Lagos Road')
+    expect(deliveryStreet).toHaveValue('2 Lagos Road')
     await user.click(screen.getByRole('button', { name: 'Find delivery address' }))
     await screen.findByLabelText('This is the delivery location.')
     await user.click(screen.getByLabelText('This is the delivery location.'))
@@ -887,7 +890,7 @@ describe('partner assignment and delivery screens', () => {
     await user.selectOptions(screen.getByLabelText(/Width/), '60')
     await user.selectOptions(screen.getByLabelText(/Height/), '70.5')
     await user.selectOptions(screen.getByLabelText('Items for this destination'), '2')
-    expect(await screen.findByRole('alert')).toHaveTextContent(/exceeds the total weight and packed size capacity/i)
+    expect(await screen.findByText(/exceeds the total weight and packed size capacity/i)).toBeInTheDocument()
   })
 
   it('shows customer delivery notifications and marks only the selected notification as read', async () => {
