@@ -18,6 +18,8 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
   const [communityQuery, setCommunityQuery] = useState('')
   const [communityPlaceId, setCommunityPlaceId] = useState('')
   const [communitySuggestions, setCommunitySuggestions] = useState<AddressSuggestion[]>([])
+  const [communityReady, setCommunityReady] = useState(false)
+  const [communityStatus, setCommunityStatus] = useState<'idle' | 'loading' | 'empty'>('idle')
   const [mapPoint, setMapPoint] = useState({ latitude: 9.082, longitude: 8.6753 })
   const [mapVersion, setMapVersion] = useState(0)
   const [streetSeed, setStreetSeed] = useState('')
@@ -35,22 +37,24 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
   }, [supabase, userId])
   useEffect(() => {
     const form = container.current?.closest('form')
-    const clear = () => { pending.current?.abort(); pending.current = null; setFix(null); setMatched(''); setBusy(false); setCommunitySuggestions([]); setNeedsPin(false) }
+    const clear = () => { pending.current?.abort(); pending.current = null; setFix(null); setMatched(''); setBusy(false); setCommunitySuggestions([]); setNeedsPin(false); setCommunityReady(false) }
     const changed = (event: Event) => {
       const target = event.target as HTMLInputElement
       if (target.name === 'pickup_address') return
       if (event.type === 'change' && target.name === 'pickup_community') return
       if (event.type === 'input' && ['pickup_city', 'service_id'].includes(target.name)) return
       if (['pickup_community', 'pickup_city', 'service_id'].includes(target.name)) {
+        if (target.name === 'pickup_community') target.required = true
         const street = form?.elements.namedItem('pickup_address')
         if (target.name !== 'pickup_community' || street instanceof HTMLInputElement && street.value) setMapVersion((value) => value + 1)
         streetDraft.current = ''; setStreetSeed('')
         clear(); setSlot('')
         setCommunityPlaceId('')
         setCommunityQuery(target.name === 'pickup_community' ? target.value.trim() : '')
+        setCommunityStatus(target.name === 'pickup_community' && target.value.trim().length >= 3 ? 'loading' : 'idle')
       }
     }
-    const reset = () => { clear(); streetDraft.current = ''; setStreetSeed(''); setMapPoint({ latitude: 9.082, longitude: 8.6753 }); setMapVersion((value) => value + 1) }
+    const reset = () => { clear(); setCommunityStatus('idle'); streetDraft.current = ''; setStreetSeed(''); setMapPoint({ latitude: 9.082, longitude: 8.6753 }); setMapVersion((value) => value + 1) }
     form?.addEventListener('change', changed); form?.addEventListener('input', changed); form?.addEventListener('reset', reset)
     return () => { pending.current?.abort(); form?.removeEventListener('change', changed); form?.removeEventListener('input', changed); form?.removeEventListener('reset', reset) }
   }, [])
@@ -60,8 +64,8 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
     const timer = window.setTimeout(() => {
       const city = (container.current?.closest('form')?.elements.namedItem('pickup_city') as HTMLSelectElement | null)?.value ?? ''
       void suggestAddresses(supabase, [communityQuery, city, 'Nigeria'].filter(Boolean).join(', '), controller.signal)
-        .then((results) => { if (!controller.signal.aborted) setCommunitySuggestions(results.filter((result) => ['suburb', 'district', 'city', 'county'].includes(result.resultType))) })
-        .catch(() => { if (!controller.signal.aborted) setCommunitySuggestions([]) })
+        .then((results) => { if (!controller.signal.aborted) { const communities = results.filter((result) => ['suburb', 'district', 'city', 'county'].includes(result.resultType)); setCommunitySuggestions(communities); setCommunityStatus(communities.length ? 'idle' : 'empty') } })
+        .catch(() => { if (!controller.signal.aborted) { setCommunitySuggestions([]); setCommunityStatus('empty') } })
     }, 400)
     return () => { window.clearTimeout(timer); controller.abort() }
   }, [communityQuery, supabase])
@@ -72,10 +76,12 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
     streetDraft.current = ''; setStreetSeed('')
     setMapPoint({ latitude: result.latitude, longitude: result.longitude }); setMapVersion((value) => value + 1)
     setCommunityPlaceId(result.placeId ?? '')
-    setCommunitySuggestions([]); setCommunityQuery(''); setError('')
+    setCommunitySuggestions([]); setCommunityQuery(''); setCommunityStatus('idle'); setCommunityReady(true); setError('')
   }
   function choose(value: string) {
-    pending.current?.abort(); pending.current = null; setBusy(false); setFix(null); setError(''); setSlot(value); setMatched(''); setCommunitySuggestions([]); setCommunityQuery(''); setCommunityPlaceId(''); setNeedsPin(false)
+    pending.current?.abort(); pending.current = null; setBusy(false); setFix(null); setError(''); setSlot(value); setMatched(''); setCommunitySuggestions([]); setCommunityQuery(''); setCommunityPlaceId(''); setNeedsPin(false); setCommunityReady(!!value); setCommunityStatus('idle')
+    const community = container.current?.closest('form')?.elements.namedItem('pickup_community')
+    if (community instanceof HTMLInputElement) { community.required = !value; if (value) community.value = '' }
     const item = saved.find((address) => String(address.slot) === value)
     streetDraft.current = item?.address ?? ''; setStreetSeed(streetDraft.current); setMapVersion((version) => version + 1)
     if (!item) return
@@ -116,13 +122,16 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
       <option value="">Use a new address</option>{saved.map((address) => <option key={address.slot} value={address.slot}>{address.label} — {address.address}</option>)}
     </select></label>}
     {communitySuggestions.length > 0 && <div className="address-suggestions" role="group" aria-label="Pickup community suggestions">{communitySuggestions.map((result, index) => <button type="button" key={`${result.latitude}-${result.longitude}-${index}`} onClick={() => chooseCommunity(result)}><strong>{result.address}</strong><small>{result.city}, {result.state}</small></button>)}</div>}
-    <div className="field-row"><button type="button" className="secondary-button" disabled={busy} onClick={() => void locate(false)}>{busy ? 'Finding pickup…' : 'Find pickup address'}</button>
+    {!communityReady && <small className="address-search-hint">Type at least 3 letters above, then tap your community from the suggestions.</small>}
+    {communityStatus === 'loading' && <small role="status" className="address-search-status"><span className="address-search-spinner" aria-hidden="true" />Searching communities — please wait for suggestions.</small>}
+    {communityStatus === 'empty' && <div className="address-search-fallback"><small>No mapped community found. Check spelling or continue with the typed community.</small><button type="button" className="text-button" onClick={() => { setCommunityReady(true); setCommunityStatus('idle') }}>Use typed community</button></div>}
+    {communityReady && <><div className="field-row"><button type="button" className="secondary-button" disabled={busy} onClick={() => void locate(false)}>{busy ? 'Finding pickup…' : 'Find pickup address'}</button>
       <button type="button" className="text-button" disabled={busy} onClick={() => void locate(true)}>I’m here — use GPS</button></div>
     {error && <small role="alert">{error}</small>}
-    <PinCorrection key={mapVersion} supabase={supabase} initial={mapPoint} initialStreet={streetSeed} streetInputName="pickup_address" requireMove={needsPin}
+    <PinCorrection key={mapVersion} supabase={supabase} initial={mapPoint} initialStreet={streetSeed} streetInputName="pickup_address" requireMove={needsPin} compactMap autoSelectSuggestion
       onStreetChange={(street) => { streetDraft.current = street; setFix(null); setMatched(''); setSlot('') }}
       onPointChange={() => { setFix(null); setMatched('') }}
-      onChoose={(evidence, address) => { setMapPoint(evidence); setFix(evidence); setMatched(address?.address ? `${address.address}, ${address.city}` : 'Pin selected'); setNeedsPin(false) }} />
+      onChoose={(evidence, address) => { setMapPoint(evidence); setFix(evidence); setMatched(address?.address ? `${address.address}, ${address.city} · selected` : 'Pin selected'); setNeedsPin(false) }} /></>}
     {fix && <>
       {slot && <input type="hidden" name="pickup_saved_slot" value={slot} />}
       <small role="status">{matched}{fix.source === 'search' ? ' · approximate address match' : fix.source === 'saved' ? ' · saved location' : ` · GPS ±${Math.round(fix.accuracyMetres ?? 0)} m`}</small>

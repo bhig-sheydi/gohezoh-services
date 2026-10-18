@@ -1,17 +1,35 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import DeliveryPoint from './DeliveryPoint'
-import { searchAddress, suggestAddresses } from './lib/geoapify-geocoding'
+import { searchAddress, suggestAddresses, suggestNearby } from './lib/geoapify-geocoding'
 
 vi.mock('./lib/geoapify-geocoding', () => ({
   searchAddress: vi.fn(), suggestAddresses: vi.fn(), suggestNearby: vi.fn().mockResolvedValue([]), reverseAddress: vi.fn().mockResolvedValue(null), mapTile: vi.fn().mockResolvedValue(new Blob()),
 }))
 
 const supabase = { functions: { invoke: vi.fn().mockResolvedValue({ data: { url: '' }, error: null }) } } as unknown as SupabaseClient
+beforeEach(() => { vi.clearAllMocks(); vi.mocked(suggestNearby).mockResolvedValue([]); vi.mocked(suggestAddresses).mockResolvedValue([]) })
 
 describe('delivery point', () => {
+  it('selects a street suggestion without opening the map or finding the address', async () => {
+    const destination = { slot: 2, label: 'Home', address: 'Old Road', city: 'Lagos', state: 'Lagos', secondary_phone: null,
+      latitude: 6.45, longitude: 3.4, location_source: 'browser', location_accuracy_metres: 20 }
+    vi.mocked(suggestNearby).mockResolvedValue([{ address: 'Market Road', city: 'Lagos', state: 'Lagos', specificity: 'street', resultType: 'street',
+      latitude: 6.46, longitude: 3.41, confidence: 0.9, distanceMetres: null,
+      evidence: { latitude: 6.46, longitude: 3.41, accuracyMetres: null, capturedAt: Date.now(), source: 'search' }, qualityNote: '' }])
+    render(<form><DeliveryPoint supabase={supabase} destination={destination} onCitySelected={vi.fn()} /></form>)
+    expect(screen.queryByRole('button', { name: 'Drag or tap map to choose a point' })).toBeNull()
+    const street = screen.getByRole('textbox', { name: 'Street name' })
+    await userEvent.setup().clear(street)
+    await userEvent.setup().type(street, 'Market')
+    expect(await screen.findByText(/Searching streets — wait for a suggestion/)).toBeInTheDocument()
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Market Road, Lagos' }))
+    expect(document.querySelector('[name=delivery_latitude]')).toHaveValue('6.46')
+    expect(screen.getByLabelText('This is the delivery location.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Adjust pin on map (optional)' })).toBeInTheDocument()
+  })
   it('starts from a Parcel Pal saved point and invalidates it when the street changes', async () => {
     const destination = { slot: 2, label: 'Home', address: '12 Market Road', city: 'Lagos', state: 'Lagos', secondary_phone: null,
       latitude: 6.45, longitude: 3.4, location_source: 'browser', location_accuracy_metres: 20 }

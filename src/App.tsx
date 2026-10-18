@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useCallback, useEffect, useId, useState, type ChangeEvent, type FormEvent, type MouseEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { getSupabaseClient } from './lib/supabase'
 import PickupLocation from './PickupLocation'
@@ -324,7 +324,7 @@ function App() {
       pickup_state: String(form.get('pickup_state') || '') || null,
       sender_name: String(form.get('sender_name')),
       sender_phone: String(form.get('sender_phone')),
-      delivery_address: String(form.get('delivery_address')),
+      delivery_address: [form.get('delivery_address'), form.get('delivery_community')].map((part) => String(part ?? '').trim()).filter(Boolean).join(', '),
       delivery_latitude: Number(form.get('delivery_latitude')),
       delivery_longitude: Number(form.get('delivery_longitude')),
       delivery_accuracy_metres: form.get('delivery_accuracy_metres') ? Number(form.get('delivery_accuracy_metres')) : null,
@@ -1043,6 +1043,8 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
   const [originId, setOriginId] = useState('')
   const [destinationId, setDestinationId] = useState('')
   const [activeFrame, setActiveFrame] = useState<'home'|'send'|'updates'|'tracking'>('home')
+  const [deliveryStep, setDeliveryStep] = useState(0)
+  const [deliveryStepError, setDeliveryStepError] = useState('')
   const [selectedParcel, setSelectedParcel] = useState<SavedParcel | null>(null)
   const [selectedPal, setSelectedPal] = useState<{ contact: ParcelPalContact; destination: ParcelDestination } | null>(null)
   const [showDeliveryInfoEditor, setShowDeliveryInfoEditor] = useState(false)
@@ -1051,7 +1053,7 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
   const enabledCorridors = coverageCorridors.filter((corridor) => corridor.service_code === serviceCode && coverageLocations.some((location) => location.id === corridor.origin_id) && coverageLocations.some((location) => location.id === corridor.destination_id))
   const origins = coverageLocations.filter((location) => enabledCorridors.some((corridor) => corridor.origin_id === location.id))
   const destinations = coverageLocations.filter((location) => enabledCorridors.some((corridor) => corridor.origin_id === originId && corridor.destination_id === location.id))
-  const openFrame = (frame: 'send'|'updates'|'tracking') => setActiveFrame(frame)
+  const openFrame = (frame: 'send'|'updates'|'tracking') => { if (frame === 'send') { setDeliveryStep(0); setDeliveryStepError('') } setActiveFrame(frame) }
   const returnHome = () => setActiveFrame('home')
   function openDeliveryInfo() {
     setShowDeliveryInfoEditor(true)
@@ -1077,8 +1079,25 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
     const exceeded = [!capacity.fitsWeight && 'total weight', !capacity.fitsDimensions && 'packed size'].filter(Boolean)
     setCapacityWarning(exceeded.length ? { message: `This item count exceeds the ${exceeded.join(' and ')} capacity. Reduce the count or per-item size/weight.`, exceeded: true } : null)
   }
+  function advanceDeliveryStep(event: MouseEvent<HTMLButtonElement>) {
+    const section = event.currentTarget.closest<HTMLElement>('.delivery-wizard-step')
+    const form = event.currentTarget.closest('form')
+    if (!section || !form) return
+    const invalid = Array.from(section.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('input,select,textarea'))
+      .find((field) => !field.checkValidity())
+    if (invalid) { invalid.reportValidity(); invalid.focus(); return }
+    const values = new FormData(form)
+    if (deliveryStep === 1 && !destinations.some((destination) => destination.name === String(values.get('delivery_city')))) {
+      setDeliveryStepError('This drop-off city is not available for the selected pickup route. Choose a listed destination.'); return
+    }
+    const location = deliveryStep === 0 ? 'pickup' : 'delivery'
+    if (!values.has(`${location}_latitude`) || !values.has(`${location}_location_confirmed`)) {
+      setDeliveryStepError(`Select a ${location} street suggestion or map pin, then confirm the location.`); return
+    }
+    setDeliveryStepError(''); setDeliveryStep((step) => Math.min(step + 1, 2))
+  }
   return <main className="dashboard customer-dashboard">
-    {activeFrame === 'home' && <ParcelPalsPanel supabase={supabase} userId={userId} onError={onError} onNotice={onNotice} isEditingDestinations={showDeliveryInfoEditor} onCloseDestinationEditor={() => setShowDeliveryInfoEditor(false)} onUseDestination={(contact, destination) => { setSelectedPal({ contact, destination }); setDestinationId(''); setCapacityWarning(null); setActiveFrame('send') }} />}
+    {activeFrame === 'home' && <ParcelPalsPanel supabase={supabase} userId={userId} onError={onError} onNotice={onNotice} isEditingDestinations={showDeliveryInfoEditor} onCloseDestinationEditor={() => setShowDeliveryInfoEditor(false)} onUseDestination={(contact, destination) => { setSelectedPal({ contact, destination }); setDestinationId(''); setCapacityWarning(null); setDeliveryStep(0); setDeliveryStepError(''); setActiveFrame('send') }} />}
     <div className="dashboard-heading">
       <div><p className="eyebrow">CUSTOMER PORTAL</p><h1>{activeFrame === 'home' ? 'Your parcels' : activeFrame === 'send' ? 'Send items' : activeFrame === 'updates' ? 'Updates' : 'Your deliveries'}</h1><p className="section-intro">{customer.company_name}</p></div>
       <span className={`profile-status status-${customer.status}`}>{customer.status}</span>
@@ -1090,37 +1109,48 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
         <button className="customer-launch-card" type="button" onClick={() => openFrame('updates')}><span className="customer-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9m-8 12h4"/></svg></span><strong>Updates</strong><small>{notifications.filter((item) => !item.read_at).length ? `${notifications.filter((item) => !item.read_at).length} new` : 'Messages about your parcels'}</small></button>
         <button className="customer-launch-card" type="button" onClick={() => openFrame('tracking')}><span className="customer-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M4 19V5m0 14h16"/><path d="m7 15 4-4 3 2 5-6"/><path d="M15 7h4v4"/></svg></span><strong>Tracking</strong><small>{requests.length ? `${requests.length} deliveries` : 'Your deliveries'}</small></button>
       </nav>
-      <CustomerSavedParcels supabase={supabase} userId={userId} onError={onError} onNotice={onNotice} onUse={(parcel) => { setSelectedParcel(parcel); setCapacityWarning(null); setActiveFrame('send') }} />
+      <CustomerSavedParcels supabase={supabase} userId={userId} onError={onError} onNotice={onNotice} onUse={(parcel) => { setSelectedParcel(parcel); setCapacityWarning(null); setDeliveryStep(0); setDeliveryStepError(''); setActiveFrame('send') }} />
     </>}
     {activeFrame !== 'home' && <button className="text-button customer-back-button" type="button" onClick={returnHome}>â† Back to customer home</button>}
     {activeFrame === 'send' && <section className="form-card request-card customer-app-frame" aria-labelledby="delivery-details-heading">
       <p className="eyebrow">NEW DELIVERY</p><h2 id="delivery-details-heading">Delivery details</h2>
-      <form key={`${selectedParcel?.id ?? 'new-parcel'}-${selectedPal?.contact.code ?? 'no-pal'}-${selectedPal?.destination.slot ?? 0}`} className="form-grid" onSubmit={onSubmit} onChange={checkParcelCapacity}>
+      <ol className="delivery-wizard-progress" aria-label="Delivery steps">{['Pickup', 'Drop-off', 'Parcel'].map((name, index) => <li key={name} className={index === deliveryStep ? 'current' : index < deliveryStep ? 'complete' : ''} aria-current={index === deliveryStep ? 'step' : undefined}><span>{index < deliveryStep ? '✓' : index + 1}</span>{name}</li>)}</ol>
+      <form key={`${selectedParcel?.id ?? 'new-parcel'}-${selectedPal?.contact.code ?? 'no-pal'}-${selectedPal?.destination.slot ?? 0}`} className="form-grid" onSubmit={onSubmit} onChange={checkParcelCapacity} onReset={() => { setDeliveryStep(0); setDeliveryStepError(''); setServiceId(''); setOriginId(''); setDestinationId(''); setSelectedParcel(null); setSelectedPal(null); setCapacityWarning(null) }}>
         {selectedParcel && <input type="hidden" name="saved_parcel_id" value={selectedParcel.id} />}
         {selectedParcel && <input type="hidden" name="saved_parcel_photo_path" value={selectedParcel.photo_path} />}
-        {selectedParcel && <div className="selected-saved-parcel"><img src={selectedParcel.photo_url} alt="" /><span><strong>{selectedParcel.item_name}</strong><small>Saved item details filled in</small></span><button className="text-button" type="button" onClick={() => setSelectedParcel(null)}>Clear</button></div>}
+        <section className="delivery-wizard-step" data-delivery-step="0" hidden={deliveryStep !== 0} aria-label="Pickup step">
         <label className="field"><span>Service</span><select name="service_id" required value={serviceId} onChange={(event) => { setServiceId(event.target.value); setOriginId(''); setDestinationId('') }}><option value="" disabled>Select service</option>{services.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}</select></label>
         <div className="form-divider">PICKUP</div>
         <div className="field-row"><Field label="Pickup contact" name="sender_name" required /><Field label="Pickup phone" name="sender_phone" type="tel" required /></div>
         <div className="field-row"><label className="field"><span>Pickup city</span><select name="pickup_city" required value={originId ? coverageLocations.find((location) => location.id === originId)?.name ?? '' : ''} onChange={(event) => { setOriginId(coverageLocations.find((location) => location.name === event.target.value)?.id ?? ''); setDestinationId('') }}><option value="">Select city</option>{origins.map((location) => <option key={location.id} value={location.name}>{location.name}</option>)}</select></label><input type="hidden" name="pickup_state" value={coverageLocations.find((location) => location.id === originId)?.state ?? ''} /><Field label="Pickup time" name="preferred_pickup_at" type="datetime-local" min={new Date().toISOString().slice(0, 16)} /></div>
         <Field label="Pickup community" name="pickup_community" placeholder="e.g. Eliozu" required />
         {['SRV-0001', 'SRV-0002'].includes(serviceCode ?? '') && <PickupLocation supabase={supabase} userId={userId} onCitySelected={(city) => { setOriginId(coverageLocations.find((location) => location.name.toLowerCase() === city.toLowerCase())?.id ?? ''); setDestinationId('') }} />}
+        {deliveryStepError && deliveryStep === 0 && <p className="delivery-step-error" role="alert">{deliveryStepError}</p>}
+        <div className="delivery-wizard-actions"><button className="primary-button" type="button" onClick={advanceDeliveryStep}>Next: drop-off</button></div>
+        </section>
+        <section className="delivery-wizard-step" data-delivery-step="1" hidden={deliveryStep !== 1} aria-label="Drop-off step">
         <div className="form-divider">DELIVER TO</div>
-        {selectedPal && <div className="selected-saved-parcel"><span><strong>Parcel Pal: {selectedPal.contact.full_name || selectedPal.contact.code}</strong><small>{selectedPal.destination.label} location selected. Confirm it with the recipient below.</small></span><button className="text-button" type="button" onClick={() => setSelectedPal(null)}>Clear</button></div>}
+        {selectedPal && <div className="selected-saved-parcel"><span><strong>Parcel Pal: {selectedPal.contact.full_name || selectedPal.contact.code}</strong><small>{selectedPal.destination.label} location selected. Confirm it with the recipient below.</small></span><button className="text-button" type="button" onClick={() => { setSelectedPal(null); setDeliveryStep(0); setDeliveryStepError('') }}>Clear</button></div>}
         <div className="field-row"><Field label="Recipient name" name="recipient_name" defaultValue={selectedPal?.contact.full_name ?? ''} required /><Field label="Recipient phone" name="recipient_phone" type="tel" defaultValue={selectedPal?.contact.phone ?? ''} required /></div>
         <Field label="Second phone (optional)" name="recipient_phone_secondary" type="tel" defaultValue={selectedPal?.destination.secondary_phone ?? ''} />
         <div className="field-row"><label className="field"><span>Delivery city</span><select name="delivery_city" required value={destinationId ? coverageLocations.find((location) => location.id === destinationId)?.name ?? selectedPal?.destination.city ?? '' : selectedPal?.destination.city ?? ''} onChange={(event) => setDestinationId(destinations.find((location) => location.name === event.target.value)?.id ?? '')}><option value="">Select city</option>{selectedPal && !destinations.some((location) => location.name === selectedPal.destination.city) && <option value={selectedPal.destination.city}>{selectedPal.destination.city} (Parcel Pal location)</option>}{destinations.map((location) => <option key={location.id} value={location.name}>{location.name}</option>)}</select></label><input type="hidden" name="delivery_state" value={coverageLocations.find((location) => location.id === destinationId)?.state ?? selectedPal?.destination.state ?? ''} /></div>
         <Field label="Delivery community" name="delivery_community" placeholder="e.g. Eliozu" required={!selectedPal?.destination} />
         <DeliveryPoint supabase={supabase} destination={selectedPal?.destination} onCitySelected={(city) => setDestinationId(destinations.find((location) => location.name.toLowerCase() === city.toLowerCase())?.id ?? '')} />
         <label className="recipient-location-confirm"><input type="checkbox" name="recipient_location_confirmed" value="yes" required /><span>I confirmed this delivery location with the recipient.</span></label>
+        {deliveryStepError && deliveryStep === 1 && <p className="delivery-step-error" role="alert">{deliveryStepError}</p>}
+        <div className="delivery-wizard-actions"><button className="secondary-button" type="button" onClick={() => { setDeliveryStepError(''); setDeliveryStep(0) }}>Back</button><button className="primary-button" type="button" onClick={advanceDeliveryStep}>Next: parcel</button></div>
+        </section>
+        <section className="delivery-wizard-step" data-delivery-step="2" hidden={deliveryStep !== 2} aria-label="Parcel step">
         <div className="form-divider">PARCEL</div><p className="parcel-capacity-help">Enter size and weight per item. We check the selected count against shipment capacity.</p>
+        {selectedParcel && <div className="selected-saved-parcel"><img src={selectedParcel.photo_url} alt="" /><span><strong>{selectedParcel.item_name}</strong><small>Saved item details filled in</small></span><button className="text-button" type="button" onClick={() => { setSelectedParcel(null); setDeliveryStep(0); setDeliveryStepError('') }}>Clear</button></div>}
         <div className="field-row"><Field label="Description" name="parcel_description" placeholder="Household items" required defaultValue={selectedParcel?.description} /><label className="field"><span>Items for this destination</span><select name="parcel_quantity" required defaultValue="1">{Array.from({ length: PARCEL_MAX_QUANTITY }, (_, index) => index + 1).map((quantity) => <option key={quantity} value={quantity}>{quantity}</option>)}</select></label><ParcelWeightField name="parcel_weight" defaultValue={selectedParcel?.weight_kg} /></div>
         <ParcelMeasureFields names={{ length: 'parcel_length_cm', width: 'parcel_width_cm', height: 'parcel_height_cm' }} defaults={{ length: selectedParcel?.length_cm, width: selectedParcel?.width_cm, height: selectedParcel?.height_cm }} />
         <label className="field"><span>Photo of goods</span><input name="parcel_photo" type="file" accept="image/jpeg,image/png,image/webp" required={!selectedParcel} />{selectedParcel && <small>Using the saved photo. Choose another to replace it for this delivery.</small>}</label>
         {capacityWarning && <p className={`parcel-capacity-warning ${capacityWarning.exceeded ? 'parcel-capacity-exceeded' : 'parcel-capacity-prompt'}`} role={capacityWarning.exceeded ? 'alert' : 'status'} aria-live={capacityWarning.exceeded ? 'assertive' : 'polite'}>{capacityWarning.message}</p>}
         <div className="field-row"><Field label="Declared worth (â‚¦)" name="parcel_declared_value" type="number" min="0" step="0.01" defaultValue={selectedParcel?.declared_value} /><Field label="Price paid (â‚¦)" name="parcel_price" type="number" min="0" step="0.01" defaultValue={selectedParcel?.price} /></div>
         <details className="customer-optional"><summary>Special instructions</summary><label className="field"><span>Notes for delivery</span><textarea name="special_instructions" rows={2} /></label></details>
-        <button className="primary-button" disabled={busy || services.length === 0 || enabledCorridors.length === 0}>{busy ? 'Submitting...' : services.length ? 'Request delivery' : 'No service available'}</button>
+        <div className="delivery-wizard-actions"><button className="secondary-button" type="button" onClick={() => { setDeliveryStepError(''); setDeliveryStep(1) }}>Back</button><button className="primary-button" disabled={busy || services.length === 0 || enabledCorridors.length === 0 || capacityWarning?.exceeded}>{busy ? 'Submitting...' : services.length ? 'Request delivery' : 'No service available'}</button></div>
+        </section>
       </form>
     </section>}
     {activeFrame === 'updates' && <section className="notification-panel customer-notifications customer-app-frame"><div className="history-heading"><div><p className="eyebrow">UPDATES</p><h2>Messages about your parcels</h2></div><button type="button" className="text-button notification-refresh" onClick={onRefresh}>Refresh</button></div>{notifications.length === 0 ? <p className="notification-empty">No updates.</p> : <div className="notification-list">{notifications.map((notification) => <article className={`notification-item ${notification.read_at ? 'notification-read' : 'notification-unread'}`} key={notification.id}><div className="notification-copy"><div className="notification-title-row"><strong>{notification.title}</strong>{!notification.read_at && <span className="notification-new">New</span>}</div><p>{notification.body}</p><small>{new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(notification.created_at))}</small></div>{!notification.read_at && <button className="secondary-button notification-read-button" onClick={() => onMarkRead(notification)}>Mark as read</button>}</article>)}</div>}</section>}

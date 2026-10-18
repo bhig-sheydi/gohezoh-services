@@ -158,6 +158,24 @@
 .customer-dashboard .field input,.customer-dashboard .field select,.customer-dashboard .field textarea { min-height:48px; font-size:15px; }
 .customer-dashboard .field textarea { min-height:72px; }
 .customer-dashboard .form-grid { gap:18px; }
+.delivery-wizard-progress { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:18px 0 4px; padding:0; list-style:none; }
+.delivery-wizard-progress li { display:flex; align-items:center; gap:8px; min-width:0; padding:10px; border:1px solid var(--muted,#dfe5d9); border-radius:10px; color:var(--ink); opacity:.55; font-size:13px; font-weight:700; }
+.delivery-wizard-progress li.current,.delivery-wizard-progress li.complete { opacity:1; border-color:#83a487; }
+.delivery-wizard-progress li.current { background:rgba(74,139,95,.12); }
+.delivery-wizard-progress li span { display:grid; flex:none; width:24px; height:24px; place-items:center; border-radius:50%; color:#fff; background:#376a4d; font-size:12px; }
+.delivery-wizard-step { display:grid; gap:18px; min-width:0; animation:delivery-step-enter .22s ease-out; }
+.delivery-wizard-step[hidden] { display:none; }
+.delivery-wizard-actions { display:flex; justify-content:space-between; gap:12px; }
+.delivery-wizard-actions .primary-button { margin-left:auto; }
+.delivery-step-error { margin:0; padding:12px; border-radius:10px; color:#8b302b; background:#fff0ed; font-size:13px; }
+.address-search-hint { display:block; font-size:13px !important; }
+.address-search-status { display:flex; align-items:center; gap:9px; padding:11px 12px; border:1px solid #83a487; border-radius:9px; color:#245338 !important; background:#eaf4ec; font-size:13px !important; font-weight:700 !important; }
+.address-search-spinner { flex:none; width:16px; height:16px; border:2px solid #9abfa4; border-top-color:#245338; border-radius:50%; animation:address-search-spin .7s linear infinite; }
+.address-search-fallback { display:grid; gap:7px; }
+@keyframes address-search-spin { to { transform:rotate(360deg); } }
+@keyframes delivery-step-enter { from { opacity:0; transform:translateX(18px); } to { opacity:1; transform:translateX(0); } }
+@media(max-width:560px) { .delivery-wizard-progress { gap:4px; }.delivery-wizard-progress li { flex-direction:column; gap:4px; padding:7px 3px; font-size:11px; text-align:center; }.delivery-wizard-actions { flex-wrap:wrap; } }
+@media (prefers-reduced-motion:reduce) { .address-search-spinner,.delivery-wizard-step { animation:none; } }
 .customer-dashboard .form-divider { padding-top:11px; font-size:11px; letter-spacing:.12em; }
 .customer-dashboard .request-card .primary-button { min-height:52px; font-size:15px; }
 .customer-dashboard .customer-history .request-item-top strong { font-size:14px; }

@@ -218,3 +218,9 @@
 :root[data-theme='dark'] .address-suggestions,:root[data-theme='dark'] .pin-correction { background:#1b2c25; border-color:#3b5248; color:#e9f2ea; }
 :root[data-theme='dark'] .address-suggestions button { color:#e9f2ea; }
 :root[data-theme='dark'] .address-suggestions button:hover,:root[data-theme='dark'] .address-suggestions button:focus-visible { background:#2b493d; }
+:root[data-theme='dark'] .delivery-wizard-progress li { border-color:#3b5248; color:#e9f2ea; }
+:root[data-theme='dark'] .delivery-wizard-progress li.current { border-color:#95bd99; background:#294335; }
+:root[data-theme='dark'] .delivery-wizard-progress li span { background:#477654; }
+:root[data-theme='dark'] .address-search-status { border-color:#557d61; color:#d8f2df !important; background:#223c30; }
+:root[data-theme='dark'] .address-search-spinner { border-color:#557d61; border-top-color:#cbe879; }
+:root[data-theme='dark'] .delivery-step-error { color:#ffd6cf; background:#593630; }

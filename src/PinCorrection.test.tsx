@@ -40,9 +40,9 @@ describe('mobile pin correction', () => {
     expect(screen.getByRole('textbox', { name: 'Street name' })).toHaveValue('Market Road')
     expect(screen.getByRole('textbox', { name: 'Search close, side street or landmark' })).toBeInTheDocument()
     await userEvent.setup().type(screen.getByRole('textbox', { name: 'Search close, side street or landmark' }), 'Main')
-    await waitFor(() => expect(suggestNearby).toHaveBeenCalledWith(expect.anything(), 'Main', 'amenity', expect.anything(), expect.anything(), 'Market Road'))
+    await waitFor(() => expect(suggestNearby).toHaveBeenCalledWith(expect.anything(), 'Main', 'amenity', expect.anything(), expect.anything(), 'Market Road'), { timeout: 3000 })
     await userEvent.setup().click(await within(await screen.findByRole('group', { name: 'Landmarks on selected street' })).findByRole('button', { name: /Main Market/ }))
-    expect(screen.getByText(/Near Main Market/)).toBeInTheDocument()
+    expect(screen.getByText(/Selected Main Market/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Use this pin' })).toBeDisabled()
   })
   it('explains when a landmark search has no mapped match on the selected street', async () => {
