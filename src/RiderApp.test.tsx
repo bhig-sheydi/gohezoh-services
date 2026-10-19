@@ -6,16 +6,19 @@ const mocks = vi.hoisted(() => ({
   getSession: vi.fn(async () => ({ data: { session: null } })),
   setSession: vi.fn(async () => ({ error: null })),
   proof: vi.fn(async () => ({ publicKey: { kty: 'EC', crv: 'P-256', x: 'x', y: 'y' } })),
+  rpc: vi.fn(),
+  from: vi.fn(),
 }))
 vi.mock('./lib/supabase', () => ({ getSupabaseClient: () => ({ auth: {
   getSession: mocks.getSession, setSession: mocks.setSession,
   onAuthStateChange: () => ({ data: { subscription: { unsubscribe: vi.fn() } } }),
-} }) }))
+}, rpc: mocks.rpc, from: mocks.from }) }))
 vi.mock('./lib/rider-device', () => ({ riderDeviceProof: mocks.proof }))
 
 describe('company rider sign-in', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mocks.getSession.mockResolvedValue({ data: { session: null } })
     window.history.replaceState({}, '', `/rider#rider=${'a'.repeat(64)}`)
   })
 
@@ -57,5 +60,20 @@ describe('company rider sign-in', () => {
     await waitFor(() => expect(mocks.setSession).toHaveBeenCalled())
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ action: 'challenge', companyId, password: 'Market-River-Mango-1234' })
     expect(mocks.proof).toHaveBeenCalledWith('rider-identity', undefined)
+  })
+
+  it('shows a chosen company pickup as preparation only, before an awarded job exists', async () => {
+    mocks.getSession.mockResolvedValue({ data: { session: { user: { id: 'rider-1', user_metadata: { full_name: 'Ada' } } } } } as never)
+    mocks.from.mockReturnValue({ select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { role: 'rider' } }) }) }) }) })
+    mocks.rpc.mockImplementation(async (name: string) => {
+      if (name === 'list_my_selected_pickups') return { data: [{ request_id: 'request-1', request_number: 'REQ-001', pickup_city: 'Lagos', delivery_city: 'Ikeja', parcel_summary: 'Books', company_name: 'Quick Riders', selected_at: new Date().toISOString() }], error: null }
+      if (name === 'my_rider_profile') return { data: [{ company_name: 'Quick Riders' }], error: null }
+      return { data: [], error: null }
+    })
+    render(<RiderApp />)
+    expect(await screen.findByText('Upcoming pickups')).toBeInTheDocument()
+    expect(screen.getByText('Prepare for this pickup. Wait for the confirmed job here before contacting the customer or collecting the parcel.')).toBeInTheDocument()
+    expect(screen.queryByText('Open pickup directions')).not.toBeInTheDocument()
+    expect(screen.queryByText('Update delivery')).not.toBeInTheDocument()
   })
 })

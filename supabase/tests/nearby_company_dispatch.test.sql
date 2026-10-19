@@ -105,5 +105,20 @@ begin
   execute 'set local role authenticated';
   if exists(select 1 from public.service_requests where id=v_request2) then raise exception 'Operations can see automated pickup details'; end if;
   execute 'reset role';
+  update public.delivery_quote_windows set published_at=now()-interval '2 minutes',deadline_at=now()-interval '1 minute'
+    where request_id=v_request;
+  update public.partner_quotes set submitted_at=now()-interval '90 seconds' where request_id=v_request;
+  perform set_config('request.jwt.claim.sub',v_customer_user::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_customer_user,'role','authenticated')::text,true);
+  perform public.select_customer_partner_bid(v_request,(select id from public.partner_quotes where request_id=v_request limit 1));
+  perform set_config('request.jwt.claim.sub',v_rider::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_rider,'role','authenticated','session_id',v_session)::text,true);
+  if (select count(*) from public.list_my_selected_pickups() where request_id=v_request)<>1 then
+    raise exception 'Selected company pickup was not routed to its invited rider'; end if;
+  perform set_config('request.jwt.claim.sub',v_rider2::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_rider2,'role','authenticated')::text,true);
+  v_denied:=false;
+  begin perform public.list_my_selected_pickups(); exception when insufficient_privilege then v_denied:=true; end;
+  if not v_denied then raise exception 'Unbound rider could read selected pickup'; end if;
 end $$;
 rollback;

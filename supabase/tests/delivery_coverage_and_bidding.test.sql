@@ -3,21 +3,27 @@ do $$
 declare
   v_admin uuid:=gen_random_uuid();v_customer_user uuid:=gen_random_uuid();v_partner_user uuid:=gen_random_uuid();
   v_customer uuid:=gen_random_uuid();v_partner uuid:=gen_random_uuid();v_service uuid;v_request uuid:=gen_random_uuid();
-  v_corridor uuid;v_bid uuid;v_job uuid;v_result jsonb;
+  v_corridor uuid;v_bid uuid;v_job uuid;v_result jsonb;v_rider uuid:=gen_random_uuid();v_roster uuid;
 begin
   select id into v_service from public.services where code='SRV-0002';
   insert into auth.users(id,instance_id,aud,role,email,encrypted_password,email_confirmed_at,raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
   values
     (v_admin,'00000000-0000-0000-0000-000000000000','authenticated','authenticated','bids-admin-'||v_admin||'@example.test','',now(),'{}','{}',now(),now()),
     (v_customer_user,'00000000-0000-0000-0000-000000000000','authenticated','authenticated','bids-customer-'||v_customer_user||'@example.test','',now(),'{}','{}',now(),now()),
-    (v_partner_user,'00000000-0000-0000-0000-000000000000','authenticated','authenticated','bids-partner-'||v_partner_user||'@example.test','',now(),'{}','{}',now(),now());
-  insert into public.user_roles(user_id,role) values(v_admin,'management'),(v_customer_user,'customer'),(v_partner_user,'partner') on conflict do nothing;
+    (v_partner_user,'00000000-0000-0000-0000-000000000000','authenticated','authenticated','bids-partner-'||v_partner_user||'@example.test','',now(),'{}','{}',now(),now()),
+    (v_rider,'00000000-0000-0000-0000-000000000000','authenticated','authenticated','bids-rider-'||v_rider||'@example.test','',now(),'{}','{"account_kind":"company_rider"}',now(),now());
+  insert into public.user_roles(user_id,role) values(v_admin,'management'),(v_customer_user,'customer'),(v_partner_user,'partner'),(v_rider,'rider') on conflict do nothing;
   insert into public.customers(id,company_name,contact_person,phone,created_by)
   values(v_customer,'Bid Customer','Bid Customer','+2348010000001',v_customer_user);
   insert into public.customer_users(customer_id,user_id) values(v_customer,v_customer_user);
   insert into public.logistics_partners(id,partner_name,contact_person,phone,status)
   values(v_partner,'Bid Partner','Bid Partner','+2348010000002','active');
   insert into public.partner_users(partner_id,user_id) values(v_partner,v_partner_user);
+  insert into public.partner_users(partner_id,user_id,membership_role) values(v_partner,v_rider,'rider');
+  insert into public.company_riders(partner_id,full_name,nin,licence_document_path,status)
+    values(v_partner,'Bid Rider',lpad((floor(random()*99999999999))::bigint::text,11,'0'),v_rider||'/licence.pdf','approved') returning id into v_roster;
+  insert into public.rider_credentials(user_id,partner_id,roster_id,rider_name,auth_secret_seed,link_hash,password_salt,password_hash,password_fingerprint)
+    values(v_rider,v_partner,v_roster,'Bid Rider',v_rider||'-seed',v_rider||'-link','salt','hash',v_rider||'-fingerprint');
   select c.id into v_corridor from public.coverage_corridors c
     join public.coverage_locations o on o.id=c.origin_id
     join public.coverage_locations d on d.id=c.destination_id
@@ -33,6 +39,8 @@ begin
   exception when check_violation then null; end;
   perform public.set_partner_corridor_coverage(v_partner,v_corridor,true);
   v_result:=public.publish_delivery_request(v_request);
+  insert into public.company_bid_invitations(request_id,partner_id,rider_id,distance_metres)
+    values(v_request,v_partner,v_rider,500);
   if (v_result->>'deadline_at')::timestamptz < now()+interval '59 seconds'
      or (v_result->>'deadline_at')::timestamptz > now()+interval '61 seconds' then
     raise exception 'Bid window is not one minute'; end if;
@@ -127,5 +135,9 @@ begin
   perform public.approve_delivery_credit(v_job,'Approved test credit terms');
   insert into public.partner_assignments(job_id,partner_id,status,assigned_by)
   values(v_job,v_partner,'assigned',v_admin);
+  update public.jobs set partner_id=v_partner,status='partner_assigned' where id=v_job;
+  update public.partner_assignments set status='accepted' where job_id=v_job and partner_id=v_partner;
+  if (select assigned_rider_id from public.jobs where id=v_job) is distinct from v_rider then
+    raise exception 'Accepted paid award was not assigned to the chosen company rider'; end if;
 end $$;
 rollback;
