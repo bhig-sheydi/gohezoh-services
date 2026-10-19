@@ -158,7 +158,7 @@ export default function RiderApp() {
       {selectedPickups.length > 0 && <section aria-label="Selected pickups"><h2>Upcoming pickups</h2><div className="partner-assignment-list">{selectedPickups.map((pickup) => <article className="form-card partner-job-card" key={pickup.request_id}>
         <p className="eyebrow">{pickup.request_number} · {pickup.company_name}</p><h3>Company bid selected</h3>
         <p>{pickup.pickup_city} → {pickup.delivery_city}</p><p>{pickup.parcel_summary}</p>
-        <p>Prepare for this pickup. Wait for the confirmed job here before contacting the customer or collecting the parcel.</p>
+        <p>Waiting for customer payment. Do not travel, contact the customer, or collect the parcel. This task becomes actionable only when a confirmed job appears here.</p>
       </article>)}</div></section>}
       {jobs.length === 0 && selectedPickups.length === 0 ? <section className="form-card"><h2>No jobs assigned yet</h2><p>Your company will assign deliveries here.</p></section> : jobs.length > 0 && <div className="partner-assignment-list">{jobs.map((job) => <article className="form-card partner-job-card" key={job.job_id}>
         <div className="review-title"><div><p className="eyebrow">{job.job_number}</p><h2>{label(job.status)}</h2></div></div>

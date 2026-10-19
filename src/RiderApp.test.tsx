@@ -72,7 +72,7 @@ describe('company rider sign-in', () => {
     })
     render(<RiderApp />)
     expect(await screen.findByText('Upcoming pickups')).toBeInTheDocument()
-    expect(screen.getByText('Prepare for this pickup. Wait for the confirmed job here before contacting the customer or collecting the parcel.')).toBeInTheDocument()
+    expect(screen.getByText('Waiting for customer payment. Do not travel, contact the customer, or collect the parcel. This task becomes actionable only when a confirmed job appears here.')).toBeInTheDocument()
     expect(screen.queryByText('Open pickup directions')).not.toBeInTheDocument()
     expect(screen.queryByText('Update delivery')).not.toBeInTheDocument()
   })
