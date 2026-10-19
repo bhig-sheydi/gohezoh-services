@@ -7,7 +7,9 @@ function client(rows: Record<string, Array<Record<string, unknown>>>) {
   const rpc = vi.fn(async (name: string) => name === 'list_eligible_delivery_requests'
     ? { data: rows.eligible ?? [], error: null }
     : name === 'list_customer_bid_offers' ? { data: rows.offers ?? [], error: null }
+    : name === 'list_my_flutterwave_holds' ? { data: rows.holds ?? [], error: null }
     : { data: null, error: null })
+  const functions = { invoke: vi.fn(async () => ({ data: { status: 'pending' }, error: null })) }
   const from = vi.fn((table: string) => {
     const query: Record<string, unknown> = {}
     for (const method of ['select', 'in']) query[method] = () => query
@@ -15,7 +17,7 @@ function client(rows: Record<string, Array<Record<string, unknown>>>) {
     return query
   })
   const storage = { from: vi.fn(() => ({ createSignedUrl: vi.fn(async () => ({ data: { signedUrl: 'https://example.test/rider-photo' }, error: null })) })) }
-  return { supabase: { from, rpc, storage } as unknown as SupabaseClient, rpc, from }
+  return { supabase: { from, rpc, storage, functions } as unknown as SupabaseClient, rpc, from, functions }
 }
 
 describe('customer delivery quotes', () => {
@@ -45,7 +47,7 @@ describe('customer delivery quotes', () => {
   })
 
   it('shows company and rider details only after closing, then saves the customer choice', async () => {
-    const { supabase, rpc } = client({
+    const { supabase, functions } = client({
       delivery_quote_windows: [{ request_id: 'request-1', deadline_at: '2020-01-01T00:00:00Z', status: 'awaiting_customer_selection' }],
       offers: [{ bid_id: 'bid-1', partner_name: 'Swift Bikes', partner_phone: '08012345678', rider_name: 'Ada Rider',
         rider_phone: null, rider_photo_path: 'photo.jpg', bid_amount_ngn: 2500, eta_hours: 1 }],
@@ -56,7 +58,16 @@ describe('customer delivery quotes', () => {
     expect(screen.getByText('Rider: Number not supplied')).toBeInTheDocument()
     expect(screen.getByText('Company: 08012345678')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Choose this company' }))
-    await waitFor(() => expect(rpc).toHaveBeenCalledWith('select_customer_partner_bid', { p_request_id: 'request-1', p_bid_id: 'bid-1' }))
+    await waitFor(() => expect(functions.invoke).toHaveBeenCalledWith('flutterwave-payment', { body: { action: 'start', requestId: 'request-1', bidId: 'bid-1' } }))
+  })
+
+  it('shows the temporary account and exact selected bid amount', async () => {
+    const { supabase } = client({ holds: [{ request_id: 'request-1', status: 'pending', amount_ngn: 2500,
+      account_number: '1234567890', bank_name: 'Test Bank', expires_at: new Date(Date.now() + 120_000).toISOString(), reference: 'test-ref' }] })
+    render(<CustomerQuotePanel supabase={supabase} requestIds={['request-1']} onError={vi.fn()} onNotice={vi.fn()} onRefresh={vi.fn()} />)
+    expect(await screen.findByText('1234567890')).toBeInTheDocument()
+    expect(screen.getByText(/Pay ₦2,500.00/)).toBeInTheDocument()
+    expect(screen.getByText(/Your rider waits until payment is confirmed/)).toBeInTheDocument()
   })
 })
 

@@ -4,6 +4,8 @@ import './customer-bidding.css'
 
 type QuoteWindow = { request_id: string; deadline_at: string; status: string }
 type CustomerQuote = { request_id: string; customer_price_ngn: number | null; expires_at: string | null; status: string }
+type PaymentHold = { request_id: string; status: string; amount_ngn: number; account_number: string | null;
+  bank_name: string | null; expires_at: string; reference: string }
 type CustomerBid = { bid_id: string; partner_name: string; partner_phone: string | null; rider_name: string | null;
   rider_phone: string | null; rider_photo_path: string | null; rider_photo_url?: string | null;
   bid_amount_ngn: number; eta_hours: number }
@@ -17,23 +19,30 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
   const pendingIds = new Set(pendingRequestIds)
   const [windows, setWindows] = useState<QuoteWindow[]>([])
   const [quotes, setQuotes] = useState<CustomerQuote[]>([])
+  const [holds, setHolds] = useState<Record<string, PaymentHold>>({})
+  const holdsRef = useRef(holds)
+  useEffect(() => { holdsRef.current = holds }, [holds])
   const [offers, setOffers] = useState<Record<string, CustomerBid[]>>({})
   const [now, setNow] = useState(0)
   const [busy, setBusy] = useState('')
+  const activeHoldKey = Object.values(holds).filter((hold) => ['initializing', 'pending'].includes(hold.status)).map((hold) => `${hold.request_id}:${hold.status}`).join(',')
+  const pendingHoldKey = Object.values(holds).filter((hold) => hold.status === 'pending').map((hold) => hold.request_id).join(',')
   const photoCache = useRef(new Map<string, { url: string; expires: number }>())
   const load = useCallback(async () => {
     const ids = requestIdKey ? requestIdKey.split(',') : []
-    if (!ids.length) { setWindows([]); setQuotes([]); setOffers({}); return }
-    const [windowResult, quoteResult] = await Promise.all([
+    if (!ids.length) { setWindows([]); setQuotes([]); setOffers({}); setHolds({}); return }
+    const [windowResult, quoteResult, holdResult] = await Promise.all([
       supabase.from('delivery_quote_windows').select('request_id, deadline_at, status').in('request_id', ids),
       supabase.from('customer_delivery_quotes').select('request_id, customer_price_ngn, expires_at, status').in('request_id', ids),
+      supabase.rpc('list_my_flutterwave_holds'),
     ])
-    if (windowResult.error || quoteResult.error) { onError((windowResult.error ?? quoteResult.error)?.message ?? 'Could not load quotes.'); return }
+    if (windowResult.error || quoteResult.error || holdResult.error) { onError((windowResult.error ?? quoteResult.error ?? holdResult.error)?.message ?? 'Could not load quotes.'); return }
     const nextWindows = (windowResult.data ?? []) as QuoteWindow[]
     const nextQuotes = (quoteResult.data ?? []) as CustomerQuote[]
     setNow(Date.now())
     setWindows(nextWindows)
     setQuotes(nextQuotes)
+    setHolds(Object.fromEntries(((holdResult.data ?? []) as PaymentHold[]).filter((hold) => ids.includes(hold.request_id)).map((hold) => [hold.request_id, hold])))
     const ready = nextWindows.filter((row) => new Date(row.deadline_at).getTime() <= Date.now()
       && ['open', 'awaiting_customer_selection'].includes(row.status)
       && !nextQuotes.some((quote) => quote.request_id === row.request_id))
@@ -54,17 +63,32 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
   }, [supabase, requestIdKey, onError])
   useEffect(() => { const timer = window.setTimeout(() => { void load() }, 0); return () => clearTimeout(timer) }, [load])
   useEffect(() => {
-    if (!pendingIdKey && !windows.some((row) => ['open', 'awaiting_customer_selection'].includes(row.status))) return
+    if (!pendingIdKey && !windows.some((row) => ['open', 'awaiting_customer_selection'].includes(row.status))
+      && !Object.values(holdsRef.current).some((hold) => ['initializing', 'pending'].includes(hold.status))) return
     const timer = window.setInterval(() => { if (!document.hidden) { setNow(Date.now()); void load() } }, 5000)
     const onFocus = () => { setNow(Date.now()); void load() }
     window.addEventListener('focus', onFocus)
     return () => { window.clearInterval(timer); window.removeEventListener('focus', onFocus) }
-  }, [load, pendingIdKey, windows])
+  }, [load, pendingIdKey, windows, activeHoldKey])
+  useEffect(() => {
+    if (!Object.values(holdsRef.current).some((hold) => ['initializing', 'pending'].includes(hold.status))) return
+    const timer = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(timer)
+  }, [activeHoldKey])
+  useEffect(() => {
+    const active = Object.values(holdsRef.current).filter((hold) => hold.status === 'pending' && new Date(hold.expires_at).getTime() > Date.now())
+    if (!active.length) return
+    const timer = window.setInterval(() => { if (!document.hidden) void Promise.all(active.map(async (hold) => {
+      await supabase.functions.invoke('flutterwave-payment', { body: { action: 'check', requestId: hold.request_id } })
+      await load()
+    })) }, 15000)
+    return () => clearInterval(timer)
+  }, [pendingHoldKey, supabase, load])
   async function choose(requestId: string, bidId: string) {
     setBusy(requestId)
-    const { error } = await supabase.rpc('select_customer_partner_bid', { p_request_id: requestId, p_bid_id: bidId })
+    const { data, error } = await supabase.functions.invoke('flutterwave-payment', { body: { action: 'start', requestId, bidId } })
     if (error) onError(error.message)
-    else { onNotice('Company selected. Your final delivery price is being prepared.'); await load(); onRefresh() }
+    else { onNotice(data?.status === 'management' ? 'Company selected. Your final delivery price is being prepared.' : 'Company selected. Pay within two minutes to confirm the rider.'); await load(); onRefresh() }
     setBusy('')
   }
   async function accept(requestId: string) {
@@ -74,9 +98,31 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
     else { onNotice('Quote accepted. Kwik-Parsel will confirm payment and award the delivery.'); await load(); onRefresh() }
     setBusy('')
   }
+  async function retryAccount(requestId: string) {
+    setBusy(requestId)
+    const { error } = await supabase.functions.invoke('flutterwave-payment', { body: { action: 'status', requestId } })
+    if (error) onError(error.message)
+    await load()
+    setBusy('')
+  }
   return <>{requestIds.map((requestId) => {
     const quote = quotes.find((row) => row.request_id === requestId)
     const bidWindow = windows.find((row) => row.request_id === requestId)
+    const hold = holds[requestId]
+    if (hold) {
+      const seconds = Math.max(0, Math.ceil((new Date(hold.expires_at).getTime() - now) / 1000))
+      const active = ['initializing', 'pending'].includes(hold.status) && seconds > 0
+      return <section className="customer-payment-card" key={requestId} aria-label="Delivery payment" role="status">
+        <p className="eyebrow">DELIVERY PAYMENT</p>
+        <h3>{hold.status === 'paid' ? 'Payment confirmed' : active ? `Pay ${money(Number(hold.amount_ngn))}` : hold.status === 'review' ? 'Payment needs review' : 'Booking expired'}</h3>
+        {active && <><strong className="customer-payment-timer">{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')} left</strong>
+          {hold.account_number && hold.bank_name ? <div className="customer-payment-account"><span>{hold.bank_name}</span><strong>{hold.account_number}</strong><button type="button" onClick={() => void navigator.clipboard.writeText(hold.account_number!)}>Copy account</button></div> : <><p>Preparing your temporary bank account…</p><button type="button" disabled={busy === requestId} onClick={() => void retryAccount(requestId)}>Retry account</button></>}
+          <p>Transfer the exact amount now. Your rider waits until payment is confirmed.</p></>}
+        {hold.status === 'paid' && <p>Your rider has been assigned. Keep your phone nearby.</p>}
+        {hold.status === 'review' && <p>A payment arrived after the booking window or needs review. Please contact support; do not pay again yet.</p>}
+        {(hold.status === 'expired' || (!active && hold.status !== 'paid' && hold.status !== 'review')) && <p>The rider is no longer reserved. Please book another delivery. If you transferred money, contact support before paying again.</p>}
+      </section>
+    }
     if (quote) return <div className="customer-quote-card" key={requestId}><strong>{quote.customer_price_ngn == null ? 'Quote under review' : `Delivery quote: ${money(Number(quote.customer_price_ngn))}`}</strong><small>{quote.expires_at ? `Accept by ${date(quote.expires_at)} · ` : ''}{quote.status.replaceAll('_', ' ')}</small>{quote.status === 'sent' && quote.customer_price_ngn != null && <button className="primary-button" disabled={busy === requestId} onClick={() => void accept(requestId)}>{busy === requestId ? 'Accepting...' : 'Accept quote'}</button>}</div>
     if (bidWindow?.status === 'no_bids') return <p className="customer-bid-empty" key={requestId}>No companies bid this time. Try matching again.</p>
     if (bidWindow) {

@@ -423,3 +423,6 @@ verify_jwt = false
 
 [functions.rider-access]
 verify_jwt = false
+
+[functions.flutterwave-payment]
+verify_jwt = false

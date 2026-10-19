@@ -47,3 +47,19 @@ export async function verifyFlutterwaveTransaction(id: number, secretKey: string
   if (payload.status !== 'success' || !payload.data) throw new Error('Flutterwave transaction verification failed')
   return payload.data
 }
+
+export async function verifyFlutterwaveReference(reference: string, secretKey: string, fetcher: Fetcher = fetch) {
+  if (!/^[a-zA-Z0-9-]{6,42}$/.test(reference) || !secretKey) throw new Error('Invalid Flutterwave verification request')
+  const response = await fetcher(`https://api.flutterwave.com/v3/transactions/verify_by_reference?tx_ref=${encodeURIComponent(reference)}`, {
+    headers: { Authorization: `Bearer ${secretKey}`, Accept: 'application/json' }, signal: AbortSignal.timeout(8000),
+  })
+  if (!response.ok) return null
+  const payload = await response.json() as { status?: string; data?: Record<string, unknown> }
+  return payload.status === 'success' ? payload.data ?? null : null
+}
+
+export function verifiedBankTransfer(data: Record<string, unknown>, reference: string, amountNgn: number) {
+  return data.tx_ref === reference && data.status === 'successful' && data.currency === 'NGN'
+    && data.payment_type === 'bank_transfer' && Number(data.amount) === amountNgn
+    && Number.isSafeInteger(Number(data.id)) && Number(data.id) > 0
+}

@@ -111,10 +111,30 @@ begin
   perform set_config('request.jwt.claim.sub',v_customer_user::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_customer_user,'role','authenticated')::text,true);
   perform public.select_customer_partner_bid(v_request,(select id from public.partner_quotes where request_id=v_request limit 1));
+  if (select amount_ngn from public.customer_payment_holds where request_id=v_request)<>2000
+    or (select customer_price_ngn from public.customer_delivery_quotes where request_id=v_request)<>2000 then
+    raise exception 'Selected local bid did not become the exact payment amount'; end if;
+  if (select status from public.customer_payment_holds where request_id=v_request)<>'initializing' then
+    raise exception 'Local payment hold was not created'; end if;
   perform set_config('request.jwt.claim.sub',v_rider::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_rider,'role','authenticated','session_id',v_session)::text,true);
   if (select count(*) from public.list_my_selected_pickups() where request_id=v_request)<>1 then
     raise exception 'Selected company pickup was not routed to its invited rider'; end if;
+  update public.customer_payment_holds set expires_at=now()-interval '1 second' where request_id=v_request;
+  if exists(select 1 from public.list_my_selected_pickups() where request_id=v_request) then
+    raise exception 'Expired payment hold still reserved the rider'; end if;
+  update public.customer_payment_holds set expires_at=now()+interval '2 minutes',status='pending',
+    account_number='1234567890',bank_name='Test Bank' where request_id=v_request;
+  perform set_config('request.jwt.claim.sub','',true);
+  perform set_config('request.jwt.claims','{"role":"service_role"}',true);
+  if (public.settle_flutterwave_hold((select reference from public.customer_payment_holds where request_id=v_request),987654321,2000,'NGN')->>'status')<>'paid' then
+    raise exception 'Verified local payment did not confirm the job'; end if;
+  if not exists(select 1 from public.orders o join public.jobs j on j.order_id=o.id
+      join public.job_financials f on f.job_id=j.id join public.customer_payments p on p.job_id=j.id
+      where o.service_request_id=v_request and j.assigned_rider_id=v_rider and f.partner_cost=1600
+        and p.amount=2000 and p.method='online') then
+    raise exception 'Paid booking did not route the rider and record the 20 percent partner fee'; end if;
+  if (select count(*) from public.orders where service_request_id=v_request)<>1 then raise exception 'Duplicate order'; end if;
   perform set_config('request.jwt.claim.sub',v_rider2::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_rider2,'role','authenticated')::text,true);
   v_denied:=false;
