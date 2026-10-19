@@ -140,7 +140,7 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
           <div className="customer-bid-grid">{bids.map((bid) => <article className="customer-bid-offer" key={bid.bid_id}>
             <div className="customer-bid-rider">{bid.rider_photo_url ? <img src={bid.rider_photo_url} alt={`${bid.rider_name ?? 'Rider'} profile`} /> : <div className="customer-bid-no-photo" aria-label="No rider photo">Photo unavailable</div>}
               <div><strong>{bid.partner_name}</strong><span>{bid.rider_name ?? 'Rider to be assigned'}</span></div></div>
-            <strong className="customer-bid-price">{money(Number(bid.bid_amount_ngn))}</strong><small>Company bid · final delivery price follows approval</small>
+            <strong className="customer-bid-price">{money(Number(bid.bid_amount_ngn))}</strong><small>Company bid. For local delivery, this is your final price; interstate pricing follows approval.</small>
             <div className="customer-bid-contacts"><span>Rider: {bid.rider_phone ?? 'Number not supplied'}</span><span>Company: {bid.partner_phone ?? 'Number not supplied'}</span></div>
             <button type="button" className="primary-button" disabled={busy === requestId} onClick={() => void choose(requestId, bid.bid_id)}>{busy === requestId ? 'Selecting...' : 'Choose this company'}</button>
           </article>)}</div>
