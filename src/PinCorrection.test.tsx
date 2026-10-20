@@ -75,7 +75,24 @@ describe('mobile pin correction', () => {
     vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:map'), revokeObjectURL: vi.fn() })
     render(<PinCorrection supabase={{} as SupabaseClient} initial={{ latitude: 4.85, longitude: 7.01 }} onChoose={vi.fn()} onClose={vi.fn()} />)
     await userEvent.setup().type(screen.getByRole('textbox', { name: 'Street name' }), 'Unmapped')
-    expect(await screen.findByText(/No mapped street found/)).toBeInTheDocument()
+    expect(await screen.findByText(/This street is missing from the map/)).toBeInTheDocument()
+  })
+  it('keeps an unmapped street name and asks for a GPS or map point', async () => {
+    vi.mocked(mapTile).mockResolvedValue(new Blob(['png'], { type: 'image/png' }))
+    vi.mocked(suggestNearby).mockResolvedValue([])
+    vi.mocked(suggestAddresses).mockResolvedValue([])
+    vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:map'), revokeObjectURL: vi.fn() })
+    const onChoose = vi.fn()
+    render(<PinCorrection supabase={{} as SupabaseClient} initial={{ latitude: 4.87442, longitude: 6.988312 }}
+      streetInputName="pickup_address" streetSearchRadiusMetres={3000} areaPlaceId="rumuaholu-place" compactMap onChoose={onChoose} />)
+    await userEvent.setup().type(screen.getByRole('textbox', { name: 'Street name' }), 'Okemini')
+    expect(await screen.findByText(/This street is missing from the map/)).toBeInTheDocument()
+    expect(suggestAddresses).toHaveBeenCalledWith(expect.anything(), 'Okemini', expect.anything(), 'rumuaholu-place')
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Use typed street' }))
+    expect(screen.getByRole('textbox', { name: 'Street name' })).toHaveValue('Okemini')
+    expect(screen.getByRole('button', { name: 'Drag or tap map to choose a point' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Use this pin' })).toBeDisabled()
+    expect(onChoose).not.toHaveBeenCalled()
   })
   it('lets customers choose a mapped close connected to the selected street', async () => {
     const street: AddressSuggestion = { address: 'Market Road', city: 'Umuahia', state: 'Abia', latitude: 5.5296, longitude: 7.4861, specificity: 'street', resultType: 'street', confidence: null,

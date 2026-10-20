@@ -111,7 +111,7 @@ export default function DeliveryPoint({ supabase, destination }: {
     {communityStatus === 'empty' && <div className="address-search-fallback"><small>No mapped area found. Try a shorter name or continue with what you typed.</small><button type="button" className="text-button" onClick={() => { setCommunityReady(true); setCommunityStatus('idle') }}>Use typed community</button></div>}
     {communityReady && <><div className="field-row"><button type="button" className="secondary-button" disabled={busy} onClick={() => void find(false)}>{busy ? 'Finding delivery…' : 'Find delivery address'}</button><button type="button" className="text-button" disabled={busy} onClick={() => void find(true)}>I’m here — use GPS</button></div>
     {error && <small role="alert">{error}</small>}
-    <PinCorrection key={version} supabase={supabase} initial={point} initialStreet={streetSeed} streetInputName="delivery_address" requireMove={needsPin} compactMap autoSelectSuggestion streetSearchRadiusMetres={3000}
+    <PinCorrection key={version} supabase={supabase} initial={point} initialStreet={streetSeed} streetInputName="delivery_address" requireMove={needsPin} compactMap autoSelectSuggestion streetSearchRadiusMetres={3000} areaPlaceId={communityPlaceId}
       onStreetChange={(street) => { streetDraft.current = street; setFix(null); setLabel('') }}
       onPointChange={() => { setFix(null); setLabel('') }}
       onChoose={(evidence, address) => { setPoint(evidence); setFix(evidence); setLabel(address?.address ? `${address.address}, ${address.city} · approximate mapped point` : 'Pin chosen by you'); setNeedsPin(false) }} /></>}
