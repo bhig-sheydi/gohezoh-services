@@ -19,7 +19,7 @@ describe('delivery point', () => {
     vi.mocked(suggestNearby).mockResolvedValue([{ address: 'Market Road', city: 'Lagos', state: 'Lagos', specificity: 'street', resultType: 'street',
       latitude: 6.46, longitude: 3.41, confidence: 0.9, distanceMetres: null,
       evidence: { latitude: 6.46, longitude: 3.41, accuracyMetres: null, capturedAt: Date.now(), source: 'search' }, qualityNote: '' }])
-    render(<form><DeliveryPoint supabase={supabase} destination={destination} onCitySelected={vi.fn()} /></form>)
+    render(<form><DeliveryPoint supabase={supabase} destination={destination} /></form>)
     expect(screen.queryByRole('button', { name: 'Drag or tap map to choose a point' })).toBeNull()
     const street = screen.getByRole('textbox', { name: 'Street name' })
     await userEvent.setup().clear(street)
@@ -33,7 +33,7 @@ describe('delivery point', () => {
   it('starts from a Parcel Pal saved point and invalidates it when the street changes', async () => {
     const destination = { slot: 2, label: 'Home', address: '12 Market Road', city: 'Lagos', state: 'Lagos', secondary_phone: null,
       latitude: 6.45, longitude: 3.4, location_source: 'browser', location_accuracy_metres: 20 }
-    render(<form><DeliveryPoint supabase={supabase} destination={destination} onCitySelected={vi.fn()} /></form>)
+    render(<form><DeliveryPoint supabase={supabase} destination={destination} /></form>)
     expect(document.querySelector('[name=delivery_latitude]')).toHaveValue('6.45')
     const street = screen.getByRole('textbox', { name: 'Street name' })
     expect(street).toHaveValue('12 Market Road')
@@ -51,7 +51,7 @@ describe('delivery point', () => {
       latitude: 4.831, longitude: 7.021, confidence: 0.4, distanceMetres: null,
       evidence: { latitude: 4.831, longitude: 7.021, accuracyMetres: null, capturedAt: Date.now(), source: 'search' }, qualityNote: '' })
     render(<form><input name="delivery_community" aria-label="Delivery community" /><select name="delivery_city" defaultValue="Port Harcourt"><option>Port Harcourt</option></select>
-      <DeliveryPoint supabase={supabase} onCitySelected={vi.fn()} /></form>)
+      <DeliveryPoint supabase={supabase} /></form>)
     await user.type(screen.getByLabelText('Delivery community'), 'Eliozu')
     await user.click(await screen.findByRole('button', { name: /Eliozu/ }))
     expect(screen.getByLabelText('Delivery community')).toHaveValue('Eliozu')

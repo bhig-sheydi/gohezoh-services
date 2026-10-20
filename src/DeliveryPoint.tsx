@@ -5,8 +5,8 @@ import { searchAddress, suggestAreas, type AddressSuggestion, type LocationEvide
 import type { ParcelDestination } from './ParcelPalsPanel'
 import PinCorrection from './PinCorrection'
 
-export default function DeliveryPoint({ supabase, destination, onCitySelected }: {
-  supabase: SupabaseClient; destination?: ParcelDestination | null; onCitySelected: (city: string) => void
+export default function DeliveryPoint({ supabase, destination }: {
+  supabase: SupabaseClient; destination?: ParcelDestination | null
 }) {
   const [fix, setFix] = useState<LocationEvidence | null>(() => destination?.latitude != null && destination.longitude != null
     ? { latitude: destination.latitude, longitude: destination.longitude, accuracyMetres: null, capturedAt: Date.now(), source: 'saved' } : null)
@@ -57,8 +57,7 @@ export default function DeliveryPoint({ supabase, destination, onCitySelected }:
     if (communityQuery.length < 3) return
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
-      const city = (element.current?.closest('form')?.elements.namedItem('delivery_city') as HTMLSelectElement | null)?.value ?? ''
-      void suggestAreas(supabase, communityQuery, city, controller.signal)
+      void suggestAreas(supabase, communityQuery, controller.signal)
         .then((results) => { if (!controller.signal.aborted) { setSuggestions(results); setCommunityStatus(results.length ? 'idle' : 'empty') } })
         .catch(() => { if (!controller.signal.aborted) { setSuggestions([]); setCommunityStatus('empty') } })
     }, 400)
@@ -68,7 +67,6 @@ export default function DeliveryPoint({ supabase, destination, onCitySelected }:
   function selectCommunity(result: AddressSuggestion) {
     const input = element.current?.closest('form')?.elements.namedItem('delivery_community')
     if (input instanceof HTMLInputElement) input.value = result.address.split(',')[0].trim()
-    if (result.city) onCitySelected(result.city)
     streetDraft.current = ''; setStreetSeed('')
     setPoint({ latitude: result.latitude, longitude: result.longitude }); setVersion((value) => value + 1)
     setCommunityPlaceId(result.placeId ?? '')
@@ -94,7 +92,8 @@ export default function DeliveryPoint({ supabase, destination, onCitySelected }:
         const city = String(values.get('delivery_city') ?? '').trim()
         if (!address || !community || !city) throw new Error('Enter the delivery community and street, then choose its city.')
         const result = await searchAddress(supabase, communityPlaceId ? address : `${address}, ${community}, ${city}, ${values.get('delivery_state') || ''}, Nigeria`, controller.signal, communityPlaceId || undefined)
-        if (result.city && result.city.toLowerCase() !== city.toLowerCase()) throw new Error('The mapped address is in another city. Check the city and try again.')
+        const state = String(values.get('delivery_state') ?? '').trim()
+        if (state && result.state && result.state.toLowerCase().replace(/ state$/, '') !== state.toLowerCase().replace(/ state$/, '')) throw new Error('The mapped address is in another state. Check the delivery area and try again.')
         const broad = result.specificity === 'area' || (result.confidence !== null && result.confidence < 0.7)
         if (!controller.signal.aborted) {
           setPoint(result.evidence); setStreetSeed(streetDraft.current); setVersion((value) => value + 1)
@@ -109,7 +108,7 @@ export default function DeliveryPoint({ supabase, destination, onCitySelected }:
     {suggestions.length > 0 && <div className="address-suggestions" role="group" aria-label="Delivery community suggestions">{suggestions.map((result, index) => <button type="button" key={`${result.latitude}-${result.longitude}-${index}`} onClick={() => selectCommunity(result)}><strong>{result.address}</strong><small>{result.city}, {result.state}</small></button>)}</div>}
     {!communityReady && <small className="address-search-hint">Type at least 3 letters above, then tap your community from the suggestions.</small>}
     {communityStatus === 'loading' && <small role="status" className="address-search-status"><span className="address-search-spinner" aria-hidden="true" />Searching communities — please wait for suggestions.</small>}
-    {communityStatus === 'empty' && <div className="address-search-fallback"><small>No mapped community found. Check spelling or continue with the typed community.</small><button type="button" className="text-button" onClick={() => { setCommunityReady(true); setCommunityStatus('idle') }}>Use typed community</button></div>}
+    {communityStatus === 'empty' && <div className="address-search-fallback"><small>No mapped area found. Try a shorter name or continue with what you typed.</small><button type="button" className="text-button" onClick={() => { setCommunityReady(true); setCommunityStatus('idle') }}>Use typed community</button></div>}
     {communityReady && <><div className="field-row"><button type="button" className="secondary-button" disabled={busy} onClick={() => void find(false)}>{busy ? 'Finding delivery…' : 'Find delivery address'}</button><button type="button" className="text-button" disabled={busy} onClick={() => void find(true)}>I’m here — use GPS</button></div>
     {error && <small role="alert">{error}</small>}
     <PinCorrection key={version} supabase={supabase} initial={point} initialStreet={streetSeed} streetInputName="delivery_address" requireMove={needsPin} compactMap autoSelectSuggestion streetSearchRadiusMetres={3000}

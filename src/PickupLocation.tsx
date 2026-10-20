@@ -62,8 +62,7 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
     if (communityQuery.length < 3) return
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
-      const city = (container.current?.closest('form')?.elements.namedItem('pickup_city') as HTMLSelectElement | null)?.value ?? ''
-      void suggestAreas(supabase, communityQuery, city, controller.signal)
+      void suggestAreas(supabase, communityQuery, controller.signal)
         .then((results) => { if (!controller.signal.aborted) { setCommunitySuggestions(results); setCommunityStatus(results.length ? 'idle' : 'empty') } })
         .catch(() => { if (!controller.signal.aborted) { setCommunitySuggestions([]); setCommunityStatus('empty') } })
     }, 400)
@@ -72,7 +71,6 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
   function chooseCommunity(result: AddressSuggestion) {
     const input = container.current?.closest('form')?.elements.namedItem('pickup_community')
     if (input instanceof HTMLInputElement) input.value = result.address.split(',')[0].trim()
-    if (result.city) onCitySelected(result.city)
     streetDraft.current = ''; setStreetSeed('')
     setMapPoint({ latitude: result.latitude, longitude: result.longitude }); setMapVersion((value) => value + 1)
     setCommunityPlaceId(result.placeId ?? '')
@@ -110,7 +108,8 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
         const city = String(values.get('pickup_city') ?? '').trim()
         if (!community || !address || !city) throw new Error('Enter the pickup community and street, then choose its city.')
         const result = await searchAddress(supabase, communityPlaceId ? address : `${address}, ${community}, ${city}, ${values.get('pickup_state') || ''}, Nigeria`, controller.signal, communityPlaceId || undefined)
-        if (result.city && result.city.toLowerCase() !== city.toLowerCase()) throw new Error('The mapped address is in another city. Check the pickup city and try again.')
+        const state = String(values.get('pickup_state') ?? '').trim()
+        if (state && result.state && result.state.toLowerCase().replace(/ state$/, '') !== state.toLowerCase().replace(/ state$/, '')) throw new Error('The mapped address is in another state. Check the pickup area and try again.')
         const broad = result.specificity === 'area' || (result.confidence !== null && result.confidence < 0.7)
         if (!controller.signal.aborted) { setMapPoint(result.evidence); setStreetSeed(streetDraft.current); setMapVersion((value) => value + 1); setFix(result.evidence); setMatched(broad ? 'Only a broad area was found. Adjust its pin to confirm pickup.' : `${result.address}, ${result.city}, ${result.state}`); setNeedsPin(broad) }
       }
@@ -124,7 +123,7 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
     {communitySuggestions.length > 0 && <div className="address-suggestions" role="group" aria-label="Pickup community suggestions">{communitySuggestions.map((result, index) => <button type="button" key={`${result.latitude}-${result.longitude}-${index}`} onClick={() => chooseCommunity(result)}><strong>{result.address}</strong><small>{result.city}, {result.state}</small></button>)}</div>}
     {!communityReady && <small className="address-search-hint">Type at least 3 letters above, then tap your community from the suggestions.</small>}
     {communityStatus === 'loading' && <small role="status" className="address-search-status"><span className="address-search-spinner" aria-hidden="true" />Searching communities — please wait for suggestions.</small>}
-    {communityStatus === 'empty' && <div className="address-search-fallback"><small>No mapped community found. Check spelling or continue with the typed community.</small><button type="button" className="text-button" onClick={() => { setCommunityReady(true); setCommunityStatus('idle') }}>Use typed community</button></div>}
+    {communityStatus === 'empty' && <div className="address-search-fallback"><small>No mapped area found. Try a shorter name or continue with what you typed.</small><button type="button" className="text-button" onClick={() => { setCommunityReady(true); setCommunityStatus('idle') }}>Use typed community</button></div>}
     {communityReady && <><div className="field-row"><button type="button" className="secondary-button" disabled={busy} onClick={() => void locate(false)}>{busy ? 'Finding pickup…' : 'Find pickup address'}</button>
       <button type="button" className="text-button" disabled={busy} onClick={() => void locate(true)}>I’m here — use GPS</button></div>
     {error && <small role="alert">{error}</small>}

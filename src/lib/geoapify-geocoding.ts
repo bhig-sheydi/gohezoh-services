@@ -95,17 +95,36 @@ export async function suggestAddresses(client: SupabaseClient, text: string, sig
 }
 
 /** Communities, neighbourhoods and locally named road axes can all be an area choice. */
-export async function suggestAreas(client: SupabaseClient, area: string, city: string, signal?: AbortSignal): Promise<AddressSuggestion[]> {
-  const query = [area, city, 'Nigeria'].filter(Boolean).join(', ')
-  const matches = (candidate: AddressSuggestion) => candidate.address.toLowerCase().replace(/[^a-z0-9]/g, '')
-    .includes(area.toLowerCase().replace(/[^a-z0-9]/g, ''))
+export async function suggestAreas(client: SupabaseClient, area: string, signal?: AbortSignal): Promise<AddressSuggestion[]> {
+  // Adding the city to a Nigerian locality query can make Geoapify return only that city.
+  // The server already restricts autocomplete results to Nigeria.
+  const query = area.trim()
+  const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const matches = (candidate: AddressSuggestion) => {
+    const name = normalize(candidate.address.split(',')[0])
+    const term = normalize(query)
+    if (name.includes(term) || term.includes(name)) return true
+    if (Math.abs(name.length - term.length) > 2) return false
+    const distances = Array.from({ length: term.length + 1 }, (_, index) => index)
+    for (let row = 1; row <= name.length; row++) {
+      let previous = distances[0]
+      distances[0] = row
+      for (let column = 1; column <= term.length; column++) {
+        const current = distances[column]
+        distances[column] = Math.min(distances[column] + 1, distances[column - 1] + 1,
+          previous + Number(name[row - 1] !== term[column - 1]))
+        previous = current
+      }
+    }
+    return distances[term.length] <= 2
+  }
   const localityResults = await suggestAddresses(client, query, signal, undefined, 'locality')
     .catch((error: unknown) => { if (error instanceof AddressLookupError && error.status === 404) return []; throw error })
   const locality = localityResults
     .filter((candidate) => ['suburb', 'district', 'city', 'county'].includes(candidate.resultType) && matches(candidate))
   if (locality.length) return locality
   return (await suggestAddresses(client, query, signal))
-    .filter((candidate) => ['suburb', 'district', 'city', 'county', 'street'].includes(candidate.resultType) && matches(candidate))
+    .filter((candidate) => ['suburb', 'district', 'city', 'county', 'street', 'amenity'].includes(candidate.resultType) && matches(candidate))
 }
 
 function suggestionPayload(payload: unknown, maximum: number): AddressSuggestion[] {
