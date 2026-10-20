@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { requestAddressPosition } from './lib/proximity'
-import { searchAddress, suggestAddresses, type AddressSuggestion, type LocationEvidence } from './lib/geoapify-geocoding'
+import { searchAddress, suggestAreas, type AddressSuggestion, type LocationEvidence } from './lib/geoapify-geocoding'
 import type { ParcelDestination } from './ParcelPalsPanel'
 import PinCorrection from './PinCorrection'
 type PickupFix = Omit<LocationEvidence, 'source'> & { source: LocationEvidence['source'] | 'saved' }
@@ -63,8 +63,8 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
       const city = (container.current?.closest('form')?.elements.namedItem('pickup_city') as HTMLSelectElement | null)?.value ?? ''
-      void suggestAddresses(supabase, [communityQuery, city, 'Nigeria'].filter(Boolean).join(', '), controller.signal, undefined, 'locality')
-        .then((results) => { if (!controller.signal.aborted) { const communities = results.filter((result) => ['suburb', 'district', 'city', 'county'].includes(result.resultType)); setCommunitySuggestions(communities); setCommunityStatus(communities.length ? 'idle' : 'empty') } })
+      void suggestAreas(supabase, communityQuery, city, controller.signal)
+        .then((results) => { if (!controller.signal.aborted) { setCommunitySuggestions(results); setCommunityStatus(results.length ? 'idle' : 'empty') } })
         .catch(() => { if (!controller.signal.aborted) { setCommunitySuggestions([]); setCommunityStatus('empty') } })
     }, 400)
     return () => { window.clearTimeout(timer); controller.abort() }
@@ -128,7 +128,7 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
     {communityReady && <><div className="field-row"><button type="button" className="secondary-button" disabled={busy} onClick={() => void locate(false)}>{busy ? 'Finding pickup…' : 'Find pickup address'}</button>
       <button type="button" className="text-button" disabled={busy} onClick={() => void locate(true)}>I’m here — use GPS</button></div>
     {error && <small role="alert">{error}</small>}
-    <PinCorrection key={mapVersion} supabase={supabase} initial={mapPoint} initialStreet={streetSeed} streetInputName="pickup_address" requireMove={needsPin} compactMap autoSelectSuggestion
+    <PinCorrection key={mapVersion} supabase={supabase} initial={mapPoint} initialStreet={streetSeed} streetInputName="pickup_address" requireMove={needsPin} compactMap autoSelectSuggestion streetSearchRadiusMetres={3000}
       onStreetChange={(street) => { streetDraft.current = street; setFix(null); setMatched(''); setSlot('') }}
       onPointChange={() => { setFix(null); setMatched('') }}
       onChoose={(evidence, address) => { setMapPoint(evidence); setFix(evidence); setMatched(address?.address ? `${address.address}, ${address.city} · selected` : 'Pin selected'); setNeedsPin(false) }} /></>}

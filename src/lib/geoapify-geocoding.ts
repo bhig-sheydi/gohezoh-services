@@ -94,6 +94,20 @@ export async function suggestAddresses(client: SupabaseClient, text: string, sig
   return suggestionPayload(payload, 5)
 }
 
+/** Communities, neighbourhoods and locally named road axes can all be an area choice. */
+export async function suggestAreas(client: SupabaseClient, area: string, city: string, signal?: AbortSignal): Promise<AddressSuggestion[]> {
+  const query = [area, city, 'Nigeria'].filter(Boolean).join(', ')
+  const matches = (candidate: AddressSuggestion) => candidate.address.toLowerCase().replace(/[^a-z0-9]/g, '')
+    .includes(area.toLowerCase().replace(/[^a-z0-9]/g, ''))
+  const localityResults = await suggestAddresses(client, query, signal, undefined, 'locality')
+    .catch((error: unknown) => { if (error instanceof AddressLookupError && error.status === 404) return []; throw error })
+  const locality = localityResults
+    .filter((candidate) => ['suburb', 'district', 'city', 'county'].includes(candidate.resultType) && matches(candidate))
+  if (locality.length) return locality
+  return (await suggestAddresses(client, query, signal))
+    .filter((candidate) => ['suburb', 'district', 'city', 'county', 'street'].includes(candidate.resultType) && matches(candidate))
+}
+
 function suggestionPayload(payload: unknown, maximum: number): AddressSuggestion[] {
   if (!payload || typeof payload !== 'object' || !('suggestions' in payload) || !Array.isArray(payload.suggestions) || payload.suggestions.length > maximum)
     throw new AddressLookupError('Address suggestions are unavailable. Enter the full address and try again.')
@@ -103,9 +117,9 @@ function suggestionPayload(payload: unknown, maximum: number): AddressSuggestion
   })
 }
 
-export async function suggestNearby(client: SupabaseClient, text: string, kind: 'street' | 'amenity', point: LocationPoint, signal?: AbortSignal, street?: string): Promise<AddressSuggestion[]> {
+export async function suggestNearby(client: SupabaseClient, text: string, kind: 'street' | 'amenity', point: LocationPoint, signal?: AbortSignal, street?: string, radiusMetres?: number): Promise<AddressSuggestion[]> {
   async function search(query: string): Promise<AddressSuggestion[]> {
-    try { return suggestionPayload(await invoke(client, { action: 'nearby_suggest', text: query, kind, ...point, ...(street ? { street } : {}) }, signal), 8) }
+    try { return suggestionPayload(await invoke(client, { action: 'nearby_suggest', text: query, kind, ...point, ...(street ? { street } : {}), ...(radiusMetres ? { radiusMetres } : {}) }, signal), 8) }
     catch (error) { if (error instanceof AddressLookupError && error.status === 404) return []; throw error }
   }
   const results = await search(text)

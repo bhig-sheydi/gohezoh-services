@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { requestAddressPosition } from './lib/proximity'
-import { searchAddress, suggestAddresses, type AddressSuggestion, type LocationEvidence } from './lib/geoapify-geocoding'
+import { searchAddress, suggestAreas, type AddressSuggestion, type LocationEvidence } from './lib/geoapify-geocoding'
 import type { ParcelDestination } from './ParcelPalsPanel'
 import PinCorrection from './PinCorrection'
 
@@ -58,8 +58,8 @@ export default function DeliveryPoint({ supabase, destination, onCitySelected }:
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
       const city = (element.current?.closest('form')?.elements.namedItem('delivery_city') as HTMLSelectElement | null)?.value ?? ''
-      void suggestAddresses(supabase, [communityQuery, city, 'Nigeria'].filter(Boolean).join(', '), controller.signal, undefined, 'locality')
-        .then((results) => { if (!controller.signal.aborted) { const communities = results.filter((result) => ['suburb', 'district', 'city', 'county'].includes(result.resultType)); setSuggestions(communities); setCommunityStatus(communities.length ? 'idle' : 'empty') } })
+      void suggestAreas(supabase, communityQuery, city, controller.signal)
+        .then((results) => { if (!controller.signal.aborted) { setSuggestions(results); setCommunityStatus(results.length ? 'idle' : 'empty') } })
         .catch(() => { if (!controller.signal.aborted) { setSuggestions([]); setCommunityStatus('empty') } })
     }, 400)
     return () => { window.clearTimeout(timer); controller.abort() }
@@ -112,7 +112,7 @@ export default function DeliveryPoint({ supabase, destination, onCitySelected }:
     {communityStatus === 'empty' && <div className="address-search-fallback"><small>No mapped community found. Check spelling or continue with the typed community.</small><button type="button" className="text-button" onClick={() => { setCommunityReady(true); setCommunityStatus('idle') }}>Use typed community</button></div>}
     {communityReady && <><div className="field-row"><button type="button" className="secondary-button" disabled={busy} onClick={() => void find(false)}>{busy ? 'Finding delivery…' : 'Find delivery address'}</button><button type="button" className="text-button" disabled={busy} onClick={() => void find(true)}>I’m here — use GPS</button></div>
     {error && <small role="alert">{error}</small>}
-    <PinCorrection key={version} supabase={supabase} initial={point} initialStreet={streetSeed} streetInputName="delivery_address" requireMove={needsPin} compactMap autoSelectSuggestion
+    <PinCorrection key={version} supabase={supabase} initial={point} initialStreet={streetSeed} streetInputName="delivery_address" requireMove={needsPin} compactMap autoSelectSuggestion streetSearchRadiusMetres={3000}
       onStreetChange={(street) => { streetDraft.current = street; setFix(null); setLabel('') }}
       onPointChange={() => { setFix(null); setLabel('') }}
       onChoose={(evidence, address) => { setPoint(evidence); setFix(evidence); setLabel(address?.address ? `${address.address}, ${address.city} · approximate mapped point` : 'Pin chosen by you'); setNeedsPin(false) }} /></>}

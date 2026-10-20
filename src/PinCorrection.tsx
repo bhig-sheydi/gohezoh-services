@@ -29,9 +29,9 @@ function MapTile({ supabase, z, x, y, left, top, onFailure }: { supabase: Supaba
   return url ? <img className="pin-map-tile" src={url} alt="" draggable={false} style={{ left, top }} /> : null
 }
 
-export default function PinCorrection({ supabase, initial, onChoose, onClose, requireMove = false, streetInputName, initialStreet = '', onStreetChange, onPointChange, compactMap = false, autoSelectSuggestion = false }: {
+export default function PinCorrection({ supabase, initial, onChoose, onClose, requireMove = false, streetInputName, initialStreet = '', onStreetChange, onPointChange, compactMap = false, autoSelectSuggestion = false, streetSearchRadiusMetres }: {
   supabase: SupabaseClient; initial: Point; onChoose: (evidence: LocationEvidence, address: AddressSuggestion | null) => void; onClose?: () => void; requireMove?: boolean
-  streetInputName?: string; initialStreet?: string; onStreetChange?: (street: string) => void; onPointChange?: () => void; compactMap?: boolean; autoSelectSuggestion?: boolean
+  streetInputName?: string; initialStreet?: string; onStreetChange?: (street: string) => void; onPointChange?: () => void; compactMap?: boolean; autoSelectSuggestion?: boolean; streetSearchRadiusMetres?: number
 }) {
   const [point, setPoint] = useState(initial)
   const [zoom, setZoom] = useState(requireMove ? 15 : 17)
@@ -81,13 +81,13 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
     if (query.trim().length < 2 || (selectedStreet && query === selectedStreet)) return
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
-      void suggestNearby(supabase, query.trim(), 'street', point, controller.signal)
-        .then(async (nearby) => nearby.length || query.trim().length < 3 ? nearby : (await suggestAddresses(supabase, query.trim(), controller.signal)).filter((item) => item.resultType === 'street' || item.specificity === 'street'))
+      void suggestNearby(supabase, query.trim(), 'street', point, controller.signal, undefined, streetSearchRadiusMetres)
+        .then(async (nearby) => nearby.length || query.trim().length < 3 || streetSearchRadiusMetres ? nearby : (await suggestAddresses(supabase, query.trim(), controller.signal)).filter((item) => item.resultType === 'street' || item.specificity === 'street'))
         .then((results) => { if (!controller.signal.aborted) { setSuggestions(results); setStreetStatus(results.length ? 'results' : 'empty'); setLookupError('') } })
         .catch((cause) => { if (!controller.signal.aborted) { setSuggestions([]); setStreetStatus('empty'); setLookupError(cause instanceof Error ? cause.message : 'Street search is unavailable.') } })
     }, 400)
     return () => { window.clearTimeout(timer); controller.abort() }
-  }, [supabase, query, point, selectedStreet])
+  }, [supabase, query, point, selectedStreet, streetSearchRadiusMetres])
 
   useEffect(() => {
     if (!selectedStreet || landmarkQuery.trim().length < 2) return

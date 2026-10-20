@@ -90,6 +90,12 @@ describe('authenticated location-address handler', () => {
     expect(url.searchParams.get('bias')).toBe('proximity:7.4861,5.5296')
   })
 
+  it('limits streets to the selected area radius when provided', async () => {
+    const { handler, fetcher } = setup()
+    expect((await handler(request({ action: 'nearby_suggest', text: 'Orji', kind: 'street', latitude: 4.83, longitude: 7.02, radiusMetres: 3000 }))).status).toBe(200)
+    expect(new URL(String(fetcher.mock.calls[0][0])).searchParams.get('filter')).toBe('circle:7.02,4.83,3000')
+  })
+
   it('limits searched landmarks to the street the customer selected', async () => {
     const fetcher = vi.fn(async () => Response.json({ results: [
       { ...record, result_type: 'amenity', address_line1: 'Main Market', street: 'Market Rd', housenumber: undefined },

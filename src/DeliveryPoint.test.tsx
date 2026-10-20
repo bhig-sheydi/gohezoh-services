@@ -3,14 +3,14 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import DeliveryPoint from './DeliveryPoint'
-import { searchAddress, suggestAddresses, suggestNearby } from './lib/geoapify-geocoding'
+import { searchAddress, suggestAreas, suggestNearby } from './lib/geoapify-geocoding'
 
 vi.mock('./lib/geoapify-geocoding', () => ({
-  searchAddress: vi.fn(), suggestAddresses: vi.fn(), suggestNearby: vi.fn().mockResolvedValue([]), reverseAddress: vi.fn().mockResolvedValue(null), mapTile: vi.fn().mockResolvedValue(new Blob()),
+  searchAddress: vi.fn(), suggestAreas: vi.fn(), suggestAddresses: vi.fn(), suggestNearby: vi.fn().mockResolvedValue([]), reverseAddress: vi.fn().mockResolvedValue(null), mapTile: vi.fn().mockResolvedValue(new Blob()),
 }))
 
 const supabase = { functions: { invoke: vi.fn().mockResolvedValue({ data: { url: '' }, error: null }) } } as unknown as SupabaseClient
-beforeEach(() => { vi.clearAllMocks(); vi.mocked(suggestNearby).mockResolvedValue([]); vi.mocked(suggestAddresses).mockResolvedValue([]) })
+beforeEach(() => { vi.clearAllMocks(); vi.mocked(suggestNearby).mockResolvedValue([]); vi.mocked(suggestAreas).mockResolvedValue([]) })
 
 describe('delivery point', () => {
   it('selects a street suggestion without opening the map or finding the address', async () => {
@@ -44,7 +44,7 @@ describe('delivery point', () => {
 
   it('suggests a delivery community, then searches its street and requires pin correction for broad results', async () => {
     const user = userEvent.setup()
-    vi.mocked(suggestAddresses).mockResolvedValue([{ address: 'Eliozu', city: 'Port Harcourt', state: 'Rivers', specificity: 'area', resultType: 'suburb',
+    vi.mocked(suggestAreas).mockResolvedValue([{ address: 'Eliozu', city: 'Port Harcourt', state: 'Rivers', specificity: 'area', resultType: 'suburb',
       latitude: 4.83, longitude: 7.02, confidence: null, distanceMetres: null, placeId: 'abcdef1234',
       evidence: { latitude: 4.83, longitude: 7.02, accuracyMetres: null, capturedAt: Date.now(), source: 'search' }, qualityNote: '' }])
     vi.mocked(searchAddress).mockResolvedValue({ address: 'Market Road', city: 'Port Harcourt', state: 'Rivers', specificity: 'area', resultType: 'city',
