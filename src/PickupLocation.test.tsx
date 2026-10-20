@@ -22,6 +22,7 @@ describe('pickup location selection', () => {
     expect(screen.getByText(/Searching communities — please wait/)).toBeInTheDocument()
     expect(screen.queryByRole('textbox', { name: 'Street name' })).toBeNull()
     await user.click(await screen.findByRole('button', { name: /Eliozu/ }))
+    expect(invoke).toHaveBeenCalledWith('location-address', expect.objectContaining({ body: expect.objectContaining({ action: 'suggest', type: 'locality' }) }))
     expect(screen.getByLabelText('Pickup community')).toHaveValue('Eliozu')
     expect(document.querySelector('.pickup-location .pin-correction')).toBeInTheDocument()
     expect(document.querySelectorAll('[name=pickup_address]')).toHaveLength(1)

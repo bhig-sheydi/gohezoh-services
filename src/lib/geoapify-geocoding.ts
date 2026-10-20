@@ -89,8 +89,8 @@ export async function searchAddress(client: SupabaseClient, text: string, signal
   return suggestion(result, { latitude: result.latitude, longitude: result.longitude, accuracyMetres: null, capturedAt: Date.now(), source: 'search' })
 }
 
-export async function suggestAddresses(client: SupabaseClient, text: string, signal?: AbortSignal, placeId?: string): Promise<AddressSuggestion[]> {
-  const payload = await invoke(client, { action: 'suggest', text, ...(placeId ? { placeId } : {}) }, signal)
+export async function suggestAddresses(client: SupabaseClient, text: string, signal?: AbortSignal, placeId?: string, type?: 'locality'): Promise<AddressSuggestion[]> {
+  const payload = await invoke(client, { action: 'suggest', text, ...(placeId ? { placeId } : {}), ...(type ? { type } : {}) }, signal)
   return suggestionPayload(payload, 5)
 }
 

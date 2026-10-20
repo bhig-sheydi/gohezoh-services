@@ -58,7 +58,7 @@ export default function DeliveryPoint({ supabase, destination, onCitySelected }:
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
       const city = (element.current?.closest('form')?.elements.namedItem('delivery_city') as HTMLSelectElement | null)?.value ?? ''
-      void suggestAddresses(supabase, [communityQuery, city, 'Nigeria'].filter(Boolean).join(', '), controller.signal)
+      void suggestAddresses(supabase, [communityQuery, city, 'Nigeria'].filter(Boolean).join(', '), controller.signal, undefined, 'locality')
         .then((results) => { if (!controller.signal.aborted) { const communities = results.filter((result) => ['suburb', 'district', 'city', 'county'].includes(result.resultType)); setSuggestions(communities); setCommunityStatus(communities.length ? 'idle' : 'empty') } })
         .catch(() => { if (!controller.signal.aborted) { setSuggestions([]); setCommunityStatus('empty') } })
     }, 400)

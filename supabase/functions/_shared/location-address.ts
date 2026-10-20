@@ -19,7 +19,7 @@ export type LocationAddressResult = {
 type Action =
   | { action: 'reverse'; latitude: number; longitude: number }
   | { action: 'search'; text: string; placeId?: string }
-  | { action: 'suggest'; text: string; placeId?: string }
+  | { action: 'suggest'; text: string; placeId?: string; type?: 'locality' }
   | { action: 'nearby_suggest'; text: string; kind: 'street' | 'amenity'; latitude: number; longitude: number; street?: string }
   | { action: 'nearby_places'; latitude: number; longitude: number; street: string }
   | { action: 'map'; latitude: number; longitude: number; zoom: number }
@@ -57,11 +57,13 @@ function parseAction(body: unknown): Action {
   if ((body.action === 'search' || body.action === 'suggest') && typeof body.text === 'string') {
     const text = body.text.trim()
     if (text.length >= 3 && text.length <= 300 && !Array.from(text).some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) {
+      if (body.type !== undefined && (body.action !== 'suggest' || body.type !== 'locality')) throw new LocationError(400, 'invalid_request', 'Choose a valid address search type.')
+      const type = body.type === 'locality' ? { type: 'locality' as const } : {}
       if (body.placeId !== undefined) {
         if (typeof body.placeId !== 'string' || !/^[a-zA-Z0-9]{8,256}$/.test(body.placeId)) throw new LocationError(400, 'invalid_request', 'Choose a mapped community again.')
-        return { action: body.action, text, placeId: body.placeId }
+        return { action: body.action, text, placeId: body.placeId, ...type }
       }
-      return { action: body.action, text }
+      return { action: body.action, text, ...type }
     }
   }
   if (body.action === 'nearby_suggest' && typeof body.text === 'string' && (body.kind === 'street' || body.kind === 'amenity') && validCoordinates(body.latitude, body.longitude)) {
@@ -269,6 +271,7 @@ export function createLocationAddressHandler(dependencies: Dependencies) {
           url.searchParams.set('bias', `proximity:${action.longitude},${action.latitude}`)
         } else {
           url.searchParams.set('text', action.text); url.searchParams.set('filter', action.placeId ? `place:${action.placeId}` : 'countrycode:ng')
+          if (action.action === 'suggest' && action.type) url.searchParams.set('type', action.type)
         }
       }
       url.searchParams.set('apiKey', dependencies.apiKey)

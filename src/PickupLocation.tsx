@@ -63,7 +63,7 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
       const city = (container.current?.closest('form')?.elements.namedItem('pickup_city') as HTMLSelectElement | null)?.value ?? ''
-      void suggestAddresses(supabase, [communityQuery, city, 'Nigeria'].filter(Boolean).join(', '), controller.signal)
+      void suggestAddresses(supabase, [communityQuery, city, 'Nigeria'].filter(Boolean).join(', '), controller.signal, undefined, 'locality')
         .then((results) => { if (!controller.signal.aborted) { const communities = results.filter((result) => ['suburb', 'district', 'city', 'county'].includes(result.resultType)); setCommunitySuggestions(communities); setCommunityStatus(communities.length ? 'idle' : 'empty') } })
         .catch(() => { if (!controller.signal.aborted) { setCommunitySuggestions([]); setCommunityStatus('empty') } })
     }, 400)

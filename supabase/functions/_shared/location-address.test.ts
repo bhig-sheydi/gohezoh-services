@@ -57,6 +57,15 @@ describe('authenticated location-address handler', () => {
     expect(url.searchParams.get('limit')).toBe('5')
   })
 
+  it('requests locality results for community suggestions', async () => {
+    const fetcher = vi.fn(async () => Response.json({ results: [{ ...record, address_line1: 'Eliozu', result_type: 'suburb', street: undefined, housenumber: undefined }] }))
+    const { handler } = setup({ fetcher })
+    const response = await handler(request({ action: 'suggest', text: 'Eliozu, Port Harcourt, Nigeria', type: 'locality' }))
+    expect(response.status).toBe(200)
+    expect((await response.json()).suggestions[0].resultType).toBe('suburb')
+    expect(new URL(String(fetcher.mock.calls[0][0])).searchParams.get('type')).toBe('locality')
+  })
+
   it('uses a selected community boundary when suggesting its streets', async () => {
     const placeId = '51f07665660fc4024059dc0a96dfac6c'
     const fetcher = vi.fn(async () => Response.json({ results: [{ ...record, place_id: placeId }] }))
