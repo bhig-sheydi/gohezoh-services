@@ -336,6 +336,44 @@
 .rider-shell .rider-login { margin: 4rem auto; }
 .rider-workspace { width: min(100%, 1100px); margin: 2rem auto; }
 .rider-workspace .partner-assignment-list { display: grid; gap: 1rem; }
+
+/* The tracking frame contains long references, barcodes and a seven-step timeline. */
+.customer-history,.customer-history .request-list,.customer-history .request-item { min-width:0; }
+.customer-history .request-item { overflow-wrap:anywhere; }
+.customer-history .request-item-top>strong { min-width:0; }
+.customer-history .customer-payment-summary,
+.customer-history .parcel-identifiers,
+.customer-history .customer-rider-tracking,
+.customer-history .customer-bid-panel,
+.customer-history .customer-payment-card { min-width:0; max-width:100%; }
+.customer-history .customer-payment-account strong { overflow-wrap:anywhere; }
+.customer-history .parcel-identifier>div { min-width:0; }
+.customer-history .parcel-barcode { min-width:0; }
+@media(max-width:680px) {
+  .customer-history { padding:16px; }
+  .customer-history .history-heading { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:start; gap:8px 12px; }
+  .customer-history .history-heading>div { min-width:0; }
+  .customer-history .history-heading h2 { font-size:clamp(20px,6vw,25px); }
+  .customer-history .history-heading>.text-button { grid-column:2; justify-self:end; min-height:32px; }
+  .customer-history .request-list { margin-top:12px; }
+  .customer-history .request-item { padding:16px 0; }
+  .customer-history .request-item-top { flex-wrap:wrap; align-items:flex-start; }
+  .customer-history .request-status { flex:0 1 auto; max-width:100%; white-space:normal; line-height:1.25; }
+  .customer-history .request-references { gap:8px 12px; font-size:12px; }
+  .customer-history .request-references strong { font-size:12px; }
+  .customer-history .customer-payment-summary { padding:12px; }
+  .customer-history .parcel-identifier { flex-direction:column; align-items:stretch; gap:8px; }
+  .customer-history .parcel-barcode { width:100% !important; max-width:360px !important; }
+  .customer-history .delivery-timeline ol { grid-template-columns:minmax(0,1fr); gap:12px; }
+  .customer-history .timeline-step { display:flex; align-items:flex-start; justify-items:stretch; gap:10px; min-width:0; text-align:left; }
+  .customer-history .timeline-step::after { display:none; }
+  .customer-history .timeline-dot { flex:none; }
+  .customer-history .timeline-step>div { min-width:0; }
+  .customer-history .timeline-step strong { font-size:12px; }
+  .customer-history .timeline-step small { font-size:11px; }
+  .customer-history .timeline-current { flex-wrap:wrap; }
+  .customer-history .customer-payment-account strong { font-size:clamp(20px,7vw,30px); letter-spacing:.02em; }
+}
 .address-suggestions { display:grid; gap:4px; padding:5px; border:1px solid #b7c9be; border-radius:12px; background:var(--surface, #fff); max-height:230px; overflow:auto; }
 .address-suggestions button { display:grid; gap:3px; width:100%; padding:10px 12px; text-align:left; border:0; border-radius:8px; background:transparent; color:var(--ink); cursor:pointer; }
 .address-suggestions button:hover,.address-suggestions button:focus-visible { background:rgba(63,135,111,.13); }
