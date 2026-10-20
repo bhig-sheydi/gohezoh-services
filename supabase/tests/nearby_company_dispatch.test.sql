@@ -135,6 +135,37 @@ begin
         and p.amount=2000 and p.method='online') then
     raise exception 'Paid booking did not route the rider and record the 20 percent partner fee'; end if;
   if (select count(*) from public.orders where service_request_id=v_request)<>1 then raise exception 'Duplicate order'; end if;
+  -- A paying customer can track only the assigned rider's fresh GPS fix.
+  update public.jobs set delivery_latitude=6.46,delivery_longitude=3.41
+    where order_id=(select id from public.orders where service_request_id=v_request);
+  update public.rider_presence set captured_at=now(),received_at=now(),
+    previous_position=extensions.st_setsrid(extensions.st_makepoint(3.399,6.45),4326)::extensions.geography,
+    previous_accuracy_metres=10,previous_captured_at=now()-interval '60 seconds'
+    where user_id=v_rider;
+  perform set_config('request.jwt.claim.sub',v_customer_user::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_customer_user,'role','authenticated')::text,true);
+  if (public.get_my_delivery_tracking((select id from public.jobs where order_id=(select id from public.orders where service_request_id=v_request)))->>'state')<>'live' then
+    raise exception 'Paying customer cannot see current assigned rider'; end if;
+  if (public.get_my_delivery_tracking((select id from public.jobs where order_id=(select id from public.orders where service_request_id=v_request)))->>'speed_kmh') is null
+    or (public.get_my_delivery_tracking((select id from public.jobs where order_id=(select id from public.orders where service_request_id=v_request)))->>'eta_minutes') is null then
+    raise exception 'Recent rider movement did not produce speed and ETA'; end if;
+  update public.rider_presence set captured_at=now()-interval '3 minutes' where user_id=v_rider;
+  if (public.get_my_delivery_tracking((select id from public.jobs where order_id=(select id from public.orders where service_request_id=v_request)))->>'state')<>'offline' then
+    raise exception 'Stale rider coordinates were exposed'; end if;
+  update public.rider_presence set captured_at=now() where user_id=v_rider;
+  perform set_config('request.jwt.claim.sub',v_far_manager::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_far_manager,'role','authenticated')::text,true);
+  v_denied:=false;
+  begin perform public.get_my_delivery_tracking((select id from public.jobs where order_id=(select id from public.orders where service_request_id=v_request)));
+  exception when insufficient_privilege then v_denied:=true; end;
+  if not v_denied then raise exception 'Another account saw customer rider tracking'; end if;
+  perform set_config('request.jwt.claim.sub',v_operations::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_operations,'role','authenticated')::text,true);
+  update public.jobs set status='cancelled' where order_id=(select id from public.orders where service_request_id=v_request);
+  perform set_config('request.jwt.claim.sub',v_customer_user::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_customer_user,'role','authenticated')::text,true);
+  if (public.get_my_delivery_tracking((select id from public.jobs where order_id=(select id from public.orders where service_request_id=v_request)))->>'state')<>'completed' then
+    raise exception 'Completed delivery still exposes rider coordinates'; end if;
   perform set_config('request.jwt.claim.sub',v_rider2::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_rider2,'role','authenticated')::text,true);
   v_denied:=false;

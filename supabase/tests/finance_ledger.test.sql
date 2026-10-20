@@ -15,9 +15,14 @@ declare
   v_job uuid := gen_random_uuid();
   v_settlement uuid;
   v_result jsonb;
+  v_base_revenue numeric; v_base_received numeric; v_base_gross numeric;
 begin
   select id into v_service from public.services where code='SRV-0001';
   if v_service is null then raise exception 'Expected seeded Local Delivery service'; end if;
+  select coalesce(sum(customer_revenue),0),coalesce(sum(customer_revenue-partner_cost-other_direct_cost),0)
+    into v_base_revenue,v_base_gross from public.job_financials where currency='NGN';
+  select coalesce(sum(cp.amount),0) into v_base_received from public.customer_payments cp
+    join public.job_financials jf on jf.job_id=cp.job_id where jf.currency='NGN' and cp.status='received';
   insert into auth.users(id,instance_id,aud,role,email,encrypted_password,email_confirmed_at,raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
   values
     (v_finance_user,'00000000-0000-0000-0000-000000000000','authenticated','authenticated','finance-'||v_finance_user::text||'@example.test','',now(),'{}','{}',now(),now()),
@@ -87,7 +92,10 @@ begin
   exception when sqlstate '55000' then null; end;
   if (select customer_revenue - partner_cost - other_direct_cost from public.job_financials where job_id=v_job) <> 5500 then raise exception 'Job gross margin calculation failed'; end if;
   if (select customer_revenue - (select coalesce(sum(amount),0) from public.customer_payments where job_id=v_job and status='received') from public.job_financials where job_id=v_job) <> 6000 then raise exception 'Outstanding balance calculation failed'; end if;
-  if not exists(select 1 from public.finance_dashboard_totals() t where t.currency='NGN' and t.customer_revenue=10000 and t.received=4000 and t.outstanding=6000 and t.gross_profit=5500) then raise exception 'Finance aggregate totals are incorrect'; end if;
+  if not exists(select 1 from public.finance_dashboard_totals() t where t.currency='NGN'
+    and t.customer_revenue=v_base_revenue+10000 and t.received=v_base_received+4000
+    and t.outstanding=greatest(v_base_revenue+10000-v_base_received-4000,0)
+    and t.gross_profit=v_base_gross+5500) then raise exception 'Finance aggregate totals are incorrect'; end if;
   insert into finance_fixture(user_id,other_user_id,customer_user_id,job_id,settlement_id,management_user_id) values(v_finance_user,v_other_user,v_customer_user,v_job,v_settlement,v_management_user);
   perform set_config('request.jwt.claim.sub',v_other_user::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_other_user,'role','authenticated')::text,true);
