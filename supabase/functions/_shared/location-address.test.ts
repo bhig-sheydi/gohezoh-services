@@ -27,7 +27,7 @@ describe('authenticated location-address handler', () => {
     expect(result.status).toBe(200)
     expect(result.headers.get('Cache-Control')).toBe('no-store')
     expect(result.headers.get('Access-Control-Allow-Origin')).toBe(origin)
-    expect(await result.json()).toEqual({ address: '10 Market Road', city: 'Umuahia', state: 'Abia', latitude: 5.5297, longitude: 7.4862, specificity: 'building', resultType: 'building', distanceMetres: 16, confidence: 0.97 })
+    expect(await result.json()).toEqual({ address: '10 Market Road', city: 'Umuahia', state: 'Abia', latitude: 5.5297, longitude: 7.4862, specificity: 'building', resultType: 'building', distanceMetres: 16, confidence: 0.97, street: 'Market Road' })
     expect(authenticate).toHaveBeenCalledWith('Bearer user-token')
     const url = new URL(String(fetcher.mock.calls[0][0]))
     expect(url.origin + url.pathname).toBe('https://api.geoapify.com/v1/geocode/reverse')
@@ -132,6 +132,19 @@ describe('authenticated location-address handler', () => {
     expect(url.pathname).toBe('/v2/places')
     expect(url.searchParams.get('filter')).toBe('circle:7.4861,5.5296,1000')
     expect(url.searchParams.get('limit')).toBe('30')
+  })
+
+  it('selects the nearest named mapped landmark from a bounded radius', async () => {
+    const fetcher = vi.fn(async () => Response.json({ features: [
+      { properties: { name: 'Far Market', lat: 5.533, lon: 7.49 } },
+      { properties: { name: 'School Gate', lat: 5.5297, lon: 7.4862 } },
+      { properties: { name: 'No coordinates' } },
+    ] }))
+    const { handler } = setup({ fetcher })
+    const response = await handler(request({ action: 'closest_landmark', latitude: 5.5296, longitude: 7.4861 }))
+    expect(response.status).toBe(200)
+    expect((await response.json()).landmark).toMatchObject({ name: 'School Gate' })
+    expect(new URL(String(fetcher.mock.calls[0][0])).pathname).toBe('/v2/places')
   })
 
   it('does not fabricate city, confidence, precision or distance for coarse results', async () => {

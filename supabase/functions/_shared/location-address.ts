@@ -14,6 +14,8 @@ export type LocationAddressResult = {
   distanceMetres: number | null
   confidence: number | null
   placeId?: string
+  street?: string
+  community?: string
 }
 
 type Action =
@@ -22,6 +24,7 @@ type Action =
   | { action: 'suggest'; text: string; placeId?: string; type?: 'locality' }
   | { action: 'nearby_suggest'; text: string; kind: 'street' | 'amenity'; latitude: number; longitude: number; street?: string; radiusMetres?: number }
   | { action: 'nearby_places'; latitude: number; longitude: number; street: string }
+  | { action: 'closest_landmark'; latitude: number; longitude: number }
   | { action: 'map'; latitude: number; longitude: number; zoom: number }
   | { action: 'tile'; z: number; x: number; y: number }
 
@@ -75,6 +78,8 @@ function parseAction(body: unknown): Action {
   }
   if (body.action === 'nearby_places' && validCoordinates(body.latitude, body.longitude) && typeof body.street === 'string' && body.street.trim().length >= 2 && body.street.length <= 120)
     return { action: 'nearby_places', latitude: body.latitude as number, longitude: body.longitude as number, street: body.street.trim() }
+  if (body.action === 'closest_landmark' && validCoordinates(body.latitude, body.longitude))
+    return { action: 'closest_landmark', latitude: body.latitude as number, longitude: body.longitude as number }
   if (body.action === 'map' && validCoordinates(body.latitude, body.longitude) && Number.isInteger(body.zoom) && body.zoom >= 14 && body.zoom <= 19)
     return { action: 'map', latitude: body.latitude as number, longitude: body.longitude as number, zoom: body.zoom as number }
   if (body.action === 'tile' && Number.isInteger(body.z) && Number.isInteger(body.x) && Number.isInteger(body.y)) {
@@ -130,7 +135,7 @@ function normalizeResults(payload: unknown): LocationAddressResult[] {
 
 function normalizeOneResult(result: unknown): LocationAddressResult {
   if (!object(result) || !validCoordinates(result.lat, result.lon)) throw new Error('invalid coordinates')
-  for (const key of ['address_line1', 'formatted', 'city', 'state', 'street', 'housenumber', 'result_type']) {
+  for (const key of ['address_line1', 'formatted', 'city', 'state', 'street', 'suburb', 'district', 'housenumber', 'result_type']) {
     if (result[key] !== undefined && (typeof result[key] !== 'string' || (result[key] as string).length > 1000)) throw new Error('invalid field')
   }
   const address = String(result.address_line1 || result.formatted || '').trim()
@@ -153,8 +158,27 @@ function normalizeOneResult(result: unknown): LocationAddressResult {
     resultType,
     distanceMetres: distance as number | null,
     confidence: confidence as number | null,
+    ...(typeof result.street === 'string' && result.street.trim() ? { street: result.street.trim() } : {}),
+    ...(typeof result.suburb === 'string' && result.suburb.trim() ? { community: result.suburb.trim() }
+      : typeof result.district === 'string' && result.district.trim() ? { community: result.district.trim() } : {}),
     ...(typeof result.place_id === 'string' ? { placeId: result.place_id } : {}),
   }
+}
+
+function closestLandmark(payload: unknown, latitude: number, longitude: number): { name: string; distanceMetres: number } | null {
+  if (!object(payload) || !Array.isArray(payload.features)) throw new Error('invalid places schema')
+  const radians = Math.PI / 180
+  const places = payload.features.slice(0, 30).flatMap((feature: unknown) => {
+    if (!object(feature) || !object(feature.properties)) return []
+    const item = feature.properties
+    if (!validCoordinates(item.lat, item.lon) || typeof item.name !== 'string' || !item.name.trim() || item.name.length > 160) return []
+    const deltaLat = (item.lat as number - latitude) * radians
+    const deltaLon = (item.lon as number - longitude) * radians
+    const haversine = Math.sin(deltaLat / 2) ** 2 + Math.cos(latitude * radians) * Math.cos((item.lat as number) * radians) * Math.sin(deltaLon / 2) ** 2
+    const distanceMetres = Math.round(6371000 * 2 * Math.asin(Math.sqrt(Math.min(1, haversine))))
+    return distanceMetres <= 1000 ? [{ name: item.name.trim(), distanceMetres }] : []
+  }).sort((first, second) => first.distanceMetres - second.distanceMetres)
+  return places[0] ?? null
 }
 
 function streetKey(value: string): string {
@@ -255,7 +279,7 @@ export function createLocationAddressHandler(dependencies: Dependencies) {
         url.searchParams.set('center', `lonlat:${action.longitude},${action.latitude}`)
         url.searchParams.set('zoom', String(action.zoom))
       }
-      else if (action.action === 'nearby_places') {
+      else if (action.action === 'nearby_places' || action.action === 'closest_landmark') {
         url = new URL('https://api.geoapify.com/v2/places')
         url.searchParams.set('categories', 'commercial,catering,education,healthcare,public_transport,tourism')
         url.searchParams.set('filter', `circle:${action.longitude},${action.latitude},1000`)
@@ -304,6 +328,7 @@ export function createLocationAddressHandler(dependencies: Dependencies) {
       try {
         if (!response.headers.get('Content-Type')?.toLowerCase().includes('application/json')) throw new Error('invalid content type')
         const payload = await response.json()
+        if (action.action === 'closest_landmark') return json({ landmark: closestLandmark(payload, action.latitude, action.longitude) }, 200)
         if (action.action === 'nearby_places') return json({ suggestions: normalizeNearbyPlaces(payload, action.street) }, 200)
         const results = action.action === 'nearby_suggest' && action.kind === 'amenity' && action.street && object(payload) && Array.isArray(payload.results)
           ? normalizeResults({ results: payload.results.filter((result: unknown) => object(result) && typeof result.street === 'string' && streetKey(result.street) === streetKey(action.street!)).slice(0, 8) })

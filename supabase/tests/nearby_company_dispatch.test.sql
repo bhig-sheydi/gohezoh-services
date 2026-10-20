@@ -5,7 +5,7 @@ declare
   v_rider uuid:=gen_random_uuid(); v_rider2 uuid:=gen_random_uuid(); v_far_rider uuid:=gen_random_uuid();
   v_customer uuid:=gen_random_uuid(); v_company uuid:=gen_random_uuid(); v_far_company uuid:=gen_random_uuid();
   v_service uuid; v_corridor uuid; v_request uuid:=gen_random_uuid(); v_request2 uuid:=gen_random_uuid(); v_path text; v_denied boolean:=false;
-  v_id uuid; v_owner uuid; v_company_id uuid; v_session uuid:=gen_random_uuid();
+  v_id uuid; v_owner uuid; v_company_id uuid; v_session uuid:=gen_random_uuid(); v_job uuid;
 begin
   select id into v_service from public.services where code='SRV-0001';
   select c.id into v_corridor from public.coverage_corridors c join public.coverage_locations o on o.id=c.origin_id
@@ -135,6 +135,7 @@ begin
         and p.amount=2000 and p.method='online') then
     raise exception 'Paid booking did not route the rider and record the 20 percent partner fee'; end if;
   if (select count(*) from public.orders where service_request_id=v_request)<>1 then raise exception 'Duplicate order'; end if;
+  select j.id into v_job from public.jobs j join public.orders o on o.id=j.order_id where o.service_request_id=v_request;
   -- A paying customer can track only the assigned rider's fresh GPS fix.
   update public.jobs set delivery_latitude=6.46,delivery_longitude=3.41
     where order_id=(select id from public.orders where service_request_id=v_request);
@@ -149,16 +150,34 @@ begin
   if (public.get_my_delivery_tracking((select id from public.jobs where order_id=(select id from public.orders where service_request_id=v_request)))->>'speed_kmh') is null
     or (public.get_my_delivery_tracking((select id from public.jobs where order_id=(select id from public.orders where service_request_id=v_request)))->>'eta_minutes') is null then
     raise exception 'Recent rider movement did not produce speed and ETA'; end if;
+  if (public.get_my_delivery_tracking(v_job) ? 'latitude') or (public.get_my_delivery_tracking(v_job) ? 'longitude') then
+    raise exception 'Ordinary tracking leaked precise coordinates'; end if;
   update public.rider_presence set captured_at=now()-interval '3 minutes' where user_id=v_rider;
   if (public.get_my_delivery_tracking((select id from public.jobs where order_id=(select id from public.orders where service_request_id=v_request)))->>'state')<>'offline' then
     raise exception 'Stale rider coordinates were exposed'; end if;
+  if (public.claim_my_rider_location_check(v_job)->>'state')<>'offline' then
+    raise exception 'Stale rider location used a check'; end if;
   update public.rider_presence set captured_at=now() where user_id=v_rider;
+  if (public.claim_my_rider_location_check(v_job)->>'latitude') is null
+    or (public.claim_my_rider_location_check(v_job)->>'longitude') is null then
+    raise exception 'First two paid location checks failed'; end if;
+  if (public.claim_my_rider_location_check(v_job)->>'state')<>'limited'
+    or (public.get_my_delivery_tracking(v_job)->>'checks_remaining')::integer<>0 then
+    raise exception 'Third location check was not blocked'; end if;
+  update public.customer_rider_location_checks set checked_at=array[now()-interval '61 minutes',now()-interval '20 minutes']
+    where user_id=v_customer_user;
+  if (public.claim_my_rider_location_check(v_job)->>'state')<>'live' then
+    raise exception 'Rolling one-hour limit did not release an expired check'; end if;
   perform set_config('request.jwt.claim.sub',v_far_manager::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_far_manager,'role','authenticated')::text,true);
   v_denied:=false;
   begin perform public.get_my_delivery_tracking((select id from public.jobs where order_id=(select id from public.orders where service_request_id=v_request)));
   exception when insufficient_privilege then v_denied:=true; end;
   if not v_denied then raise exception 'Another account saw customer rider tracking'; end if;
+  v_denied:=false;
+  begin perform public.claim_my_rider_location_check(v_job);
+  exception when insufficient_privilege then v_denied:=true; end;
+  if not v_denied then raise exception 'Another account claimed the rider location'; end if;
   perform set_config('request.jwt.claim.sub',v_operations::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_operations,'role','authenticated')::text,true);
   update public.jobs set status='cancelled' where order_id=(select id from public.orders where service_request_id=v_request);

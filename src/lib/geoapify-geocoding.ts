@@ -8,6 +8,8 @@ export type AddressResult = LocationPoint & {
   specificity: 'building' | 'street' | 'area'; resultType: string
   distanceMetres: number | null; confidence: number | null
   placeId?: string
+  street?: string
+  community?: string
 }
 export type AddressSuggestion = AddressResult & { evidence: LocationEvidence; qualityNote: string }
 export class AddressLookupError extends Error {
@@ -59,10 +61,24 @@ function addressResult(value: unknown): AddressResult {
     !Number.isFinite(result.longitude) || Math.abs(result.longitude) > 180 ||
     !(result.distanceMetres === null || (Number.isFinite(result.distanceMetres) && result.distanceMetres >= 0)) ||
     !(result.confidence === null || (Number.isFinite(result.confidence) && result.confidence >= 0 && result.confidence <= 1)) ||
+    (result.street !== undefined && (typeof result.street !== 'string' || result.street.length > 1000)) ||
+    (result.community !== undefined && (typeof result.community !== 'string' || result.community.length > 1000)) ||
     (result.placeId !== undefined && (typeof result.placeId !== 'string' || !/^[a-zA-Z0-9]{8,256}$/.test(result.placeId)))) {
     throw new AddressLookupError('The address service returned an invalid result. Enter the address manually.')
   }
   return result
+}
+
+export async function closestMappedLandmark(client: SupabaseClient, point: LocationPoint, signal?: AbortSignal): Promise<{ name: string; distanceMetres: number } | null> {
+  const payload = await invoke(client, { action: 'closest_landmark', ...point }, signal)
+  if (!payload || typeof payload !== 'object' || !('landmark' in payload)) throw new AddressLookupError('Nearby landmarks are unavailable.')
+  const landmark = payload.landmark
+  if (landmark === null) return null
+  if (!landmark || typeof landmark !== 'object' || !('name' in landmark) || !('distanceMetres' in landmark) ||
+    typeof landmark.name !== 'string' || !landmark.name.trim() || landmark.name.length > 160 ||
+    typeof landmark.distanceMetres !== 'number' || !Number.isFinite(landmark.distanceMetres) || landmark.distanceMetres < 0 || landmark.distanceMetres > 1000)
+    throw new AddressLookupError('Nearby landmarks are unavailable.')
+  return { name: landmark.name, distanceMetres: landmark.distanceMetres }
 }
 
 function suggestion(result: AddressResult, evidence: LocationEvidence): AddressSuggestion {
