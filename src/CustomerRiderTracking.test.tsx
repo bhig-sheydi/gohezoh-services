@@ -3,6 +3,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import CustomerRiderTracking from './CustomerRiderTracking'
+import { reverseAddress } from './lib/geoapify-geocoding'
 
 vi.mock('./lib/geoapify-geocoding', () => ({
   reverseAddress: vi.fn(async () => ({ community: 'Eliozu', street: 'Police Post Road', specificity: 'street', address: 'Police Post Road', distanceMetres: 16, confidence: 0.9 })),
@@ -37,6 +38,17 @@ describe('customer rider tracking', () => {
     render(<CustomerRiderTracking supabase={{ rpc } as unknown as SupabaseClient} jobId="job-2" />)
     await waitFor(() => expect(screen.getByText(/location is unavailable/)).toBeInTheDocument())
     expect(screen.queryByRole('button', { name: 'Check rider address' })).not.toBeInTheDocument()
+  })
+
+  it('shows provider labels when reverse geocoding omits distance', async () => {
+    vi.mocked(reverseAddress).mockResolvedValueOnce({ community: 'Eliozu', street: 'Police Post Road', specificity: 'street', address: 'Police Post Road', distanceMetres: null, confidence: null } as Awaited<ReturnType<typeof reverseAddress>>)
+    const rpc = vi.fn(async (name: string) => name === 'get_my_delivery_tracking'
+      ? { data: { state: 'live', captured_at: new Date().toISOString(), checks_remaining: 2 }, error: null }
+      : { data: { state: 'live', latitude: 6.45, longitude: 3.4, accuracy_metres: 88, captured_at: new Date().toISOString(), checks_remaining: 1 }, error: null })
+    render(<CustomerRiderTracking supabase={{ rpc } as unknown as SupabaseClient} jobId="job-4" />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Check rider address' }))
+    expect(await screen.findByText('Eliozu')).toBeInTheDocument()
+    expect(screen.getByText('Police Post Road')).toBeInTheDocument()
   })
 
   it('disables new checks after the server reports the hourly limit', async () => {

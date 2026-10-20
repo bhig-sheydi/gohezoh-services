@@ -160,7 +160,8 @@ function normalizeOneResult(result: unknown): LocationAddressResult {
     confidence: confidence as number | null,
     ...(typeof result.street === 'string' && result.street.trim() ? { street: result.street.trim() } : {}),
     ...(typeof result.suburb === 'string' && result.suburb.trim() ? { community: result.suburb.trim() }
-      : typeof result.district === 'string' && result.district.trim() ? { community: result.district.trim() } : {}),
+      : typeof result.district === 'string' && result.district.trim() ? { community: result.district.trim() }
+      : (resultType === 'suburb' || resultType === 'district') ? { community: address } : {}),
     ...(typeof result.place_id === 'string' ? { placeId: result.place_id } : {}),
   }
 }

@@ -74,13 +74,14 @@ export default function CustomerRiderTracking({ supabase, jobId }: { supabase: S
       ])
       const address = addressResult.status === 'fulfilled' ? addressResult.value : null
       const landmark = landmarkResult.status === 'fulfilled' ? landmarkResult.value : null
-      const mappedAddress = address && address.distanceMetres !== null &&
-        address.distanceMetres <= Math.max(100, data.accuracy_metres! * 2) &&
+      const mappedAddress = address &&
+        (address.distanceMetres === null || address.distanceMetres <= Math.max(100, data.accuracy_metres! * 2)) &&
         (address.confidence === null || address.confidence >= 0.5) ? address : null
       setReveal({ latitude, longitude, accuracy_metres: data.accuracy_metres!, captured_at: capturedAt,
         community: mappedAddress?.community ?? null, street: mappedAddress?.street ?? (mappedAddress?.specificity === 'street' ? mappedAddress.address : null),
         landmark: landmark?.name ?? null, landmarkDistance: landmark?.distanceMetres ?? null })
-      if (!mappedAddress) setRevealError('No reliable mapped community or street was found near this GPS point. The checked map location is still available below.')
+      if (addressResult.status === 'rejected' && landmarkResult.status === 'rejected') setRevealError('Address lookup is unavailable right now. The checked GPS point is still available on the map.')
+      else if (!mappedAddress) setRevealError('No reliable mapped community or street was found near this GPS point. The checked map location is still available below.')
     } finally { setRevealing(false) }
   }
 

@@ -63,6 +63,7 @@ describe('authenticated location-address handler', () => {
     const response = await handler(request({ action: 'suggest', text: 'Eliozu, Port Harcourt, Nigeria', type: 'locality' }))
     expect(response.status).toBe(200)
     expect((await response.json()).suggestions[0].resultType).toBe('suburb')
+    expect((await (await handler(request({ action: 'reverse', latitude: 5.5296, longitude: 7.4861 }))).json()).community).toBe('Eliozu')
     expect(new URL(String(fetcher.mock.calls[0][0])).searchParams.get('type')).toBe('locality')
   })
 
