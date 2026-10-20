@@ -795,6 +795,26 @@ describe('partner assignment and delivery screens', () => {
     expect(mockState.createSignedUrls).toHaveBeenCalledWith(['job-1/proof.jpg'], 300)
   })
 
+  it('shows a completed company bid on the customer home screen', async () => {
+    mockState.roles = ['customer']
+    mockState.customerRequests = [{ id: 'request-1', request_number: 'REQ-0001', status: 'under_review', pickup_city: 'Lagos', delivery_city: 'Ibadan', recipient_name: 'Ada', created_at: '2026-10-01T10:00:00Z' }]
+    const query = mockState.query.getMockImplementation() as (table: string, filters: Record<string, unknown>, single: boolean, insert?: Record<string, unknown>) => unknown
+    mockState.query.mockImplementation((table: string, filters: Record<string, unknown>, single: boolean, insert?: Record<string, unknown>) =>
+      table === 'delivery_quote_windows'
+        ? { data: [{ request_id: 'request-1', deadline_at: '2020-01-01T00:00:00Z', status: 'awaiting_customer_selection' }], error: null }
+        : query(table, filters, single, insert))
+    const rpc = mockState.rpc.getMockImplementation() as (name: string, args: Record<string, unknown>) => unknown
+    mockState.rpc.mockImplementation((name: string, args: Record<string, unknown>) =>
+      name === 'list_customer_bid_offers'
+        ? { data: [{ bid_id: 'bid-1', partner_name: 'sam logistics', partner_phone: null, rider_name: 'Sam', rider_phone: null, rider_photo_path: null, bid_amount_ngn: 1000, eta_hours: 1 }], error: null }
+        : rpc(name, args))
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { name: 'You have 1 interested company' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Latest delivery update' })).toHaveTextContent('sam logistics')
+    expect(screen.getByRole('button', { name: 'Choose this company' })).toBeInTheDocument()
+  })
+
   it('submits structured parcel details with a customer delivery request', async () => {
     mockState.roles = ['customer']
     mockState.customerRequests = [{ id: 'request-1', request_number: 'REQ-0001', status: 'submitted', pickup_city: 'Lagos', delivery_city: 'Ibadan', recipient_name: 'Ada', created_at: '2026-10-01T10:00:00Z' }]
