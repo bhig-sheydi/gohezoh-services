@@ -76,4 +76,23 @@ describe('company rider sign-in', () => {
     expect(screen.queryByText('Open pickup directions')).not.toBeInTheDocument()
     expect(screen.queryByText('Update delivery')).not.toBeInTheDocument()
   })
+
+  it('requires the sender pickup code before marking an assigned parcel collected', async () => {
+    mocks.getSession.mockResolvedValue({ data: { session: { user: { id: 'rider-1', user_metadata: { full_name: 'Ada' } } } } } as never)
+    mocks.from.mockReturnValue({ select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { role: 'rider' } }) }) }) }) })
+    mocks.rpc.mockImplementation(async (name: string) => {
+      if (name === 'list_my_rider_jobs') return { data: [{ job_id: 'job-1', job_number: 'JOB-1', status: 'pickup_scheduled', pickup_address: '1 Market Road', pickup_city: 'Lagos', delivery_address: '2 Market Road', delivery_city: 'Lagos', recipient_name: 'Receiver', recipient_phone: '08000000000', parcel_summary: 'Books', company_name: 'Quick Riders' }], error: null }
+      if (name === 'verify_pickup_handoff_code') return { data: { verified: true }, error: null }
+      return { data: [], error: null }
+    })
+    render(<RiderApp />)
+    const field = await screen.findByLabelText('Sender pickup code')
+    expect(screen.queryByRole('option', { name: 'Picked up' })).not.toBeInTheDocument()
+    const button = screen.getByRole('button', { name: 'Confirm parcel collected' })
+    expect(button).toBeDisabled()
+    fireEvent.change(field, { target: { value: '12345678' } })
+    fireEvent.click(button)
+    await waitFor(() => expect(mocks.rpc).toHaveBeenCalledWith('verify_pickup_handoff_code', { p_job_id: 'job-1', p_code: '12345678' }))
+    expect(mocks.rpc).not.toHaveBeenCalledWith('rider_update_job_status', { p_job_id: 'job-1', p_new_status: 'picked_up' })
+  })
 })

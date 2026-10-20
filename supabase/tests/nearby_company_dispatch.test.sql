@@ -5,7 +5,7 @@ declare
   v_rider uuid:=gen_random_uuid(); v_rider2 uuid:=gen_random_uuid(); v_far_rider uuid:=gen_random_uuid();
   v_customer uuid:=gen_random_uuid(); v_company uuid:=gen_random_uuid(); v_far_company uuid:=gen_random_uuid();
   v_service uuid; v_corridor uuid; v_request uuid:=gen_random_uuid(); v_request2 uuid:=gen_random_uuid(); v_path text; v_denied boolean:=false;
-  v_id uuid; v_owner uuid; v_company_id uuid; v_session uuid:=gen_random_uuid(); v_job uuid;
+  v_id uuid; v_owner uuid; v_company_id uuid; v_session uuid:=gen_random_uuid(); v_job uuid; v_pickup_code text; v_pickup_result jsonb; v_attempt integer;
 begin
   select id into v_service from public.services where code='SRV-0001';
   select c.id into v_corridor from public.coverage_corridors c join public.coverage_locations o on o.id=c.origin_id
@@ -136,6 +136,44 @@ begin
     raise exception 'Paid booking did not route the rider and record the 20 percent partner fee'; end if;
   if (select count(*) from public.orders where service_request_id=v_request)<>1 then raise exception 'Duplicate order'; end if;
   select j.id into v_job from public.jobs j join public.orders o on o.id=j.order_id where o.service_request_id=v_request;
+  -- Prove the pickup handoff while rolling this subtest back so tracking keeps its pre-pickup fixture.
+  begin
+    perform set_config('request.jwt.claim.sub',v_customer_user::text,true);
+    perform set_config('request.jwt.claims',jsonb_build_object('sub',v_customer_user,'role','authenticated')::text,true);
+    select code into v_pickup_code from public.get_my_pickup_handoff_codes(array[v_job]);
+    if v_pickup_code !~ '^[0-9]{8}$' then raise exception 'Customer pickup code missing'; end if;
+    perform set_config('request.jwt.claim.sub',v_far_manager::text,true);
+    perform set_config('request.jwt.claims',jsonb_build_object('sub',v_far_manager,'role','authenticated')::text,true);
+    if exists(select 1 from public.get_my_pickup_handoff_codes(array[v_job])) then raise exception 'Another account saw pickup code'; end if;
+    v_denied:=false;
+    begin perform public.verify_pickup_handoff_code(v_job,v_pickup_code);
+    exception when insufficient_privilege then v_denied:=true; end;
+    if not v_denied then raise exception 'Another account verified pickup'; end if;
+    perform set_config('request.jwt.claim.sub',v_rider::text,true);
+    perform set_config('request.jwt.claims',jsonb_build_object('sub',v_rider,'role','authenticated','session_id',v_session)::text,true);
+    v_denied:=false;
+    begin perform public.rider_update_job_status(v_job,'picked_up');
+    exception when object_not_in_prerequisite_state then v_denied:=true; end;
+    if not v_denied then raise exception 'Manual rider pickup bypassed code'; end if;
+    begin
+      for v_attempt in 1..5 loop
+        perform public.verify_pickup_handoff_code(v_job,case when v_pickup_code='00000000' then '00000001' else '00000000' end);
+      end loop;
+      v_denied:=false;
+      begin perform public.verify_pickup_handoff_code(v_job,v_pickup_code);
+      exception when insufficient_privilege then v_denied:=true; end;
+      if not v_denied then raise exception 'Five bad attempts did not pause pickup verification'; end if;
+      raise sqlstate 'P0003' using message='ROLLBACK_PICKUP_COOLDOWN_SUBTEST';
+    exception when sqlstate 'P0003' then null; end;
+    if (public.verify_pickup_handoff_code(v_job,case when v_pickup_code='00000000' then '00000001' else '00000000' end)->>'verified')::boolean then raise exception 'Incorrect pickup code worked'; end if;
+    v_pickup_result:=public.verify_pickup_handoff_code(v_job,v_pickup_code);
+    if (v_pickup_result->>'verified')::boolean is distinct from true
+      or (select status from public.jobs where id=v_job)<>'picked_up' then raise exception 'Correct pickup code did not collect parcel: %, %',v_pickup_result,(select status from public.jobs where id=v_job); end if;
+    perform set_config('request.jwt.claim.sub',v_customer_user::text,true);
+    perform set_config('request.jwt.claims',jsonb_build_object('sub',v_customer_user,'role','authenticated')::text,true);
+    if exists(select 1 from public.get_my_pickup_handoff_codes(array[v_job])) then raise exception 'Used pickup code still visible'; end if;
+    raise sqlstate 'P0002' using message='ROLLBACK_PICKUP_SUBTEST';
+  exception when sqlstate 'P0002' then null; end;
   -- A paying customer can track only the assigned rider's fresh GPS fix.
   update public.jobs set delivery_latitude=6.46,delivery_longitude=3.41
     where order_id=(select id from public.orders where service_request_id=v_request);

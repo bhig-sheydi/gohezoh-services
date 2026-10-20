@@ -392,3 +392,6 @@
 .pin-map-tile { position:absolute; display:block; width:256px; height:256px; max-width:none; pointer-events:none; user-select:none; }
 .pin-map-marker { position:absolute; z-index:2; top:50%; left:50%; width:26px; height:26px; border:3px solid #fff; border-radius:50% 50% 50% 0; background:#d22d55; box-shadow:0 2px 8px #17302380; transform:translate(-50%,-100%) rotate(-45deg); pointer-events:none; }
 .pin-map-marker::after { content:""; position:absolute; inset:6px; border-radius:50%; background:#fff; }
+.customer-pickup-code { display: grid; gap: .3rem; margin: .8rem 0; padding: .9rem 1rem; border: 1px solid var(--line, #c9d5d0); border-radius: 1rem; background: var(--paper); color: var(--ink); }
+.customer-pickup-code strong { font-size: 1.6rem; letter-spacing: .2em; font-variant-numeric: tabular-nums; }
+.customer-pickup-code small { line-height: 1.4; }

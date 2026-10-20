@@ -937,6 +937,20 @@ describe('partner assignment and delivery screens', () => {
     expect(screen.queryByRole('button', { name: 'Mark as read' })).not.toBeInTheDocument()
   })
 
+  it('shows the paid job pickup code beside its order only to the customer', async () => {
+    mockState.roles = ['customer']
+    mockState.customerRequests = [{ id: 'request-1', request_number: 'REQ-0001', status: 'converted', pickup_city: 'Lagos', delivery_city: 'Lagos', recipient_name: 'Ada', created_at: '2026-10-20T10:00:00Z' }]
+    mockState.customerOrders = [{ service_request_id: 'request-1', order_number: 'ORD-0001', customer_price: 2000, currency: 'NGN', jobs: { id: 'job-1', job_number: 'JOB-0001', status: 'pickup_scheduled', job_status_history: [], proof_of_delivery: [], job_parcels: [] } }]
+    const rpc = mockState.rpc.getMockImplementation() as (name: string, args: Record<string, unknown>) => unknown
+    mockState.rpc.mockImplementation((name: string, args: Record<string, unknown>) =>
+      name === 'get_my_pickup_handoff_codes' ? { data: [{ job_id: 'job-1', code: '12345678' }], error: null } : rpc(name, args))
+    render(<App />)
+    await userEvent.click(await screen.findByRole('button', { name: /Tracking/ }))
+    expect(await screen.findByText('12345678')).toBeInTheDocument()
+    expect(screen.getByText(/Give this code to the assigned rider only/)).toBeInTheDocument()
+    expect(mockState.rpc).toHaveBeenCalledWith('get_my_pickup_handoff_codes', { p_job_ids: ['job-1'] })
+  })
+
   it('organizes customer features into home cards and separate app frames', async () => {
     mockState.roles = ['customer']
     const user = userEvent.setup()
