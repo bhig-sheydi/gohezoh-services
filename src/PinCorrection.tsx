@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { AddressLookupError, mapTile, reverseAddress, suggestAddresses, suggestNearby, type AddressSuggestion, type LocationEvidence } from './lib/geoapify-geocoding'
+import { mapTile, reverseAddress, suggestAddresses, suggestNearby, type AddressSuggestion, type LocationEvidence } from './lib/geoapify-geocoding'
 
 type Point = { latitude: number; longitude: number }
 const tileSize = 256
@@ -29,9 +29,9 @@ function MapTile({ supabase, z, x, y, left, top, onFailure }: { supabase: Supaba
   return url ? <img className="pin-map-tile" src={url} alt="" draggable={false} style={{ left, top }} /> : null
 }
 
-export default function PinCorrection({ supabase, initial, onChoose, onClose, requireMove = false, streetInputName, initialStreet = '', onStreetChange, onPointChange, compactMap = false, autoSelectSuggestion = false, streetSearchRadiusMetres, areaPlaceId }: {
+export default function PinCorrection({ supabase, initial, onChoose, onClose, requireMove = false, streetInputName, initialStreet = '', onStreetChange, onPointChange, compactMap = false, autoSelectSuggestion = false, streetSearchRadiusMetres }: {
   supabase: SupabaseClient; initial: Point; onChoose: (evidence: LocationEvidence, address: AddressSuggestion | null) => void; onClose?: () => void; requireMove?: boolean
-  streetInputName?: string; initialStreet?: string; onStreetChange?: (street: string) => void; onPointChange?: () => void; compactMap?: boolean; autoSelectSuggestion?: boolean; streetSearchRadiusMetres?: number; areaPlaceId?: string
+  streetInputName?: string; initialStreet?: string; onStreetChange?: (street: string) => void; onPointChange?: () => void; compactMap?: boolean; autoSelectSuggestion?: boolean; streetSearchRadiusMetres?: number
 }) {
   const [point, setPoint] = useState(initial)
   const [zoom, setZoom] = useState(requireMove ? 15 : 17)
@@ -39,7 +39,6 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [movedPin, setMovedPin] = useState(false)
-  const [manualStreetNeedsPin, setManualStreetNeedsPin] = useState(false)
   const [mapExpanded, setMapExpanded] = useState(!compactMap)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const mapRef = useRef<HTMLButtonElement | null>(null)
@@ -83,33 +82,12 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
       void suggestNearby(supabase, query.trim(), 'street', point, controller.signal, undefined, streetSearchRadiusMetres)
-        .then(async (nearby) => {
-          if (nearby.length || query.trim().length < 3) return nearby
-          if (areaPlaceId) {
-            try {
-              const withinArea = (await suggestAddresses(supabase, query.trim(), controller.signal, areaPlaceId))
-                .filter((item) => item.resultType === 'street' || item.specificity === 'street')
-              if (withinArea.length) return withinArea
-            } catch (error) { if (!(error instanceof AddressLookupError && error.status === 404)) throw error }
-          }
-          const widerResults = await suggestAddresses(supabase, query.trim(), controller.signal)
-            .catch((error: unknown) => { if (error instanceof AddressLookupError && error.status === 404) return []; throw error })
-          const wider = widerResults
-            .filter((item) => item.resultType === 'street' || item.specificity === 'street')
-          if (!streetSearchRadiusMetres) return wider
-          return wider.filter((item) => {
-            const radians = Math.PI / 180
-            const a = Math.sin((item.latitude - point.latitude) * radians / 2) ** 2 +
-              Math.cos(point.latitude * radians) * Math.cos(item.latitude * radians) *
-              Math.sin((item.longitude - point.longitude) * radians / 2) ** 2
-            return 6371000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) <= 5000
-          })
-        })
+        .then(async (nearby) => nearby.length || query.trim().length < 3 || streetSearchRadiusMetres ? nearby : (await suggestAddresses(supabase, query.trim(), controller.signal)).filter((item) => item.resultType === 'street' || item.specificity === 'street'))
         .then((results) => { if (!controller.signal.aborted) { setSuggestions(results); setStreetStatus(results.length ? 'results' : 'empty'); setLookupError('') } })
         .catch((cause) => { if (!controller.signal.aborted) { setSuggestions([]); setStreetStatus('empty'); setLookupError(cause instanceof Error ? cause.message : 'Street search is unavailable.') } })
     }, 400)
     return () => { window.clearTimeout(timer); controller.abort() }
-  }, [supabase, query, point, selectedStreet, streetSearchRadiusMetres, areaPlaceId])
+  }, [supabase, query, point, selectedStreet, streetSearchRadiusMetres])
 
   useEffect(() => {
     if (!selectedStreet || landmarkQuery.trim().length < 2) return
@@ -154,7 +132,6 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
     setPoint({ latitude: result.latitude, longitude: result.longitude }); setZoom(17)
     setQuery(result.address); setSelectedLabel(result.address); setSuggestions([]); setMovedPin(false)
     setSelectedStreet(result.address); setStreetStatus('idle'); setLandmarkQuery(''); setLandmarkSuggestions([]); setSideStreetSuggestions([]); setLandmarkStatus('idle')
-    setManualStreetNeedsPin(false)
     if (autoSelectSuggestion) onChoose(result.evidence, result)
   }
   function choosePlace(result: AddressSuggestion) {
@@ -176,7 +153,7 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
     <label className="field pin-street-field"><span>Search street</span><input type="text" name={streetInputName} required={!!streetInputName} aria-label="Street name" value={query} placeholder="Type a street name" autoComplete="street-address" onChange={(event) => { setQuery(event.target.value); onStreetChange?.(event.target.value); setSelectedStreet(''); setStreetStatus(event.target.value.trim().length >= 2 ? 'loading' : 'idle'); setLookupError(''); setLandmarkQuery(''); setLandmarkSuggestions([]); setSideStreetSuggestions([]); setLandmarkStatus('idle'); setSuggestions([]) }} /></label>
     {suggestions.length > 0 && <div className="address-suggestions" role="group" aria-label="Nearby mapped suggestions">{suggestions.map((result, index) => <button type="button" key={`${result.latitude}-${result.longitude}-${index}`} onClick={() => chooseSuggestion(result)}>{result.address}{result.city ? `, ${result.city}` : ''}</button>)}</div>}
     {streetStatus === 'loading' && <small role="status" className="address-search-status"><span className="address-search-spinner" aria-hidden="true" />Searching streets — wait for a suggestion, then tap it.</small>}
-    {streetStatus === 'empty' && !lookupError && <div className="address-search-fallback"><small role="status">This street is missing from the map. Keep its name, then use GPS at pickup or tap the map to set the point.</small><button type="button" className="text-button" onClick={() => { setSelectedStreet(query.trim()); setSelectedLabel(`${query.trim()} (typed, unmapped)`); setStreetStatus('idle'); setManualStreetNeedsPin(true); setMapExpanded(true) }}>Use typed street</button></div>}
+    {streetStatus === 'empty' && !lookupError && <small role="status">No mapped street found. Try a shorter name or enter the address manually.</small>}
     {selectedStreet && <label className="field"><span>Search a close, side street or landmark off {selectedStreet}</span><input aria-label="Search close, side street or landmark" value={landmarkQuery} placeholder="School gate, market, close..." onChange={(event) => { setLandmarkQuery(event.target.value); setLandmarkSuggestions([]); setSideStreetSuggestions([]); setLandmarkStatus(event.target.value.trim().length >= 2 ? 'loading' : 'idle') }} /></label>}
     {sideStreetSuggestions.length > 0 && <div className="address-suggestions" role="group" aria-label="Streets and closes by selected street"><small>Select only if this road connects to {selectedStreet}.</small>{sideStreetSuggestions.map((result, index) => <button type="button" key={`${result.latitude}-${result.longitude}-${index}`} onClick={() => chooseSuggestion(result)}>{result.address}{result.city ? `, ${result.city}` : ''}</button>)}</div>}
     {landmarkSuggestions.length > 0 && <div className="address-suggestions" role="group" aria-label="Landmarks on selected street">{landmarkSuggestions.map((result, index) => <button type="button" key={`${result.latitude}-${result.longitude}-${index}`} onClick={() => choosePlace(result)}>{result.address}</button>)}</div>}
@@ -192,7 +169,7 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
     </button>
     <div className="pin-map-controls"><button type="button" onClick={() => setZoom(Math.max(14, zoom - 1))}>− Zoom out</button><button type="button" onClick={() => setZoom(Math.min(19, zoom + 1))}>+ Zoom in</button></div>
     {error && <small role="alert">{error}</small>}
-    <button type="button" className="primary-button" disabled={busy || ((requireMove || manualStreetNeedsPin) && !movedPin)} onClick={() => void confirm()}>{busy ? 'Checking pin...' : 'Use this pin'}</button>
+    <button type="button" className="primary-button" disabled={busy || (requireMove && !movedPin)} onClick={() => void confirm()}>{busy ? 'Checking pin...' : 'Use this pin'}</button>
     <small>Mapped streets and places may be incomplete. <a href="https://www.geoapify.com/" target="_blank" rel="noreferrer">Geoapify</a> · <a href="https://openmaptiles.org/" target="_blank" rel="noreferrer">© OpenMapTiles</a> · <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">© OpenStreetMap contributors</a></small>
     </>}
   </div>

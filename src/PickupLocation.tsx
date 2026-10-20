@@ -127,7 +127,7 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
     {communityReady && <><div className="field-row"><button type="button" className="secondary-button" disabled={busy} onClick={() => void locate(false)}>{busy ? 'Finding pickup…' : 'Find pickup address'}</button>
       <button type="button" className="text-button" disabled={busy} onClick={() => void locate(true)}>I’m here — use GPS</button></div>
     {error && <small role="alert">{error}</small>}
-    <PinCorrection key={mapVersion} supabase={supabase} initial={mapPoint} initialStreet={streetSeed} streetInputName="pickup_address" requireMove={needsPin} compactMap autoSelectSuggestion streetSearchRadiusMetres={3000} areaPlaceId={communityPlaceId}
+    <PinCorrection key={mapVersion} supabase={supabase} initial={mapPoint} initialStreet={streetSeed} streetInputName="pickup_address" requireMove={needsPin} compactMap autoSelectSuggestion streetSearchRadiusMetres={3000}
       onStreetChange={(street) => { streetDraft.current = street; setFix(null); setMatched(''); setSlot('') }}
       onPointChange={() => { setFix(null); setMatched('') }}
       onChoose={(evidence, address) => { setMapPoint(evidence); setFix(evidence); setMatched(address?.address ? `${address.address}, ${address.city} · selected` : 'Pin selected'); setNeedsPin(false) }} /></>}
