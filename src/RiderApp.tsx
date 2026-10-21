@@ -152,14 +152,12 @@ export default function RiderApp() {
     const { data, error: verifyError } = await supabase.rpc('verify_delivery_otp', { p_job_id: job.job_id, p_code: codes[job.job_id] ?? '' })
     if (verifyError) setError(verifyError.message)
     else if (!data?.verified) setError('That code is incorrect. Ask the recipient to check it.')
-    else await advanceAfterCode(job)
+    else {
+      setCodes((current) => { const next = { ...current }; delete next[job.job_id]; return next })
+      setNotice(`${job.job_number} delivered.`)
+      await load()
+    }
     setBusy(false)
-  }
-
-  async function advanceAfterCode(job: RiderJob) {
-    const { error: updateError } = await supabase.rpc('rider_update_job_status', { p_job_id: job.job_id, p_new_status: 'delivered' })
-    if (updateError) setError(updateError.message)
-    else { setNotice(`${job.job_number} delivered.`); await load() }
   }
 
   return <main className="app-shell rider-shell">
