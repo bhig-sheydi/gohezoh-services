@@ -68,9 +68,9 @@ begin
   perform set_config('request.jwt.claim.sub',v_ops::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_ops,'role','authenticated')::text,true);
   update public.jobs set status='pickup_scheduled' where id=v_job;
-  update public.jobs set status='picked_up' where id=v_job;
+  -- This fixture tests hub custody; record a completed sender handoff before advancing it.
+  update public.pickup_handoff_codes set verified_at=now(),verified_by=v_rider where job_id=v_job;
   update public.jobs set status='in_transit' where id=v_job;
-  update public.jobs set status='out_for_delivery' where id=v_job;
   begin
     update public.jobs set status='delivered' where id=v_job;
     raise exception 'Delivery bypassed recipient OTP';

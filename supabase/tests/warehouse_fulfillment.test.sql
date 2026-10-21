@@ -60,9 +60,8 @@ do $$ declare v_request uuid;v_job uuid;begin
   select service_request_id into v_request from fulfillment_fixture;
   v_job:=(public.process_service_request(v_request,'approve',1000)->>'job_id')::uuid;
   perform public.update_job_status(v_job,'pickup_scheduled');
-  perform public.update_job_status(v_job,'picked_up');
+  update public.pickup_handoff_codes set verified_at=now() where job_id=v_job;
   perform public.update_job_status(v_job,'in_transit');
-  perform public.update_job_status(v_job,'out_for_delivery');
   insert into public.otp_verifications(job_id,recipient_phone,code_hash,expires_at,verified_at)
     values(v_job,'08000000002','test',now()+interval '10 minutes',now());
   perform public.update_job_status(v_job,'delivered');

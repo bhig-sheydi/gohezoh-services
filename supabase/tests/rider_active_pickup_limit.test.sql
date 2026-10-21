@@ -85,11 +85,11 @@ begin
 
   perform set_config('request.jwt.claim.sub',v_manager::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_manager,'role','authenticated')::text,true);
-  perform public.update_job_status(v_jobs[1],'picked_up');
+  update public.pickup_handoff_codes set verified_at=now(),verified_by=v_rider where job_id=v_jobs[1];
   perform public.update_job_status(v_jobs[1],'in_transit');
   perform public.update_job_status(v_jobs[6],'pickup_scheduled');
   if (select count(*) from public.jobs where assigned_rider_id=v_rider and status in ('pickup_scheduled','picked_up','exception'))<>5 then
-    raise exception 'Capacity should be released when the job leaves pickup_scheduled/picked_up for transit';
+    raise exception 'Capacity should be released when the job enters transit';
   end if;
 end $$;
 rollback;

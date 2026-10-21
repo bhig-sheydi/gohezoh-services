@@ -66,12 +66,13 @@ describe('company rider sign-in', () => {
     mocks.getSession.mockResolvedValue({ data: { session: { user: { id: 'rider-1', user_metadata: { full_name: 'Ada' } } } } } as never)
     mocks.from.mockReturnValue({ select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { role: 'rider' } }) }) }) }) })
     mocks.rpc.mockImplementation(async (name: string) => {
-      if (name === 'list_my_selected_pickups') return { data: [{ request_id: 'request-1', request_number: 'REQ-001', pickup_city: 'Lagos', delivery_city: 'Ikeja', parcel_summary: 'Books', company_name: 'Quick Riders', selected_at: new Date().toISOString() }], error: null }
+      if (name === 'list_my_selected_pickups') return { data: [{ request_id: 'request-1', request_number: 'REQ-001', pickup_city: 'Port Harcourt', delivery_city: 'Port Harcourt', pickup_address: 'Police Post, Eliozu', delivery_address: 'Farm Road 2, Eliozu', parcel_summary: 'Books', company_name: 'Quick Riders', selected_at: new Date().toISOString() }], error: null }
       if (name === 'my_rider_profile') return { data: [{ company_name: 'Quick Riders' }], error: null }
       return { data: [], error: null }
     })
     render(<RiderApp />)
     expect(await screen.findByText('Upcoming pickups')).toBeInTheDocument()
+    expect(screen.getByText('Police Post, Eliozu → Farm Road 2, Eliozu')).toBeInTheDocument()
     expect(screen.getByText('Waiting for customer payment. Do not travel, contact the customer, or collect the parcel. This task becomes actionable only when a confirmed job appears here.')).toBeInTheDocument()
     expect(screen.queryByText('Open pickup directions')).not.toBeInTheDocument()
     expect(screen.queryByText('Update delivery')).not.toBeInTheDocument()

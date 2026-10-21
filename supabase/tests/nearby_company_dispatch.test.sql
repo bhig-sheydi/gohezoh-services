@@ -74,6 +74,9 @@ begin
   perform set_config('request.jwt.claim.sub',v_manager::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_manager,'role','authenticated')::text,true);
   if (select count(*) from public.list_partner_bid_screen() where request_id=v_request)<>1 then raise exception 'Near company did not see its bid'; end if;
+  if not exists(select 1 from public.list_partner_bid_route_addresses()
+    where request_id=v_request and pickup_address='1 Lagos Road' and delivery_address='2 Lagos Road') then
+    raise exception 'Invited company cannot see the saved route labels'; end if;
   if (select count(*) from public.list_company_bid_pickups() where request_id=v_request and pickup_address='1 Lagos Road')<>1 then
     raise exception 'Near company cannot see pickup location'; end if;
   if public.submit_partner_quote(v_request,2000,2,'Pickup and delivery','None',true,'None') is null then raise exception 'Near company could not bid'; end if;
@@ -120,6 +123,9 @@ begin
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_rider,'role','authenticated','session_id',v_session)::text,true);
   if (select count(*) from public.list_my_selected_pickups() where request_id=v_request)<>1 then
     raise exception 'Selected company pickup was not routed to its invited rider'; end if;
+  if not exists(select 1 from public.list_my_selected_pickups()
+    where request_id=v_request and pickup_address='1 Lagos Road' and delivery_address='2 Lagos Road') then
+    raise exception 'Selected rider cannot see the saved route labels'; end if;
   update public.customer_payment_holds set expires_at=now()-interval '1 second' where request_id=v_request;
   if exists(select 1 from public.list_my_selected_pickups() where request_id=v_request) then
     raise exception 'Expired payment hold still reserved the rider'; end if;

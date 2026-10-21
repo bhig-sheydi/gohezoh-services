@@ -30,10 +30,13 @@ begin
   perform set_config('request.jwt.claim.sub',v_operations_id::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_operations_id,'role','authenticated')::text,true);
   perform public.update_job_status(v_job_id,'pickup_scheduled');
-  perform public.update_job_status(v_job_id,'picked_up');
-  if (select status::text from public.jobs where id=v_job_id)<>'picked_up' then raise exception 'Expected job to reach picked_up'; end if;
-  select count(*) into v_history_count from public.job_status_history where job_id=v_job_id and new_status in ('pickup_scheduled','picked_up');
-  if v_history_count<>2 then raise exception 'Expected status history to record both progress changes; found %',v_history_count; end if;
+  if (select status::text from public.jobs where id=v_job_id)<>'pickup_scheduled' then raise exception 'Expected pickup to be scheduled'; end if;
+  select count(*) into v_history_count from public.job_status_history where job_id=v_job_id and new_status='pickup_scheduled';
+  if v_history_count<>1 then raise exception 'Expected status history to record pickup scheduling; found %',v_history_count; end if;
+  begin
+    perform public.update_job_status(v_job_id,'in_transit');
+    raise exception 'Pickup advanced without a verified sender code';
+  exception when sqlstate '55000' then null; end;
 
   begin
     perform public.update_job_status(v_job_id,'delivered');

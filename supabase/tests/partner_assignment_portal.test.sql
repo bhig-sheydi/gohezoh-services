@@ -87,7 +87,6 @@ begin
   -- This suite tests partner assignment and legacy status recovery; rider handoff
   -- verification is exercised separately in nearby_company_dispatch.test.sql.
   update public.pickup_handoff_codes set verified_at=now(),verified_by=v_rider_user_id where job_id=v_job_id;
-  perform public.update_job_status(v_job_id,'picked_up');
   perform public.update_job_status(v_job_id,'in_transit');
   begin
     perform public.update_job_status(v_job_id,'delivered');
@@ -95,9 +94,7 @@ begin
   exception when sqlstate '55000' then null; end;
   perform public.update_job_status(v_job_id,'exception');
   perform public.update_job_status(v_job_id,'pickup_scheduled');
-  perform public.update_job_status(v_job_id,'picked_up');
   perform public.update_job_status(v_job_id,'in_transit');
-  perform public.update_job_status(v_job_id,'out_for_delivery');
   begin
     perform public.update_job_status(v_job_id,'delivered');
     raise exception 'Partner unexpectedly marked delivery complete without a recipient code';
@@ -129,7 +126,7 @@ begin
   if (select status::text from public.partner_assignments where id=v_second_assignment_id)<>'completed' then raise exception 'Delivery should complete partner assignment'; end if;
   if (select completed_at from public.partner_assignments where id=v_second_assignment_id) is null then raise exception 'Assignment completion timestamp missing'; end if;
   select count(*) into v_history_count from public.job_status_history where job_id=v_job_id;
-  if v_history_count < 10 then raise exception 'Expected job history to include assignment, decline recovery, and delivery events; found %',v_history_count; end if;
+  if v_history_count < 7 then raise exception 'Expected job history to include assignment, decline recovery, and delivery events; found %',v_history_count; end if;
 
   perform set_config('request.jwt.claim.sub',v_customer_user_id::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_customer_user_id,'role','authenticated')::text,true);

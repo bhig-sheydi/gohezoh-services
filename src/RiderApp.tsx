@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { getSupabaseClient } from './lib/supabase'
 import { riderDeviceProof } from './lib/rider-device'
+import { routeLabel } from './lib/route-label'
 import RiderAvailability from './RiderAvailability'
 import './App.css'
 import './dark.css'
@@ -10,7 +11,7 @@ type RiderJob = { job_id: string; job_number: string; status: string; pickup_add
   delivery_address: string; delivery_city: string; recipient_name: string; recipient_phone: string;
   parcel_summary: string; company_name: string; latitude?: number | null; longitude?: number | null; delivery_latitude?: number | null; delivery_longitude?: number | null; sender_name?: string; sender_phone?: string }
 type SelectedPickup = { request_id: string; request_number: string; pickup_city: string; delivery_city: string;
-  parcel_summary: string | null; company_name: string; selected_at: string }
+  pickup_address?: string | null; delivery_address?: string | null; parcel_summary: string | null; company_name: string; selected_at: string }
 const nextStatus: Record<string, string[]> = {
   partner_assigned: ['pickup_scheduled', 'exception'], pickup_scheduled: ['exception'],
   picked_up: ['exception'], in_transit: ['exception'],
@@ -172,7 +173,7 @@ export default function RiderApp() {
       <RiderAvailability supabase={supabase} />
       {selectedPickups.length > 0 && <section aria-label="Selected pickups"><h2>Upcoming pickups</h2><div className="partner-assignment-list">{selectedPickups.map((pickup) => <article className="form-card partner-job-card" key={pickup.request_id}>
         <p className="eyebrow">{pickup.request_number} · {pickup.company_name}</p><h3>Company bid selected</h3>
-        <p>{pickup.pickup_city} → {pickup.delivery_city}</p><p>{pickup.parcel_summary}</p>
+        <p className="customer-route-label">{routeLabel(pickup.pickup_address, pickup.pickup_city, pickup.delivery_address, pickup.delivery_city)}</p><p>{pickup.parcel_summary}</p>
         <p>Waiting for customer payment. Do not travel, contact the customer, or collect the parcel. This task becomes actionable only when a confirmed job appears here.</p>
       </article>)}</div></section>}
       {jobs.length === 0 && selectedPickups.length === 0 ? <section className="form-card"><h2>No jobs assigned yet</h2><p>Your company will assign deliveries here.</p></section> : jobs.length > 0 && <div className="partner-assignment-list">{jobs.map((job) => <article className="form-card partner-job-card" key={job.job_id}>

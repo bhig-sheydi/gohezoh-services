@@ -44,7 +44,7 @@ begin
     raise exception 'Customer received an internal exception escalation';
   end if;
 
-  update public.jobs set status='in_transit' where id=v_job;
+  update public.jobs set status='pickup_scheduled' where id=v_job;
   update public.jobs set status='exception' where id=v_job;
   select count(*) into v_count from public.notifications
     where job_id=v_job and event_type='job_exception_escalated' and user_id=v_operations;
