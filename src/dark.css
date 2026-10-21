@@ -81,10 +81,18 @@
 :root[data-theme='dark'] .customer-notifications>summary,
 :root[data-theme='dark'] .customer-optional>summary,
 :root[data-theme='dark'] .customer-payment-summary>summary { color:#d8edb8; }
-:root[data-theme='dark'] .recipient-location-confirm { border-color:#4b6856; color:#e9f2ea; background:#243730; }
-:root[data-theme='dark'] .recipient-location-confirm input { accent-color:#a5d4a5; }
-:root[data-theme='dark'] .customer-history .customer-payment-summary { border:1px solid #4b6856; color:#e9f2ea; background:#243730; }
-:root[data-theme='dark'] .customer-history .customer-payment-summary small { color:#c3d6c7; }
+:root[data-theme='dark'] .customer-shell .recipient-location-confirm { border-color:#5b7865; color:#edf7ee; background:#243730; }
+:root[data-theme='dark'] .customer-shell .route-location-picker.field .recipient-location-confirm input[type='checkbox'],
+:root[data-theme='dark'] .customer-shell .recipient-location-confirm input[type='checkbox'] { border-color:#9dbc9f; background:#12241b; }
+:root[data-theme='dark'] .customer-shell .recipient-location-confirm input[type='checkbox']:checked { border-color:#b5e27d; background:#b5e27d; }
+:root[data-theme='dark'] .customer-shell .recipient-location-confirm input[type='checkbox']:checked::after { border-color:#102019; }
+:root[data-theme='dark'] .customer-shell .customer-history .customer-payment-summary { border:1px solid #5b7865; color:#edf7ee; background:#243730; }
+:root[data-theme='dark'] .customer-shell .customer-history .customer-payment-summary>summary { color:#e2f6bd; }
+:root[data-theme='dark'] .customer-shell .customer-history .customer-payment-summary>span { color:#edf7ee; }
+:root[data-theme='dark'] .customer-shell .customer-history .customer-payment-summary small { color:#c3d6c7; }
+:root[data-theme='dark'] .customer-shell .customer-history .customer-payment-card { border-color:#5b7865; color:#edf7ee; background:#1a2925; }
+:root[data-theme='dark'] .customer-shell .customer-history .customer-payment-account { color:#edf7ee; background:#243730; }
+:root[data-theme='dark'] .customer-shell .customer-history .customer-payment-timer { color:#b5e27d; }
 :root[data-theme='dark'] .parcel-pal-privacy { color:#c7d6ca; background:transparent; }
 :root[data-theme='dark'] .form-card,
 :root[data-theme='dark'] .history-panel,
