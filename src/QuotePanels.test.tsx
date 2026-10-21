@@ -6,6 +6,7 @@ import { CustomerQuotePanel, PartnerBidQueue } from './QuotePanels'
 function client(rows: Record<string, Array<Record<string, unknown>>>) {
   const rpc = vi.fn(async (name: string) => name === 'list_eligible_delivery_requests'
     ? { data: rows.eligible ?? [], error: null }
+    : name === 'list_partner_bid_route_addresses' ? { data: rows.routes ?? [], error: null }
     : name === 'list_customer_bid_offers' ? { data: rows.offers ?? [], error: null }
     : name === 'list_my_flutterwave_holds' ? { data: rows.holds ?? [], error: null }
     : { data: null, error: null })
@@ -72,6 +73,11 @@ describe('customer delivery quotes', () => {
 })
 
 describe('partner bidding', () => {
+  it('shows saved route addresses when pickup and drop-off share a city', async () => {
+    const { supabase } = client({ eligible: [{ request_id: 'request-1', request_number: 'REQ-0001', pickup_city: 'Port Harcourt', delivery_city: 'Port Harcourt', parcel_summary: 'Parcel', deadline_at: '2030-01-01T12:00:00Z' }], routes: [{ request_id: 'request-1', pickup_address: 'Police Post, Eliozu', delivery_address: 'Farm Road 2, Eliozu' }] })
+    render(<PartnerBidQueue supabase={supabase} partnerIds={['partner-1']} onError={vi.fn()} onNotice={vi.fn()} />)
+    expect(await screen.findByText(/Police Post, Eliozu → Farm Road 2, Eliozu/)).toBeInTheDocument()
+  })
   it('uses the sanitized eligibility RPC and submits availability and declared conditions', async () => {
     const { supabase, rpc, from } = client({ eligible: [{ request_id: 'request-1', request_number: 'REQ-0001', pickup_city: 'Lagos', delivery_city: 'Aba', parcel_summary: 'Two cartons', preferred_pickup_at: null, special_instructions: null, deadline_at: '2030-01-01T12:00:00Z', own_bid_amount_ngn: null, own_bid_status: null }] })
     render(<PartnerBidQueue supabase={supabase} partnerIds={['partner-1']} onError={vi.fn()} onNotice={vi.fn()} />)

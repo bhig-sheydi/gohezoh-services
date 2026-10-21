@@ -3,9 +3,10 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import PartnerBidScreen from './PartnerBidScreen'
 
-function setup(jobs: Record<string, unknown>[]) {
+function setup(jobs: Record<string, unknown>[], routes: Record<string, unknown>[] = []) {
   const rpc = vi.fn(async (name: string) => name === 'list_partner_bid_screen'
-    ? { data: jobs, error: null } : { data: 'bid-1', error: null })
+    ? { data: jobs, error: null } : name === 'list_partner_bid_route_addresses'
+      ? { data: routes, error: null } : { data: 'bid-1', error: null })
   const createSignedUrl = vi.fn(async () => ({ data: { signedUrl: 'https://example.test/parcel' }, error: null }))
   let onWindowChange = () => {}
   const channel = { on: vi.fn((_type, _filter, callback: () => void) => { onWindowChange = callback; return channel }), subscribe: vi.fn(() => channel) }
@@ -44,6 +45,17 @@ describe('company bidding screen', () => {
     fireEvent.submit(screen.getByRole('button', { name: 'Submit bid' }).closest('form')!)
     await waitFor(() => expect(rpc).toHaveBeenCalledWith('submit_partner_quote', expect.objectContaining({ p_request_id: 'request-1', p_amount_ngn: 7500, p_eta_hours: 3 })))
     expect(notice).toHaveBeenCalledWith('Your private bid was submitted.')
+  })
+
+  it('shows the saved pickup and drop-off instead of repeating the city', async () => {
+    const { supabase } = setup([{
+      request_id: 'request-1', request_number: 'REQ-1', pickup_city: 'Port Harcourt', delivery_city: 'Port Harcourt',
+      parcel_summary: 'Parcel', parcel_items: [], photo_path: null,
+      deadline_at: new Date(Date.now() + 60_000).toISOString(), own_bid_amount_ngn: null,
+    }], [{ request_id: 'request-1', pickup_address: 'Police Post, Eliozu', delivery_address: 'Farm Road 2, Eliozu' }])
+    render(<PartnerBidScreen supabase={supabase} partnerIds={['partner-1']} onError={vi.fn()} onNotice={vi.fn()} />)
+    expect(await screen.findByText('Police Post, Eliozu')).toBeInTheDocument()
+    expect(screen.getByText('Farm Road 2, Eliozu')).toBeInTheDocument()
   })
 
   it('does not show expired jobs', async () => {

@@ -81,6 +81,10 @@
 :root[data-theme='dark'] .customer-notifications>summary,
 :root[data-theme='dark'] .customer-optional>summary,
 :root[data-theme='dark'] .customer-payment-summary>summary { color:#d8edb8; }
+:root[data-theme='dark'] .recipient-location-confirm { border-color:#4b6856; color:#e9f2ea; background:#243730; }
+:root[data-theme='dark'] .recipient-location-confirm input { accent-color:#a5d4a5; }
+:root[data-theme='dark'] .customer-history .customer-payment-summary { border:1px solid #4b6856; color:#e9f2ea; background:#243730; }
+:root[data-theme='dark'] .customer-history .customer-payment-summary small { color:#c3d6c7; }
 :root[data-theme='dark'] .parcel-pal-privacy { color:#c7d6ca; background:transparent; }
 :root[data-theme='dark'] .form-card,
 :root[data-theme='dark'] .history-panel,

@@ -300,6 +300,7 @@
 .parcel-pal-contact-destination { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:10px; border:1px solid #e5ebe0; border-radius:9px; color:var(--ink); background:#fbfcf8; font-size:12px; line-height:1.5; }
 .recipient-location-confirm { display:flex; align-items:center; gap:10px; padding:12px; border:1px solid #d9e5d0; border-radius:10px; color:var(--ink); background:#f5f8ef; font-size:14px; font-weight:650; }
 .recipient-location-confirm input { width:18px; height:18px; accent-color:#315642; }
+.customer-route-label { font-size:15px; font-weight:750; color:var(--ink); line-height:1.45; }
 .parcel-pal-request-person>div { display:grid; gap:5px; }
 .parcel-pal-photo-reminder { position:fixed; inset:0; z-index:20; display:grid; place-items:center; padding:20px; background:rgba(9,20,16,.66); backdrop-filter:blur(5px); }
 .parcel-pal-photo-prompt { display:grid; justify-items:center; gap:12px; width:min(100%,390px); padding:30px; border:1px solid rgba(23,59,52,.1); border-radius:20px; color:var(--ink); background:var(--paper); box-shadow:0 24px 80px rgba(0,0,0,.25); text-align:center; }

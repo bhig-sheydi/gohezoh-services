@@ -9,9 +9,11 @@
 .partner-bid-details>small { color:#658378; font-weight:800; }
 .partner-bid-details h3 { margin:0; color:#1e3e35; font-size:22px; }
 .partner-bid-route { display:flex; align-items:center; gap:18px; }
+.partner-bid-route span:not(:nth-child(2)) { min-width:0; flex:1; }
 .partner-bid-route span:not(:nth-child(2)) { display:grid; gap:4px; }
 .partner-bid-route small { color:#667c70; font-size:10px; font-weight:800; }
-.partner-bid-route strong { color:#214237; font-size:16px; }
+.partner-bid-route strong { color:#214237; font-size:clamp(18px,2vw,23px); font-weight:850; }
+.partner-bid-route strong { overflow-wrap:anywhere; line-height:1.35; }
 .partner-bid-facts { display:flex; flex-wrap:wrap; gap:7px; }
 .partner-bid-facts span { padding:6px 9px; border-radius:8px; color:#345643; background:#e1edd7; font-size:12px; font-weight:700; }
 .partner-bid-rider { margin:0; color:#62776a; font-size:12px; }

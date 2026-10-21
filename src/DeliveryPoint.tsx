@@ -116,7 +116,7 @@ export default function DeliveryPoint({ supabase, destination }: {
       onPointChange={() => { setFix(null); setLabel('') }}
       onChoose={(evidence, address) => { setPoint(evidence); setFix(evidence); setLabel(address?.address ? `${address.address}, ${address.city} · approximate mapped point` : 'Pin chosen by you'); setNeedsPin(false) }} /></>}
     {fix && <><small role="status">{label}</small>
-      {!needsPin && <label key={`${fix.latitude}:${fix.longitude}:${fix.capturedAt}`}><input type="checkbox" name="delivery_location_confirmed" value="yes" required />This is the delivery location.</label>}
+      {!needsPin && <label className="recipient-location-confirm" key={`${fix.latitude}:${fix.longitude}:${fix.capturedAt}`}><input type="checkbox" name="delivery_location_confirmed" value="yes" required /><span>This is the delivery location.</span></label>}
       <input type="hidden" name="delivery_latitude" value={fix.latitude} /><input type="hidden" name="delivery_longitude" value={fix.longitude} />
       <input type="hidden" name="delivery_accuracy_metres" value={fix.accuracyMetres ?? ''} /><input type="hidden" name="delivery_location_source" value={fix.source} />
       <input type="hidden" name="delivery_captured_at" value={new Date(fix.capturedAt).toISOString()} />

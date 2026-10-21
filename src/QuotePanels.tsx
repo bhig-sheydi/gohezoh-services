@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { routeLabel } from './lib/route-label'
 import './customer-bidding.css'
 
 type QuoteWindow = { request_id: string; deadline_at: string; status: string }
@@ -156,12 +157,15 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
 export function PartnerBidQueue({ supabase, partnerIds, onError, onNotice }: { supabase: SupabaseClient; partnerIds: string[]; onError: (message: string) => void; onNotice: (message: string) => void }) {
   const partnerIdKey = partnerIds.join(',')
   const [requests, setRequests] = useState<OpenRequest[]>([])
+  const [routes, setRoutes] = useState<Array<{ request_id: string; pickup_address: string | null; delivery_address: string | null }>>([])
   const [busy, setBusy] = useState('')
   const load = useCallback(async () => {
     if (!partnerIdKey) { setRequests([]); return }
-    const { data, error } = await supabase.rpc('list_eligible_delivery_requests')
+    const [{ data, error }, routeResult] = await Promise.all([supabase.rpc('list_eligible_delivery_requests'), supabase.rpc('list_partner_bid_route_addresses')])
     if (error) onError(error.message)
     else setRequests((data ?? []) as OpenRequest[])
+    if (routeResult.error) onError(routeResult.error.message)
+    else setRoutes(Array.isArray(routeResult.data) ? routeResult.data : [])
   }, [supabase, partnerIdKey, onError])
   useEffect(() => { const timer = window.setTimeout(() => { void load() }, 0); return () => clearTimeout(timer) }, [load])
   async function submit(event: FormEvent<HTMLFormElement>, requestId: string) {
@@ -174,6 +178,6 @@ export function PartnerBidQueue({ supabase, partnerIds, onError, onNotice }: { s
     setBusy('')
   }
   return <section className="history-panel"><div className="history-heading"><div><p className="eyebrow">PARTNER BIDDING</p><h2>Eligible quote requests</h2></div><button className="secondary-button" onClick={() => void load()}>Refresh</button></div>{requests.length === 0 ? <p className="notification-empty">No eligible quote windows are open for your approved routes.</p> : <div className="request-list">{requests.map((request) => {
-    return <article className="request-item" key={request.request_id}><div className="request-item-top"><strong>{request.request_number} · {request.pickup_city} to {request.delivery_city}</strong><span className="request-status">Closes {date(request.deadline_at)}</span></div><p>{request.parcel_summary}</p>{request.preferred_pickup_at && <small>Preferred pickup: {date(request.preferred_pickup_at)}</small>}{request.special_instructions && <p>Handling: {request.special_instructions}</p>}{request.own_bid_amount_ngn != null ? <p>Your quote: {money(Number(request.own_bid_amount_ngn))} · {request.own_bid_status?.replaceAll('_', ' ')}</p> : <form className="form-grid" onSubmit={(event) => void submit(event, request.request_id)}><div className="field-row"><label className="field"><span>Total price (NGN)</span><input name="amount" type="number" min="1000" step="0.01" required /></label><label className="field"><span>Delivery estimate (hours)</span><input name="eta_hours" type="number" min="1" required /></label></div><label className="field"><span>Inclusions</span><textarea name="inclusions" required rows={2} /></label><label className="field"><span>Exclusions</span><textarea name="exclusions" required rows={2} /></label><label className="field"><span>Surcharge conditions (write None if none)</span><textarea name="surcharge_conditions" required rows={2} /></label><label className="field"><span><input type="checkbox" name="availability_confirmed" required /> I confirm availability for this route and timing</span></label><button className="primary-button" disabled={busy === request.request_id}>{busy === request.request_id ? 'Submitting...' : 'Submit private quote'}</button></form>}</article>
+    return <article className="request-item" key={request.request_id}><div className="request-item-top"><strong>{request.request_number} · {routeLabel(routes.find((route) => route.request_id === request.request_id)?.pickup_address, request.pickup_city, routes.find((route) => route.request_id === request.request_id)?.delivery_address, request.delivery_city)}</strong><span className="request-status">Closes {date(request.deadline_at)}</span></div><p>{request.parcel_summary}</p>{request.preferred_pickup_at && <small>Preferred pickup: {date(request.preferred_pickup_at)}</small>}{request.special_instructions && <p>Handling: {request.special_instructions}</p>}{request.own_bid_amount_ngn != null ? <p>Your quote: {money(Number(request.own_bid_amount_ngn))} · {request.own_bid_status?.replaceAll('_', ' ')}</p> : <form className="form-grid" onSubmit={(event) => void submit(event, request.request_id)}><div className="field-row"><label className="field"><span>Total price (NGN)</span><input name="amount" type="number" min="1000" step="0.01" required /></label><label className="field"><span>Delivery estimate (hours)</span><input name="eta_hours" type="number" min="1" required /></label></div><label className="field"><span>Inclusions</span><textarea name="inclusions" required rows={2} /></label><label className="field"><span>Exclusions</span><textarea name="exclusions" required rows={2} /></label><label className="field"><span>Surcharge conditions (write None if none)</span><textarea name="surcharge_conditions" required rows={2} /></label><label className="field"><span><input type="checkbox" name="availability_confirmed" required /> I confirm availability for this route and timing</span></label><button className="primary-button" disabled={busy === request.request_id}>{busy === request.request_id ? 'Submitting...' : 'Submit private quote'}</button></form>}</article>
   })}</div>}</section>
 }

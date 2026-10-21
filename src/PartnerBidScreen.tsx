@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import './partner-bid-screen.css'
+import { routePoint } from './lib/route-label'
 
 type Parcel = { description?: string; quantity?: number; weight_kg?: number; length_cm?: number; width_cm?: number; height_cm?: number }
 type BidJob = { request_id: string; request_number: string; pickup_city: string; delivery_city: string; parcel_summary: string; parcel_items: Parcel[] | null; photo_path: string | null; photo_url?: string | null; deadline_at: string; own_bid_amount_ngn: number | null; own_bid_status: string | null }
 type Props = { supabase: SupabaseClient; partnerIds: string[]; onError: (message: string) => void; onNotice: (message: string) => void }
 type Pickup = { request_id: string; pickup_address: string; sender_name: string; sender_phone: string; latitude: number; longitude: number; location_source: string; nearby_rider_name: string; distance_metres: number }
 type DeliveryPin = { request_id: string; latitude: number; longitude: number }
+type BidRoute = { request_id: string; pickup_address: string | null; delivery_address: string | null }
 const money = (value: number) => new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' }).format(value)
 
 export default function PartnerBidScreen({ supabase, partnerIds, onError, onNotice }: Props) {
@@ -17,6 +19,7 @@ export default function PartnerBidScreen({ supabase, partnerIds, onError, onNoti
   const [busy, setBusy] = useState<string | null>(null)
   const [pickups, setPickups] = useState<Pickup[]>([])
   const [deliveryPins, setDeliveryPins] = useState<DeliveryPin[]>([])
+  const [routes, setRoutes] = useState<BidRoute[]>([])
   const loading = useRef(false)
   const photos = useRef(new Map<string, { url: string; expires: number }>())
 
@@ -25,12 +28,14 @@ export default function PartnerBidScreen({ supabase, partnerIds, onError, onNoti
     if (loading.current) return
     loading.current = true
     try {
-    const [{ data, error }, locations, deliveries] = await Promise.all([supabase.rpc('list_partner_bid_screen'), supabase.rpc('list_company_bid_pickups'), supabase.rpc('list_company_bid_delivery_locations')])
+    const [{ data, error }, locations, deliveries, routeAddresses] = await Promise.all([supabase.rpc('list_partner_bid_screen'), supabase.rpc('list_company_bid_pickups'), supabase.rpc('list_company_bid_delivery_locations'), supabase.rpc('list_partner_bid_route_addresses')])
     if (error) { onError(error.message); return }
     if (locations.error) { onError(locations.error.message); setPickups([]) }
     else setPickups(Array.isArray(locations.data) ? locations.data as Pickup[] : [])
     if (deliveries.error) onError(deliveries.error.message)
     else setDeliveryPins(Array.isArray(deliveries.data) ? deliveries.data as DeliveryPin[] : [])
+    if (routeAddresses.error) onError(routeAddresses.error.message)
+    else setRoutes(Array.isArray(routeAddresses.data) ? routeAddresses.data as BidRoute[] : [])
     const rows = (data ?? []) as BidJob[]
     const withPhotos = await Promise.all(rows.map(async (job) => {
       if (!job.photo_path) return { ...job, photo_url: null }
@@ -94,10 +99,11 @@ export default function PartnerBidScreen({ supabase, partnerIds, onError, onNoti
         const parcel = Array.isArray(job.parcel_items) ? job.parcel_items[0] : null
         const pickup = pickups.find((item) => item.request_id === job.request_id)
         const deliveryPin = deliveryPins.find((item) => item.request_id === job.request_id)
+        const route = routes.find((item) => item.request_id === job.request_id)
         return <article className="partner-bid-job" key={job.request_id}>
           <div className="partner-bid-photo">{job.photo_url ? <img src={job.photo_url} alt={`Goods for ${job.request_number}`} /> : <span>No parcel photo supplied</span>}</div>
           <div className="partner-bid-details"><small>{job.request_number}</small><h3>{job.parcel_summary || parcel?.description || 'Parcel delivery'}</h3>
-            <div className="partner-bid-route"><span><small>PICKUP</small><strong>{job.pickup_city}</strong></span><span aria-hidden="true">→</span><span><small>DROP-OFF</small><strong>{job.delivery_city}</strong></span></div>
+            <div className="partner-bid-route"><span><small>PICKUP</small><strong>{routePoint(route?.pickup_address ?? pickup?.pickup_address, job.pickup_city)}</strong><small>{job.pickup_city}</small></span><span aria-hidden="true">→</span><span><small>DROP-OFF</small><strong>{routePoint(route?.delivery_address, job.delivery_city)}</strong><small>{job.delivery_city}</small></span></div>
             <div className="partner-bid-facts"><span>{parcel?.quantity ? `${parcel.quantity} item${parcel.quantity === 1 ? '' : 's'}` : 'Quantity not supplied'}</span><span>{parcel?.weight_kg ? `${parcel.weight_kg} kg each` : 'Weight not supplied'}</span><span>{parcel?.length_cm && parcel?.width_cm && parcel?.height_cm ? `${parcel.length_cm} × ${parcel.width_cm} × ${parcel.height_cm} cm each` : 'Size not supplied'}</span></div>
             <p className="partner-bid-rider">Your company bids. Assign a rider after winning.</p>
             {pickup && <div className="partner-bid-pickup"><strong>{pickup.pickup_address}</strong><p>{pickup.sender_name} · {pickup.sender_phone}</p>
