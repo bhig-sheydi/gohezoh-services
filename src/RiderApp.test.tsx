@@ -100,12 +100,15 @@ describe('company rider sign-in', () => {
     mocks.getSession.mockResolvedValue({ data: { session: { user: { id: 'rider-1', user_metadata: { full_name: 'Ada' } } } } } as never)
     mocks.from.mockReturnValue({ select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { role: 'rider' } }) }) }) }) })
     mocks.rpc.mockImplementation(async (name: string) => {
-      if (name === 'list_my_rider_jobs') return { data: [{ job_id: 'job-1', job_number: 'JOB-1', status: 'out_for_delivery', pickup_address: '1 Market Road', pickup_city: 'Lagos', delivery_address: '2 Market Road', delivery_city: 'Lagos', recipient_name: 'Receiver', recipient_phone: '08000000000', parcel_summary: 'Books', company_name: 'Quick Riders' }], error: null }
+      if (name === 'list_my_rider_jobs') return { data: [{ job_id: 'job-1', job_number: 'JOB-1', status: 'in_transit', pickup_address: '1 Market Road', pickup_city: 'Lagos', delivery_address: '2 Market Road', delivery_city: 'Lagos', recipient_name: 'Receiver', recipient_phone: '08000000000', parcel_summary: 'Books', company_name: 'Quick Riders' }], error: null }
       if (name === 'verify_delivery_otp') return { data: { verified: true, status: 'delivered' }, error: null }
       return { data: [], error: null }
     })
     render(<RiderApp />)
     fireEvent.change(await screen.findByLabelText('Recipient code'), { target: { value: '123456' } })
+    expect(screen.queryByRole('option', { name: 'Out for delivery' })).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Update delivery')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Report a problem' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Confirm delivery' }))
     await waitFor(() => expect(screen.getByText('JOB-1 delivered.')).toBeInTheDocument())
     expect(mocks.rpc).toHaveBeenCalledWith('verify_delivery_otp', { p_job_id: 'job-1', p_code: '123456' })

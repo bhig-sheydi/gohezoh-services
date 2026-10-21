@@ -84,6 +84,9 @@ begin
   insert into public.rider_credentials(user_id,partner_id,roster_id,rider_name,auth_secret_seed,link_hash,password_salt,password_hash,password_fingerprint)
     values(v_rider_user_id,(v_partner_two->>'partner_id')::uuid,v_rider_roster_id,'Portal test rider','portal-seed-'||v_rider_user_id,'portal-link-'||v_rider_user_id,'salt','hash','portal-password-'||v_rider_user_id);
   perform public.assign_job_to_rider(v_job_id,v_rider_user_id);
+  -- This suite tests partner assignment and legacy status recovery; rider handoff
+  -- verification is exercised separately in nearby_company_dispatch.test.sql.
+  update public.pickup_handoff_codes set verified_at=now(),verified_by=v_rider_user_id where job_id=v_job_id;
   perform public.update_job_status(v_job_id,'picked_up');
   perform public.update_job_status(v_job_id,'in_transit');
   begin

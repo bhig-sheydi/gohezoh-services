@@ -57,10 +57,10 @@ type DeliveryRequest = {
 type JobProgress = { id: string; job_number: string; status: string; customer_id: string; customer_name?: string; partner_id: string | null; partner_name?: string; route_id: string | null; pickup_city: string; delivery_city: string; updated_at: string }
 type DeliveryRoute = { id: string; route_number: string; route_name: string; origin_city: string; destination_city: string; partner_id: string | null; is_active: boolean }
 type LogisticsPartner = { id: string; partner_number: string; partner_name: string; status: string }
-const jobProgressSteps = ['order_confirmed', 'partner_assigned', 'pickup_scheduled', 'picked_up', 'in_transit', 'out_for_delivery', 'delivered', 'closed']
+const jobProgressSteps = ['order_confirmed', 'partner_assigned', 'pickup_scheduled', 'in_transit', 'delivered', 'closed']
 const jobStatusLabels: Record<string, string> = {
   order_confirmed: 'Order confirmed', partner_assigned: 'Partner assigned', pickup_scheduled: 'Pickup scheduled',
-  picked_up: 'Picked up', in_transit: 'In transit', out_for_delivery: 'Out for delivery', delivered: 'Delivered',
+  picked_up: 'In transit', in_transit: 'In transit', out_for_delivery: 'In transit', delivered: 'Delivered',
   exception: 'Needs attention', closed: 'Completed', cancelled: 'Cancelled',
 }
 const formatStatus = (status: string) => jobStatusLabels[status] ?? status.replaceAll('_', ' ')
@@ -730,11 +730,11 @@ function OperationsConsole({ supabase, onError, onNotice, canUpdateJobs }: {
       <div className="queue-card-heading"><div><p className="eyebrow">ACTIVE DELIVERIES</p><h2>Delivery progress</h2></div><span className="request-count">{jobs.length}</span></div>
       {jobs.length === 0 ? <p className="progress-empty">No active deliveries yet. Confirming a customer request creates one here.</p> : <div className="job-progress-list">{jobs.map((job) => {
         const nextStatuses: Record<string, string[]> = {
-          order_confirmed: ['partner_assigned', 'pickup_scheduled', 'picked_up', 'exception', 'cancelled'],
-          partner_assigned: ['pickup_scheduled', 'picked_up', 'exception', 'cancelled'],
-          pickup_scheduled: ['picked_up', 'exception', 'cancelled'], picked_up: ['in_transit', 'exception'],
-          in_transit: ['out_for_delivery', 'exception'], out_for_delivery: ['exception'],
-          delivered: ['closed'], exception: ['pickup_scheduled', 'picked_up', 'in_transit', 'out_for_delivery', 'cancelled'],
+          order_confirmed: ['partner_assigned', 'pickup_scheduled', 'exception', 'cancelled'],
+          partner_assigned: ['pickup_scheduled', 'exception', 'cancelled'],
+          pickup_scheduled: ['exception'], picked_up: ['exception'],
+          in_transit: ['exception'], out_for_delivery: ['exception'],
+          delivered: ['closed'], exception: ['pickup_scheduled', 'in_transit', 'cancelled'],
         }
         const matchingRoutes=routes.filter((route)=>route.origin_city.trim().toLowerCase()===job.pickup_city.trim().toLowerCase()&&route.destination_city.trim().toLowerCase()===job.delivery_city.trim().toLowerCase()&&(!job.partner_id||!route.partner_id||route.partner_id===job.partner_id))
         const assignedRoute=routes.find((route)=>route.id===job.route_id)
@@ -926,13 +926,13 @@ function PartnerPortal({ supabase, userId, canRespond, onError, onNotice }: {
     <label className="field parcel-lookup"><span>Find parcel by ID or scan its barcode</span><input value={parcelLookup} onChange={(event)=>setParcelLookup(event.target.value)} placeholder="KWP-P-00000001" autoComplete="off" /></label>
     {loading ? <div className="loading queue-loading">Loading assigned deliveries...</div> : assignments.length === 0 ? <section className="form-card queue-empty"><h2>No assigned deliveries</h2><p>New jobs assigned by Kwik-Parsel Operations will appear here.</p></section> : visibleAssignments.length===0 ? <section className="form-card queue-empty"><h2>No parcel found</h2><p>Check the parcel code and try again.</p></section> : <div className="partner-assignment-list">{visibleAssignments.map((assignment) => {
       const { job } = assignment
-      const partnerStatuses: Record<string, string[]> = { partner_assigned: ['picked_up', 'exception'], pickup_scheduled: ['picked_up', 'exception'], picked_up: ['in_transit', 'exception'], in_transit: ['out_for_delivery', 'exception'], out_for_delivery: ['exception'], exception: ['pickup_scheduled', 'picked_up', 'in_transit', 'out_for_delivery'] }
+      const partnerStatuses: Record<string, string[]> = { partner_assigned: ['exception'], pickup_scheduled: ['exception'], picked_up: ['exception'], in_transit: ['exception'], out_for_delivery: ['exception'], exception: ['pickup_scheduled', 'in_transit'] }
       return <article className="form-card partner-job-card" key={assignment.id}>
         <div className="review-title"><div><p className="eyebrow">{job.job_number}</p><h2>{formatStatus(job.status)}</h2></div><span className={`assignment-status assignment-${assignment.status}`}>{assignment.status === 'assigned' ? 'Awaiting response' : assignment.status === 'completed' ? 'Delivered' : 'Accepted'}</span></div>
         <div className="partner-job-route"><div><small>PICKUP</small><p>{job.pickup_address}<br />{job.pickup_city}</p></div><div><small>DELIVER TO</small><p>{job.delivery_address}<br />{job.delivery_city}</p><strong>{job.recipient_name} | {job.recipient_phone}</strong>{job.recipient_phone_secondary && <small>Alternate: {job.recipient_phone_secondary}</small>}{job.delivery_latitude != null && job.delivery_longitude != null && <p><a href={`https://www.google.com/maps/search/?api=1&query=${job.delivery_latitude},${job.delivery_longitude}`} target="_blank" rel="noreferrer">Open delivery pin</a></p>}</div></div><ParcelIdentifiers parcels={job.job_parcels??[]} />
         {assignment.status === 'assigned' ? <div className="partner-response-actions"><button className="secondary-button" disabled={!canRespond || busy} onClick={() => void respond(assignment, false)}>Decline job</button><button className="primary-button" disabled={!canRespond || busy} onClick={() => void respond(assignment, true)}>{busy ? 'Saving...' : 'Accept job'}</button></div> : <>
           <label className="field partner-progress-control"><span>Update delivery progress</span><select value="" disabled={!canRespond || busy || !partnerStatuses[job.status]?.length} onChange={(event) => { if (event.target.value) void updateProgress(assignment, event.target.value) }}><option value="">{busy ? 'Saving...' : 'Choose next status'}</option>{(partnerStatuses[job.status] ?? []).map((status) => <option key={status} value={status}>{formatStatus(status)}</option>)}</select></label>
-          {job.status === 'out_for_delivery' && <section className="delivery-otp-panel" aria-label={`Recipient confirmation for ${job.job_number}`}>
+          {['in_transit','picked_up','out_for_delivery'].includes(job.status) && <section className="delivery-otp-panel" aria-label={`Recipient confirmation for ${job.job_number}`}>
             {!otpSentFor.includes(job.id) ? <><p className="section-intro">Confirm delivery with a code sent directly to the recipient's phone.</p><button className="secondary-button" disabled={!canRespond || busy} onClick={() => void sendDeliveryCode(assignment)}>{busy ? 'Sending code...' : 'Send recipient delivery code'}</button></> : <>
               <p className="section-intro">Ask the recipient to read their six-digit code to you. Delivery completes after the code is verified.</p>
               <label className="field"><span>Recipient delivery code</span><input value={otpCodes[job.id] ?? ''} onChange={(event) => setOtpCodes((current) => ({ ...current, [job.id]: event.target.value.replace(/\D/g, '').slice(0, 6) }))} inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} placeholder="000000" /></label>
@@ -1025,11 +1025,12 @@ function AuthPanel({ supabase, onError, onNotice, busy, setBusy }: {
 function DeliveryTimeline({ request }: { request: DeliveryRequest }) {
   const milestones = jobProgressSteps.filter((status) => status !== 'closed')
   const history = [...(request.job_history ?? [])].sort((first, second) => Date.parse(first.changed_at) - Date.parse(second.changed_at))
-  const completedStatuses = new Set(history.map((event) => event.status))
-  const currentIndex = milestones.indexOf(request.job_status ?? '')
+  const normalizedStatus = (status: string) => status === 'picked_up' || status === 'out_for_delivery' ? 'in_transit' : status
+  const completedStatuses = new Set(history.map((event) => normalizedStatus(event.status)))
+  const currentIndex = milestones.indexOf(normalizedStatus(request.job_status ?? ''))
   if (request.job_status === 'exception') {
     const previousProgress = [...history].reverse().find((event) => event.status !== 'exception')?.status
-    const previousIndex = milestones.indexOf(previousProgress ?? '')
+    const previousIndex = milestones.indexOf(normalizedStatus(previousProgress ?? ''))
     milestones.forEach((status, index) => { if (index <= previousIndex) completedStatuses.add(status) })
   } else if (currentIndex >= 0) milestones.forEach((status, index) => { if (index <= currentIndex) completedStatuses.add(status) })
 
@@ -1038,7 +1039,7 @@ function DeliveryTimeline({ request }: { request: DeliveryRequest }) {
     {request.job_status === 'exception' && <p className="timeline-alert">Kwik-Parsel is reviewing an issue with this delivery.</p>}
     {request.job_status === 'cancelled' && <p className="timeline-alert">This delivery was cancelled.</p>}
     <ol>{milestones.map((status) => {
-      const event = history.find((entry) => entry.status === status)
+      const event = history.find((entry) => normalizedStatus(entry.status) === status)
       const complete = completedStatuses.has(status)
       return <li className={complete ? 'timeline-step timeline-step-complete' : 'timeline-step'} key={status}><span className="timeline-dot" aria-hidden="true">{complete ? 'OK' : ''}</span><div><strong>{formatStatus(status)}</strong>{event && <small>{new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(event.changed_at))}</small>}</div></li>
     })}</ol>

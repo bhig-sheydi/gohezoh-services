@@ -698,7 +698,7 @@ describe('partner assignment and delivery screens', () => {
     expect(screen.queryByRole('option', { name: 'Delivered' })).not.toBeInTheDocument()
   })
 
-  it('lets the assigned partner accept a job and post a delivery update', async () => {
+  it('lets the assigned partner handle exceptions without manually marking pickup or transit', async () => {
     mockState.roles = ['partner']
     mockState.job = { ...jobFixture(), partner_id: partner.id, status: 'partner_assigned' }
     const user = userEvent.setup()
@@ -709,11 +709,9 @@ describe('partner assignment and delivery screens', () => {
       p_assignment_id: 'assignment-1', p_accept: true, p_response_note: null,
     }))
     const progress = await screen.findByLabelText('Update delivery progress')
-    await user.selectOptions(progress, 'picked_up')
-    await waitFor(() => expect(mockState.rpc).toHaveBeenCalledWith('update_job_status', { p_job_id: 'job-1', p_new_status: 'picked_up' }))
-    expect(await screen.findByRole('heading', { name: 'Picked up' })).toBeInTheDocument()
-
-    await user.selectOptions(await screen.findByLabelText('Update delivery progress'), 'exception')
+    expect(screen.queryByRole('option', { name: 'Picked up' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: 'Out for delivery' })).not.toBeInTheDocument()
+    await user.selectOptions(progress, 'exception')
     await waitFor(() => expect(mockState.rpc).toHaveBeenCalledWith('update_job_status', { p_job_id: 'job-1', p_new_status: 'exception' }))
     const recovery = await screen.findByLabelText('Update delivery progress')
     expect(screen.getByRole('option', { name: 'Pickup scheduled' })).toBeInTheDocument()
@@ -739,7 +737,7 @@ describe('partner assignment and delivery screens', () => {
   it('requires the sent recipient code before partner delivery can be confirmed', async () => {
     mockState.roles = ['partner']
     mockState.assignmentStatus = 'accepted'
-    mockState.job = { ...jobFixture(), partner_id: partner.id, status: 'out_for_delivery' }
+    mockState.job = { ...jobFixture(), partner_id: partner.id, status: 'in_transit' }
     const user = userEvent.setup()
     render(<App />)
 

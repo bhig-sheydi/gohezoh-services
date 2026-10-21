@@ -152,7 +152,7 @@ begin
     perform set_config('request.jwt.claim.sub',v_rider::text,true);
     perform set_config('request.jwt.claims',jsonb_build_object('sub',v_rider,'role','authenticated','session_id',v_session)::text,true);
     v_denied:=false;
-    begin perform public.rider_update_job_status(v_job,'picked_up');
+    begin perform public.rider_update_job_status(v_job,'in_transit');
     exception when object_not_in_prerequisite_state then v_denied:=true; end;
     if not v_denied then raise exception 'Manual rider pickup bypassed code'; end if;
     begin
@@ -168,7 +168,8 @@ begin
     if (public.verify_pickup_handoff_code(v_job,case when v_pickup_code='00000000' then '00000001' else '00000000' end)->>'verified')::boolean then raise exception 'Incorrect pickup code worked'; end if;
     v_pickup_result:=public.verify_pickup_handoff_code(v_job,v_pickup_code);
     if (v_pickup_result->>'verified')::boolean is distinct from true
-      or (select status from public.jobs where id=v_job)<>'picked_up' then raise exception 'Correct pickup code did not collect parcel: %, %',v_pickup_result,(select status from public.jobs where id=v_job); end if;
+      or (select status from public.jobs where id=v_job)<>'in_transit' then raise exception 'Correct pickup code did not start transit: %, %',v_pickup_result,(select status from public.jobs where id=v_job); end if;
+    if (public.issue_delivery_otp(v_job,v_rider)->>'code') !~ '^[0-9]{6}$' then raise exception 'Recipient code cannot be issued during transit'; end if;
     perform set_config('request.jwt.claim.sub',v_customer_user::text,true);
     perform set_config('request.jwt.claims',jsonb_build_object('sub',v_customer_user,'role','authenticated')::text,true);
     if exists(select 1 from public.get_my_pickup_handoff_codes(array[v_job])) then raise exception 'Used pickup code still visible'; end if;
