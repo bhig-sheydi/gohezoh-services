@@ -421,3 +421,6 @@
 :root[data-theme='dark'] .rider-load-option { color:#e9f2ea; background:#203329; border-color:#506356; }
 :root[data-theme='dark'] .rider-load-option[aria-pressed='true'] { color:#fff; background:#177054; border-color:#177054; }
 :root[data-theme='dark'] .rider-load-full[aria-pressed='true'] { background:#b42318; border-color:#b42318; }
+.rider-next-stop { border: 2px solid var(--accent, #276b61); margin-block: 1rem; }
+.rider-next-stop .secondary-button { display: inline-flex; width: auto; margin-top: .5rem; }
+.rider-next-stop-note { font-size: .9rem; margin-bottom: 0; }

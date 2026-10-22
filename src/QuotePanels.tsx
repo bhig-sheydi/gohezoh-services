@@ -137,7 +137,7 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
         {active && <><strong className="customer-payment-timer">{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')} left</strong>
           {hold.account_number && hold.bank_name ? <div className="customer-payment-account"><span>{hold.bank_name}</span><strong>{hold.account_number}</strong><button type="button" onClick={() => void navigator.clipboard.writeText(hold.account_number!)}>Copy account</button></div> : <><p>Preparing your temporary bank account…</p><button type="button" disabled={busy === requestId} onClick={() => void retryAccount(requestId)}>Retry account</button></>}
           <p>Transfer the exact amount now. Your rider waits until payment is confirmed.</p></>}
-        {hold.status === 'paid' && <p>Your rider has been assigned. Keep your phone nearby.</p>}
+        {hold.status === 'paid' && <p>Payment confirmed. Keep your phone nearby while your company rider is confirmed.</p>}
         {hold.status === 'review' && <p>A payment arrived after the booking window or needs review. Please contact support; do not pay again yet.</p>}
         {(hold.status === 'expired' || (!active && hold.status !== 'paid' && hold.status !== 'review')) && <p>The rider is no longer reserved. Please book another delivery. If you transferred money, contact support before paying again.</p>}
       </section>

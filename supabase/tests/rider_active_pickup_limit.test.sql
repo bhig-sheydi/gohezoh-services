@@ -14,6 +14,7 @@ declare
   v_order uuid;
   v_job uuid;
   v_jobs uuid[]:='{}';
+  v_stops jsonb:='[]'::jsonb;
   v_i integer;
 begin
   select id into v_service from public.services where code='SRV-0001';
@@ -58,13 +59,25 @@ begin
   for v_i in 1..5 loop
     perform public.update_job_status(v_jobs[v_i],'pickup_scheduled');
   end loop;
-  begin
-    perform public.update_job_status(v_jobs[6],'pickup_scheduled');
-    raise exception 'A sixth active pickup was unexpectedly allowed for one rider';
-  exception when check_violation then null; end;
-  if (select count(*) from public.jobs where assigned_rider_id=v_rider and status='pickup_scheduled')<>5 then
-    raise exception 'The rider should have exactly five active pickups after the rejected sixth';
+  perform public.update_job_status(v_jobs[6],'pickup_scheduled');
+  if (select count(*) from public.jobs where assigned_rider_id=v_rider and status='pickup_scheduled')<>6 then
+    raise exception 'An invented five-job box capacity still blocks the rider';
   end if;
+  update public.service_requests set pickup_latitude=6.5244,pickup_longitude=3.3792,
+    pickup_captured_at=now(),pickup_location_source='search'
+    where id in (select o.service_request_id from public.jobs j
+      join public.orders o on o.id=j.order_id where j.id=any(v_jobs));
+  update public.jobs set delivery_latitude=6.53,delivery_longitude=3.38 where id=any(v_jobs);
+  for v_i in 1..6 loop
+    v_stops:=v_stops || jsonb_build_array(
+      jsonb_build_object('job_id',v_jobs[v_i],'kind','pickup','latitude',6.5244,'longitude',3.3792),
+      jsonb_build_object('job_id',v_jobs[v_i],'kind','dropoff','latitude',6.53,'longitude',3.38));
+  end loop;
+  perform set_config('request.jwt.claim.role','service_role',true);
+  perform public.commit_rider_route_plan(v_rider,0,v_stops,'road');
+  if (select count(*) from public.rider_route_stops where rider_id=v_rider)<>12 then
+    raise exception 'A technical 10-stop plan limit hid assigned parcels'; end if;
+  perform set_config('request.jwt.claim.role','authenticated',true);
 
   perform set_config('request.jwt.claim.sub',v_rider::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_rider,'role','authenticated')::text,true);
@@ -91,5 +104,18 @@ begin
   if (select count(*) from public.jobs where assigned_rider_id=v_rider and status in ('pickup_scheduled','picked_up','exception'))<>5 then
     raise exception 'Capacity should be released when the job enters transit';
   end if;
+  -- An exception after a verified pickup must retain its drop-off, never
+  -- send the rider back to the sender for another pickup.
+  update public.jobs set status='exception' where id=v_jobs[1];
+  select coalesce(jsonb_agg(value),'[]'::jsonb) into v_stops
+    from jsonb_array_elements(v_stops) value
+    where not (value->>'job_id'=v_jobs[1]::text and value->>'kind'='pickup');
+  perform set_config('request.jwt.claim.role','service_role',true);
+  perform public.commit_rider_route_plan(v_rider,1,v_stops,'road');
+  if exists(select 1 from public.rider_route_stops
+      where rider_id=v_rider and job_id=v_jobs[1] and stop_kind='pickup')
+    or not exists(select 1 from public.rider_route_stops
+      where rider_id=v_rider and job_id=v_jobs[1] and stop_kind='dropoff') then
+    raise exception 'Exception after custody sent rider to pickup again'; end if;
 end $$;
 rollback;

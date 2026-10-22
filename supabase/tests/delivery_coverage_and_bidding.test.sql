@@ -133,11 +133,27 @@ begin
     raise exception 'Partner was awarded before payment or credit';
   exception when check_violation then null; end;
   perform public.approve_delivery_credit(v_job,'Approved test credit terms');
+  -- A paid award now requires a fresh, nearby, on-duty company rider.
+  update public.service_requests set pickup_latitude=6.5244,pickup_longitude=3.3792,
+    pickup_captured_at=now(),pickup_location_source='search' where id=v_request;
+  insert into public.rider_presence(user_id,partner_id,position,accuracy_metres,captured_at)
+    values(v_rider,v_partner,
+      extensions.st_setsrid(extensions.st_makepoint(3.3792,6.5244),4326)::extensions.geography,
+      20,now());
   insert into public.partner_assignments(job_id,partner_id,status,assigned_by)
   values(v_job,v_partner,'assigned',v_admin);
   update public.jobs set partner_id=v_partner,status='partner_assigned' where id=v_job;
   update public.partner_assignments set status='accepted' where job_id=v_job and partner_id=v_partner;
   if (select assigned_rider_id from public.jobs where id=v_job) is distinct from v_rider then
     raise exception 'Accepted paid award was not assigned to the chosen company rider'; end if;
+  if not exists(select 1 from public.route_planner_events
+      where request_id=v_request and rider_id=v_rider and event_kind='replan') then
+    raise exception 'Paid rider assignment did not enqueue a route plan'; end if;
+  perform set_config('request.jwt.claim.role','service_role',true);
+  if not exists(select 1 from public.route_planner_candidates(v_request)
+      where rider_id=v_rider and partner_id=v_partner) then
+    raise exception 'Routing worker did not find the nearby on-duty rider'; end if;
+  if (public.rider_route_context(v_rider)->>'rider_id')::uuid is distinct from v_rider then
+    raise exception 'Routing worker could not read the awarded rider context'; end if;
 end $$;
 rollback;

@@ -434,3 +434,7 @@ verify_jwt = false
 [functions.flutterwave-payout]
 # The function verifies the bearer token with Supabase Auth for every action.
 verify_jwt = false
+
+[functions.route-planner]
+# Protected by a dedicated server-only secret, including scheduled calls.
+verify_jwt = false

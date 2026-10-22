@@ -4,6 +4,7 @@ import { getSupabaseClient } from './lib/supabase'
 import { riderDeviceProof } from './lib/rider-device'
 import { routeLabel } from './lib/route-label'
 import RiderAvailability from './RiderAvailability'
+import RiderNextStop, { type RiderRouteStop } from './RiderNextStop'
 import './App.css'
 import './dark.css'
 
@@ -57,6 +58,7 @@ export default function RiderApp() {
   const [rider, setRider] = useState<boolean | null>(null)
   const [jobs, setJobs] = useState<RiderJob[]>([])
   const [selectedPickups, setSelectedPickups] = useState<SelectedPickup[]>([])
+  const [nextStop, setNextStop] = useState<RiderRouteStop | null>(null)
   const [companyName, setCompanyName] = useState('Company rider')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -73,9 +75,9 @@ export default function RiderApp() {
     if (!session?.user) return
     const { data: role } = await supabase.from('user_roles').select('role').eq('user_id', session.user.id).eq('role', 'rider').maybeSingle()
     setRider(Boolean(role))
-    if (!role) return
-    const [{ data, error: loadError }, profile, pickupLocations, deliveryLocations, selected] = await Promise.all([
-      supabase.rpc('list_my_rider_jobs'), supabase.rpc('my_rider_profile'), supabase.rpc('list_my_rider_pickup_locations'), supabase.rpc('list_my_rider_delivery_locations'), supabase.rpc('list_my_selected_pickups'),
+    if (!role) { setNextStop(null); return }
+    const [{ data, error: loadError }, profile, pickupLocations, deliveryLocations, selected, route] = await Promise.all([
+      supabase.rpc('list_my_rider_jobs'), supabase.rpc('my_rider_profile'), supabase.rpc('list_my_rider_pickup_locations'), supabase.rpc('list_my_rider_delivery_locations'), supabase.rpc('list_my_selected_pickups'), supabase.rpc('my_rider_next_stop'),
     ])
     if (loadError || selected.error) setError((loadError ?? selected.error)?.message ?? 'Could not load pickups')
     else setJobs(((data ?? []) as RiderJob[]).map((job) => {
@@ -84,6 +86,7 @@ export default function RiderApp() {
         delivery_latitude: delivery?.latitude, delivery_longitude: delivery?.longitude }
     }))
     if (!selected.error) setSelectedPickups((selected.data ?? []) as SelectedPickup[])
+    setNextStop(!route.error && Array.isArray(route.data) ? (route.data[0] as RiderRouteStop | undefined) ?? null : null)
     if (!profile.error && profile.data?.[0]?.company_name) setCompanyName(String(profile.data[0].company_name))
   }, [session, supabase])
   useEffect(() => { const timer = window.setTimeout(() => { void load() }, 0); return () => window.clearTimeout(timer) }, [load])
@@ -195,6 +198,7 @@ export default function RiderApp() {
     </section> : rider === null ? <div className="loading">Checking rider access...</div> : !rider ? <section className="form-card narrow"><h1>Rider access only</h1><p>Sign out of your current account to use a company rider link.</p></section> : <section className="rider-workspace">
       <div className="dashboard-heading"><div><p className="eyebrow">YOUR RIDES</p><h1>{session.user.user_metadata?.full_name ?? 'Rider'}</h1><p>{companyName}</p></div><button className="secondary-button" onClick={() => void load()}>Refresh jobs</button></div>
       <RiderAvailability supabase={supabase} />
+      <RiderNextStop stop={nextStop} jobs={jobs} />
       {selectedPickups.length > 0 && <section aria-label="Selected pickups"><h2>Upcoming pickups</h2><div className="partner-assignment-list">{selectedPickups.map((pickup) => <article className="form-card partner-job-card" key={pickup.request_id}>
         <p className="eyebrow">{pickup.request_number} · {pickup.company_name}</p><h3>Company bid selected</h3>
         <p className="customer-route-label">{routeLabel(pickup.pickup_address, pickup.pickup_city, pickup.delivery_address, pickup.delivery_city)}</p><p>{pickup.parcel_summary}</p>

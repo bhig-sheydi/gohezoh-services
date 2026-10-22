@@ -19,7 +19,7 @@ foreach ($testFile in $testFiles) {
     $queryExitCode = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
     if ($queryExitCode -eq 0) { $passed = $true; break }
-    if ($result -notmatch 'Transport\s?Error|NetworkError') { throw "Database integration test failed: $($testFile.Name)`n$result" }
+    if ($result -notmatch 'Transport\s?Error|NetworkError|Connection terminated due to connection timeout') { throw "Database integration test failed: $($testFile.Name)`n$result" }
     if ($attempt -lt 5) { Start-Sleep -Seconds (2 * $attempt) }
   }
   if (-not $passed) { throw "Database integration test failed after five transport retries: $($testFile.Name)" }
