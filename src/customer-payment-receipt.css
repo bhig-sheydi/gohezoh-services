@@ -1,0 +1,39 @@
+.customer-payment-receipt { min-width:0; margin:18px 0; overflow:hidden; border:1px solid #ceddd0; border-radius:18px; background:#fff; color:#183b30; box-shadow:0 10px 30px rgba(23,59,52,.07); }
+.customer-receipt-header { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:18px 20px; border-bottom:1px solid #e3ebe2; }
+.customer-receipt-brand { display:flex; align-items:center; min-width:0; gap:11px; }
+.customer-receipt-brand img { flex:none; width:42px; height:42px; border-radius:11px; }
+.customer-receipt-brand strong,.customer-receipt-brand small { display:block; }
+.customer-receipt-brand strong { font-size:14px; font-weight:850; letter-spacing:.11em; }
+.customer-receipt-brand small { margin-top:3px; color:#688071; font-size:9px; font-weight:700; letter-spacing:.08em; }
+.customer-receipt-status { flex:none; padding:7px 10px; border-radius:999px; font-size:11px; font-weight:800; }
+.customer-receipt-status.is-paid { color:#126044; background:#def4e4; }
+.customer-receipt-status.is-part-paid { color:#76531b; background:#fff0cf; }
+.customer-receipt-status.is-awaiting { color:#576a60; background:#edf1ed; }
+.customer-receipt-main { display:flex; align-items:end; justify-content:space-between; gap:20px; padding:22px 20px; }
+.customer-receipt-main span,.customer-receipt-reference small { color:#698073; font-size:10px; font-weight:850; letter-spacing:.12em; }
+.customer-receipt-main h3 { margin:7px 0 4px; color:inherit; font-size:clamp(27px,5vw,37px); letter-spacing:-.04em; line-height:1.1; }
+.customer-payment-receipt .customer-receipt-main p { margin:0; color:#688071; font-size:12px; }
+.customer-receipt-reference { display:grid; justify-items:end; gap:3px; text-align:right; }
+.customer-receipt-reference strong { margin-bottom:5px; font-size:12px; overflow-wrap:anywhere; }
+.customer-receipt-totals { display:grid; gap:0; margin:0 20px; padding:6px 0; border-top:1px solid #e3ebe2; }
+.customer-receipt-totals>div { display:flex; justify-content:space-between; gap:12px; padding:8px 0; font-size:13px; }
+.customer-receipt-totals dt { color:#688071; }
+.customer-receipt-totals dd { margin:0; font-weight:750; font-variant-numeric:tabular-nums; text-align:right; }
+.customer-receipt-balance { border-top:1px dashed #d2dfd2; }
+.customer-receipt-balance dt,.customer-receipt-balance dd { color:#1d6b4a; font-weight:850; }
+.customer-receipt-history { padding:15px 20px 19px; background:#f5f8f2; }
+.customer-receipt-history h4 { margin:0 0 11px; font-size:12px; }
+.customer-receipt-payment { display:flex; justify-content:space-between; gap:12px; padding:8px 0; border-top:1px solid #dce8dc; font-size:12px; }
+.customer-receipt-payment>div { display:grid; min-width:0; gap:3px; }
+.customer-receipt-payment small { color:#688071; font-size:11px; text-transform:capitalize; }
+.customer-receipt-payment>span { flex:none; font-weight:750; font-variant-numeric:tabular-nums; }
+@media(max-width:520px) { .customer-receipt-header { align-items:flex-start; padding:15px; }.customer-receipt-brand img { width:36px; height:36px; }.customer-receipt-brand strong { font-size:12px; }.customer-receipt-brand small { font-size:8px; }.customer-receipt-status { padding:6px 8px; font-size:10px; }.customer-receipt-main { align-items:start; flex-direction:column; gap:12px; padding:18px 15px; }.customer-receipt-reference { justify-items:start; text-align:left; }.customer-receipt-totals { margin:0 15px; }.customer-receipt-history { padding:14px 15px; }.customer-receipt-payment { align-items:flex-start; flex-direction:column; } }
+:root[data-theme='dark'] .customer-payment-receipt { border-color:#466654; color:#edf7ee; background:#1a2925; box-shadow:none; }
+:root[data-theme='dark'] .customer-receipt-header,:root[data-theme='dark'] .customer-receipt-totals,:root[data-theme='dark'] .customer-receipt-balance { border-color:#466654; }
+:root[data-theme='dark'] .customer-receipt-brand small,:root[data-theme='dark'] .customer-receipt-main span,:root[data-theme='dark'] .customer-receipt-reference small,:root[data-theme='dark'] .customer-payment-receipt .customer-receipt-main p,:root[data-theme='dark'] .customer-receipt-totals dt,:root[data-theme='dark'] .customer-receipt-payment small { color:#b6cdbb; }
+:root[data-theme='dark'] .customer-receipt-status.is-paid { color:#d7f7de; background:#24513a; }
+:root[data-theme='dark'] .customer-receipt-status.is-part-paid { color:#ffe2a1; background:#554227; }
+:root[data-theme='dark'] .customer-receipt-status.is-awaiting { color:#d7e3d8; background:#354b3f; }
+:root[data-theme='dark'] .customer-receipt-balance dt,:root[data-theme='dark'] .customer-receipt-balance dd { color:#cbe879; }
+:root[data-theme='dark'] .customer-receipt-history { background:#243730; }
+:root[data-theme='dark'] .customer-receipt-payment { border-color:#466654; }

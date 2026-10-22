@@ -31,9 +31,7 @@ const mockState = vi.hoisted(() => {
     invoke: ReturnType<typeof vi.fn>
     upload: ReturnType<typeof vi.fn>
     remove: ReturnType<typeof vi.fn>
-    createSignedUrls: ReturnType<typeof vi.fn>
     createSignedUrl: ReturnType<typeof vi.fn>
-    podInsertError: boolean
     noCustomerMembership: boolean
     client: Record<string, unknown>
   } = {
@@ -63,9 +61,7 @@ const mockState = vi.hoisted(() => {
     invoke: vi.fn(),
     upload: vi.fn(),
     remove: vi.fn(),
-    createSignedUrls: vi.fn(async (paths: string[]) => ({ data: paths.map((path) => ({ path, signedUrl: 'https://signed.example.test/proof' })), error: null })),
     createSignedUrl: vi.fn(async () => ({ data: { signedUrl: 'https://signed.example.test/document' }, error: null })),
-    podInsertError: false,
     noCustomerMembership: false,
     client: {},
   }
@@ -106,7 +102,6 @@ const mockState = vi.hoisted(() => {
     storage: { from: () => ({
       upload: (...args: unknown[]) => (state.upload as (...values: unknown[]) => unknown)(...args),
       remove: (...args: unknown[]) => (state.remove as (...values: unknown[]) => unknown)(...args),
-      createSignedUrls: (...args: unknown[]) => (state.createSignedUrls as (...values: unknown[]) => unknown)(...args),
       createSignedUrl: (...args: unknown[]) => (state.createSignedUrl as (...values: unknown[]) => unknown)(...args),
     }) },
     rpc: (...args: unknown[]) => (state.rpc as (...values: unknown[]) => unknown)(...args),
@@ -388,11 +383,10 @@ beforeEach(() => {
   mockState.warehouseItems = []
   mockState.inserts = []
   mockState.assignmentStatus = 'assigned'
-  mockState.podInsertError = false
   mockState.noCustomerMembership = false
   mockState.job = jobFixture()
   mockState.query.mockImplementation((table: string, filters: Record<string, unknown>, single: boolean, insert?: Record<string, unknown>) => {
-    if (insert && table !== 'proof_of_delivery') {
+    if (insert) {
       mockState.inserts.push({table,data:insert})
       if (table === 'leads_opportunities') mockState.bdoLeads = [...mockState.bdoLeads,{...insert,id:'lead-new',lead_number:'LED-0001',stage:'lead',updated_at:'2026-10-02T10:00:00Z'}]
       if (table === 'partner_prospects') mockState.bdoProspects = [...mockState.bdoProspects,{...insert,id:'prospect-new',prospect_number:'PPR-0001',status:'identified',coverage_areas:[],updated_at:'2026-10-02T10:00:00Z'}]
@@ -427,18 +421,13 @@ beforeEach(() => {
     }
     if (table === 'jobs') {
       if (mockState.roles.includes('partner') && filters.id) {
-      return { data: [{ ...mockState.job, status: mockState.job.status, proof_of_delivery: mockState.job.proof_of_delivery ?? [] }], error: null }
+      return { data: [{ ...mockState.job, status: mockState.job.status }], error: null }
       }
       return { data: [mockState.job], error: null }
     }
     if (table === 'logistics_partners') return { data: mockState.partners, error: null }
     if (table === 'partner_users') return { data: [{ partner_id: partner.id }], error: null }
     if (table === 'partner_assignments') return { data: mockState.assignmentStatus === 'rejected' ? [] : [{ id: 'assignment-1', partner_id: partner.id, job_id: 'job-1', status: mockState.assignmentStatus, assigned_at: '2026-09-30T10:00:00Z' }], error: null }
-    if (table === 'proof_of_delivery' && insert) {
-      if (mockState.podInsertError) return { data: null, error: { message: 'proof metadata insert denied' } }
-      mockState.job = { ...mockState.job, proof_of_delivery: [{ id: 'proof-1', storage_path: insert.storage_path, recipient_name: insert.recipient_name, created_at: '2026-10-01T12:00:00Z' }] }
-      return { data: null, error: null }
-    }
     return { data: [], error: null }
   })
   mockState.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
@@ -479,7 +468,7 @@ beforeEach(() => {
     return { data: null, error: null }
   })
   mockState.invoke.mockResolvedValue({ data: { sent: true }, error: null })
-  mockState.upload.mockResolvedValue({ data: { path: 'job-1/proof.jpg' }, error: null })
+  mockState.upload.mockResolvedValue({ data: { path: 'uploaded-file.jpg' }, error: null })
   mockState.remove.mockResolvedValue({ data: [], error: null })
 })
 
@@ -728,7 +717,8 @@ describe('partner assignment and delivery screens', () => {
     expect(await screen.findByRole('img',{name:'Barcode KWP-P-00000042'})).toBeInTheDocument()
     const lookup=screen.getByLabelText('Find parcel by ID or scan its barcode')
     await user.type(lookup,'KWP-P-00000042')
-    expect(screen.getByText(/Books.*2 items in this parcel/)).toBeInTheDocument()
+    const parcelCard = screen.getByText('Books').closest('.parcel-identifier')!
+    expect(within(parcelCard as HTMLElement).getByText('2 items in this parcel')).toBeInTheDocument()
     await user.clear(lookup)
     await user.type(lookup,'KWP-P-99999999')
     expect(await screen.findByRole('heading',{name:'No parcel found'})).toBeInTheDocument()
@@ -750,47 +740,15 @@ describe('partner assignment and delivery screens', () => {
     expect(await screen.findByText('JOB-0001 delivery confirmed by recipient.')).toBeInTheDocument()
   })
 
-  it('lets the completed partner upload a delivery photo', async () => {
+  it('uses delivery-code confirmation without asking for a delivery photo', async () => {
     mockState.roles = ['partner']
     mockState.assignmentStatus = 'completed'
-    mockState.job = { ...jobFixture(), partner_id: partner.id, status: 'delivered', proof_of_delivery: [] }
-    const user = userEvent.setup()
+    mockState.job = { ...jobFixture(), partner_id: partner.id, status: 'delivered' }
     render(<App />)
 
-    const file = new File(['delivery photo'], 'proof.jpg', { type: 'image/jpeg' })
-    await user.upload(await screen.findByLabelText('Delivery photo (up to 5 MB)'), file)
-    await user.click(screen.getByRole('button', { name: 'Upload proof of delivery' }))
-    await waitFor(() => expect(mockState.upload).toHaveBeenCalledWith(expect.stringMatching(/^job-1\/.+\.jpg$/), file, { contentType: 'image/jpeg', upsert: false }))
-    expect(await screen.findByText('Photo proof saved for this delivery.')).toBeInTheDocument()
-    expect(await screen.findByText('Proof of delivery saved for JOB-0001.')).toBeInTheDocument()
-  })
-
-  it('removes an uploaded file if saving proof metadata fails', async () => {
-    mockState.roles = ['partner']
-    mockState.assignmentStatus = 'completed'
-    mockState.job = { ...jobFixture(), partner_id: partner.id, status: 'delivered', proof_of_delivery: [] }
-    mockState.podInsertError = true
-    const user = userEvent.setup()
-    render(<App />)
-
-    const file = new File(['delivery photo'], 'proof.jpg', { type: 'image/jpeg' })
-    await user.upload(await screen.findByLabelText('Delivery photo (up to 5 MB)'), file)
-    await user.click(screen.getByRole('button', { name: 'Upload proof of delivery' }))
-    await waitFor(() => expect(mockState.remove).toHaveBeenCalledWith([expect.stringMatching(/^job-1\/.+\.jpg$/)]))
-    expect(await screen.findByText('proof metadata insert denied')).toBeInTheDocument()
-  })
-
-  it('shows a private proof link to the customer for their delivery', async () => {
-    mockState.roles = ['customer']
-    mockState.customerRequests = [{ id: 'request-1', request_number: 'REQ-0001', status: 'converted', pickup_city: 'Lagos', delivery_city: 'Ibadan', recipient_name: 'Ada', created_at: '2026-10-01T10:00:00Z' }]
-    mockState.customerOrders = [{ service_request_id: 'request-1', order_number: 'ORD-0001', jobs: { id: 'job-1', job_number: 'JOB-0001', status: 'delivered', job_status_history: [], proof_of_delivery: [{ storage_path: 'job-1/proof.jpg', created_at: '2026-10-01T12:00:00Z', recipient_name: 'Ada' }] } }]
-    const user = userEvent.setup()
-    render(<App />)
-
-    await user.click(await screen.findByRole('button', { name: /Tracking/ }))
-    const proofLink = await screen.findByRole('link', { name: 'View proof of delivery 1' })
-    expect(proofLink).toHaveAttribute('href', 'https://signed.example.test/proof')
-    expect(mockState.createSignedUrls).toHaveBeenCalledWith(['job-1/proof.jpg'], 300)
+    expect(await screen.findByText('JOB-0001')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Delivery photo (up to 5 MB)')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Upload proof of delivery' })).not.toBeInTheDocument()
   })
 
   it('shows a completed company bid on the customer home screen', async () => {
@@ -938,16 +896,35 @@ describe('partner assignment and delivery screens', () => {
   it('shows the paid job pickup code beside its order only to the customer', async () => {
     mockState.roles = ['customer']
     mockState.customerRequests = [{ id: 'request-1', request_number: 'REQ-0001', status: 'converted', pickup_address: 'Police Post, Eliozu', pickup_city: 'Port Harcourt', delivery_address: 'Farm Road 2, Eliozu', delivery_city: 'Port Harcourt', recipient_name: 'Ada', created_at: '2026-10-20T10:00:00Z' }]
-    mockState.customerOrders = [{ service_request_id: 'request-1', order_number: 'ORD-0001', customer_price: 2000, currency: 'NGN', jobs: { id: 'job-1', job_number: 'JOB-0001', status: 'pickup_scheduled', job_status_history: [], proof_of_delivery: [], job_parcels: [] } }]
+    mockState.customerOrders = [{ service_request_id: 'request-1', order_number: 'ORD-0001', customer_price: 2000, currency: 'NGN', jobs: { id: 'job-1', job_number: 'JOB-0001', status: 'pickup_scheduled', job_status_history: [], job_parcels: [] } }]
     const rpc = mockState.rpc.getMockImplementation() as (name: string, args: Record<string, unknown>) => unknown
     mockState.rpc.mockImplementation((name: string, args: Record<string, unknown>) =>
       name === 'get_my_pickup_handoff_codes' ? { data: [{ job_id: 'job-1', code: '12345678' }], error: null } : rpc(name, args))
     render(<App />)
     await userEvent.click(await screen.findByRole('button', { name: /Tracking/ }))
+    await userEvent.click(await screen.findByRole('button', { name: /REQ-0001/ }))
     expect(await screen.findByText('12345678')).toBeInTheDocument()
     expect(screen.getByText('Police Post, Eliozu → Farm Road 2, Eliozu')).toBeInTheDocument()
     expect(screen.getByText(/Give this code to the assigned rider only/)).toBeInTheDocument()
     expect(mockState.rpc).toHaveBeenCalledWith('get_my_pickup_handoff_codes', { p_job_ids: ['job-1'] })
+  })
+
+  it('lets the booking customer answer a rider delivery request without exposing rider self-confirmation', async () => {
+    mockState.roles = ['customer']
+    mockState.customerRequests = [{ id: 'request-1', request_number: 'REQ-0001', status: 'converted', pickup_city: 'Lagos', delivery_city: 'Lagos', recipient_name: 'Ada', created_at: '2026-10-20T10:00:00Z' }]
+    mockState.customerOrders = [{ service_request_id: 'request-1', order_number: 'ORD-0001', customer_price: 2000, currency: 'NGN', jobs: { id: 'job-1', job_number: 'JOB-0001', status: 'in_transit', job_status_history: [], job_parcels: [] } }]
+    const originalRpc = mockState.rpc.getMockImplementation() as (name: string, args: Record<string, unknown>) => unknown
+    mockState.rpc.mockImplementation((name: string, args: Record<string, unknown>) =>
+      name === 'list_my_sender_delivery_confirmations' ? { data: [{ job_id: 'job-1', status: 'pending' }], error: null } :
+      name === 'respond_sender_delivery_confirmation' ? { data: { status: args.p_approve ? 'approved' : 'rejected' }, error: null } : originalRpc(name, args))
+    const user = userEvent.setup()
+    render(<App />)
+    const alert = await screen.findByRole('button', { name: /Confirm parcel arrival.*REQ-0001/ })
+    await user.click(alert)
+    expect(await screen.findByText('Are you sure that this parcel has reached its destination?')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'No, it has not arrived' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Yes, confirm delivery' }))
+    await waitFor(() => expect(mockState.rpc).toHaveBeenCalledWith('respond_sender_delivery_confirmation', { p_job_id: 'job-1', p_approve: true }))
   })
 
   it('organizes customer features into home cards and separate app frames', async () => {
@@ -962,6 +939,33 @@ describe('partner assignment and delivery screens', () => {
     await user.click(screen.getByRole('button', { name: /customer home/ }))
     await user.click(screen.getByRole('button', { name: /Tracking/ }))
     expect(await screen.findByRole('heading', { name: 'Your deliveries', level: 2 })).toBeInTheDocument()
+  })
+
+  it('groups deliveries by date and expands only one card at a time', async () => {
+    mockState.roles = ['customer']
+    mockState.customerRequests = [
+      { id: 'request-1', request_number: 'REQ-0001', status: 'submitted', pickup_city: 'Port Harcourt', delivery_city: 'Aba', recipient_name: 'Ada', created_at: '2026-10-20T10:00:00Z' },
+      { id: 'request-2', request_number: 'REQ-0002', status: 'submitted', pickup_city: 'Aba', delivery_city: 'Lagos', recipient_name: 'Chidi', created_at: '2026-10-20T09:00:00Z' },
+      { id: 'request-3', request_number: 'REQ-0003', status: 'submitted', pickup_city: 'Lagos', delivery_city: 'Aba', recipient_name: 'Ngozi', created_at: '2026-10-19T09:00:00Z' },
+    ]
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: /Tracking/ }))
+    expect(await screen.findByRole('region', { name: 'Deliveries on 20 October 2026' })).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Deliveries on 19 October 2026' })).toBeInTheDocument()
+    const first = screen.getByRole('button', { name: /REQ-0001/ })
+    const second = screen.getByRole('button', { name: /REQ-0002/ })
+    expect(first).toHaveAttribute('aria-expanded', 'false')
+    expect(first).toHaveTextContent('Track parcel')
+    await user.click(first)
+    expect(first).toHaveAttribute('aria-expanded', 'true')
+    expect(first).toHaveTextContent('×')
+    expect(screen.getByText('To Ada')).toBeInTheDocument()
+    await user.click(second)
+    expect(first).toHaveAttribute('aria-expanded', 'false')
+    expect(second).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.queryByText('To Ada')).not.toBeInTheDocument()
+    expect(screen.getByText('To Chidi')).toBeInTheDocument()
   })
 
   it('shows delivery exception alerts to internal staff and lets them mark an alert reviewed', async () => {
@@ -1021,15 +1025,18 @@ describe('partner assignment and delivery screens', () => {
   it('shows the customer only their billed amount, receipts, and remaining balance', async () => {
     mockState.roles = ['customer']
     mockState.customerRequests = [{ id: 'request-1', request_number: 'REQ-0001', status: 'converted', pickup_city: 'Lagos', delivery_city: 'Ibadan', recipient_name: 'Ada', created_at: '2026-10-01T10:00:00Z' }]
-    mockState.customerOrders = [{ service_request_id: 'request-1', order_number: 'ORD-0001', customer_price: 10000, currency: 'NGN', jobs: { id: 'job-1', job_number: 'JOB-0001', status: 'delivered', job_status_history: [], proof_of_delivery: [] } }]
+    mockState.customerOrders = [{ service_request_id: 'request-1', order_number: 'ORD-0001', customer_price: 10000, currency: 'NGN', jobs: { id: 'job-1', job_number: 'JOB-0001', status: 'delivered', job_status_history: [] } }]
     const user = userEvent.setup()
     render(<App />)
 
     await user.click(await screen.findByRole('button', { name: /Tracking/ }))
-    await user.click(await screen.findByText('Payment'))
-    expect(screen.getByText(/Total:/)).toBeInTheDocument()
-    expect(screen.getByText(/Received:/)).toBeInTheDocument()
-    expect(screen.getByText(/PAY-00001/)).toHaveTextContent('bank transfer')
-    expect(screen.getByText(/Balance:/)).toBeInTheDocument()
+    await user.click(await screen.findByRole('button', { name: /REQ-0001/ }))
+    expect(await screen.findByRole('region', { name: 'Payment receipt for REQ-0001' })).toBeInTheDocument()
+    expect(screen.getByAltText('Kwik-Parsel logo')).toHaveAttribute('src', '/favicon.svg')
+    expect(screen.getByText('Total')).toBeInTheDocument()
+    expect(screen.getByText('Received')).toBeInTheDocument()
+    expect(screen.getByText('PAY-00001')).toBeInTheDocument()
+    expect(screen.getByText(/bank transfer/i)).toBeInTheDocument()
+    expect(screen.getByText('Balance')).toBeInTheDocument()
   })
 })

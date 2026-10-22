@@ -11,3 +11,21 @@
 @media(max-width:560px){.customer-bid-panel{padding:18px}.customer-bid-wait{gap:14px;min-height:175px}.customer-bid-radar{width:85px;height:85px}.customer-bid-wait h3{font-size:20px}}
 @media(prefers-reduced-motion:reduce){.customer-bid-radar span,.customer-bid-radar i,.customer-bid-progress-search span{animation:none}.customer-bid-progress span{transition:none}}
 .customer-payment-card{display:grid;gap:12px;padding:22px;border:1px solid var(--line,#c7d8cc);border-radius:20px;background:var(--paper,#fff);color:var(--ink,#19392a)}.customer-payment-card h3,.customer-payment-card p{margin:0}.customer-payment-timer{font-size:28px;color:#13794e}.customer-payment-account{display:grid;gap:7px;padding:16px;border-radius:14px;background:color-mix(in srgb,var(--ink,#19392a) 8%,var(--paper,#fff))}.customer-payment-account strong{font-size:clamp(24px,5vw,34px);letter-spacing:.08em}.customer-payment-account button{justify-self:start}.customer-payment-card .eyebrow{font-size:12px;font-weight:700}
+.customer-payment-heading { display:flex; align-items:center; gap:10px; }
+.customer-payment-heading img { flex:none; width:36px; height:36px; border-radius:9px; }
+.customer-payment-card .customer-payment-heading .eyebrow { color:#355e47; font-size:11px; font-weight:850; letter-spacing:.08em; }
+.customer-payment-card h3 { font-size:clamp(18px,3vw,23px); line-height:1.2; }
+.customer-payment-card p:not(.eyebrow) { font-size:13px; line-height:1.5; }
+.customer-payment-card.customer-payment-paid { border-color:#8ab897; background:#f1f8ef; }
+.customer-payment-card.customer-payment-expired { border-color:#d58585; color:#802a2a; background:#fff0ef; }
+.customer-payment-card.customer-payment-expired .customer-payment-heading .eyebrow { color:#9d3838; }
+.customer-payment-card.customer-payment-review { border-color:#d0a761; background:#fff8e9; }
+:root[data-theme='dark'] .customer-payment-card.customer-payment-paid { border-color:#527e62; color:#e9f2ea; background:#1d3429; }
+:root[data-theme='dark'] .customer-payment-card.customer-payment-expired { border-color:#b65c5c; color:#ffe4e0; background:#472626; }
+:root[data-theme='dark'] .customer-payment-card.customer-payment-review { border-color:#ad8547; color:#ffeac3; background:#493821; }
+:root[data-theme='dark'] .customer-payment-card .customer-payment-heading .eyebrow { color:#c7e5cc; }
+:root[data-theme='dark'] .customer-payment-card.customer-payment-expired .customer-payment-heading .eyebrow { color:#ffc0b9; }
+:root[data-theme='dark'] .customer-payment-card.customer-payment-review .customer-payment-heading .eyebrow { color:#ffe0a1; }
+:root[data-theme='dark'] .customer-shell .customer-history .customer-payment-card.customer-payment-paid { border-color:#527e62; color:#e9f2ea; background:#1d3429; }
+:root[data-theme='dark'] .customer-shell .customer-history .customer-payment-card.customer-payment-expired { border-color:#b65c5c; color:#ffe4e0; background:#472626; }
+:root[data-theme='dark'] .customer-shell .customer-history .customer-payment-card.customer-payment-review { border-color:#ad8547; color:#ffeac3; background:#493821; }

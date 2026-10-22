@@ -1,0 +1,46 @@
+.customer-delivery-groups { display:grid; gap:24px; margin-top:18px; min-width:0; }
+.customer-delivery-group { min-width:0; }
+.customer-delivery-group>h3 { margin:0 0 10px; color:var(--ink); font-size:14px; font-weight:800; }
+.customer-delivery-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr)); gap:12px; align-items:start; }
+.customer-delivery-card { min-width:0; overflow:hidden; border:1px solid #d5e0d2; border-radius:14px; background:#fff; box-shadow:0 2px 9px rgba(27,62,46,.05); }
+.customer-delivery-card.is-expanded { grid-column:1/-1; border-color:#8ab493; box-shadow:0 8px 22px rgba(27,62,46,.1); }
+.customer-delivery-toggle { display:grid; width:100%; min-height:125px; padding:13px 14px; gap:9px; border:0; color:#183b30; background:transparent; font:inherit; text-align:left; cursor:pointer; }
+.customer-delivery-toggle:hover { background:#f5f9f2; }
+.customer-delivery-toggle:focus-visible { outline:3px solid #609e72; outline-offset:-3px; }
+.customer-delivery-card-top,.customer-delivery-card-bottom { display:flex; align-items:center; justify-content:space-between; gap:8px; min-width:0; }
+.customer-delivery-card-top strong { font-size:12px; font-weight:850; letter-spacing:.02em; }
+.customer-delivery-brand { display:flex; align-items:center; gap:7px; min-width:0; }
+.customer-delivery-brand img { flex:none; width:24px; height:24px; border-radius:7px; }
+.customer-delivery-card-top .request-status { flex:none; max-width:62%; padding:5px 8px; border-radius:8px; font-size:11px; line-height:1.25; white-space:normal; text-align:center; }
+.customer-delivery-card-route { display:-webkit-box; overflow:hidden; color:#264b3b; font-size:13px; font-weight:750; line-height:1.35; overflow-wrap:anywhere; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
+.customer-delivery-confirmation-hint { color:#9a480f; font-size:12px; font-weight:850; }
+.customer-confirmation-alert { display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; width:100%; margin:0 0 16px; padding:15px 18px; border:2px solid #d1903e; border-radius:12px; color:#693909; background:#fff2dc; font:inherit; text-align:left; cursor:pointer; }
+.customer-confirmation-alert strong { font-size:15px; }
+.customer-confirmation-alert span:last-child { margin-left:auto; color:#713707; font-size:13px; font-weight:850; text-decoration:underline; }
+.customer-confirmation-alert:focus-visible { outline:3px solid #80550d; outline-offset:2px; }
+.customer-delivery-card-bottom { align-self:end; color:#63786c; font-size:11px; }
+.customer-delivery-action { padding:7px 10px; border-radius:8px; color:#124b32; background:#dcf0df; font-size:11px; font-weight:850; line-height:1; }
+.customer-delivery-close { display:grid; width:30px; height:30px; place-items:center; border:1px solid #91b99b; border-radius:8px; color:#174b36; background:#e8f3e8; font-size:22px; font-weight:700; line-height:1; }
+.customer-delivery-details { display:grid; gap:13px; min-width:0; padding:16px; border-top:1px solid #e0e9df; color:#183b30; }
+.customer-delivery-details .customer-delivery-recipient { margin:0; color:#415b4a; font-size:13px; }
+.customer-delivery-details .customer-payment-receipt { margin:0; }
+.customer-delivery-details .request-references { display:flex; flex-wrap:wrap; gap:8px 16px; }
+:root[data-theme='dark'] .customer-delivery-card { border-color:#3b5248; background:#1b2c25; box-shadow:none; }
+:root[data-theme='dark'] .customer-delivery-card.is-expanded { border-color:#9bbd91; }
+:root[data-theme='dark'] .customer-delivery-toggle { color:#e9f2ea; }
+:root[data-theme='dark'] .customer-delivery-toggle:hover { background:#253b2d; }
+:root[data-theme='dark'] .customer-delivery-card-route { color:#e0eadc; }
+:root[data-theme='dark'] .customer-delivery-confirmation-hint { color:#ffd596; }
+:root[data-theme='dark'] .customer-confirmation-alert { border-color:#c69755; color:#ffebc3; background:#3d2c18; }
+:root[data-theme='dark'] .customer-confirmation-alert span:last-child { color:#ffe2ad; }
+:root[data-theme='dark'] .customer-delivery-card-bottom { color:#b2c3b7; }
+:root[data-theme='dark'] .customer-delivery-action { color:#e8f7e9; background:#315d45; }
+:root[data-theme='dark'] .customer-delivery-close { border-color:#7eaa8c; color:#e8f7e9; background:#315d45; }
+:root[data-theme='dark'] .customer-delivery-card .request-status.status-submitted,
+:root[data-theme='dark'] .customer-delivery-card .request-status.status-under_review { border-color:#ab8541; color:#ffe8aa; background:#584227; }
+:root[data-theme='dark'] .customer-delivery-card .request-status.status-approved,
+:root[data-theme='dark'] .customer-delivery-card .request-status.status-converted { border-color:#4e9a72; color:#c9f3d6; background:#23583b; }
+:root[data-theme='dark'] .customer-delivery-card .request-status.status-rejected,
+:root[data-theme='dark'] .customer-delivery-card .request-status.status-cancelled { border-color:#bd716d; color:#ffd6d1; background:#652f2c; }
+:root[data-theme='dark'] .customer-delivery-details { border-color:#3b5248; color:#e9f2ea; }
+:root[data-theme='dark'] .customer-delivery-details .customer-delivery-recipient { color:#b2c3b7; }

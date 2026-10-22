@@ -426,3 +426,7 @@ verify_jwt = false
 
 [functions.flutterwave-payment]
 verify_jwt = false
+
+[functions.flutterwave-payout]
+# The function verifies the bearer token with Supabase Auth for every action.
+verify_jwt = false

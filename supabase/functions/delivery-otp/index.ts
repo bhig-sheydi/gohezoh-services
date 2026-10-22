@@ -45,6 +45,9 @@ Deno.serve(async (request) => {
   try {
     await sendDeliveryCode({
       provider: Deno.env.get('DELIVERY_SMS_PROVIDER') ?? '',
+      messagingNgPublicKey: Deno.env.get('MESSAGING_NG_PUBLIC_KEY') ?? undefined,
+      messagingNgSecretKey: Deno.env.get('MESSAGING_NG_SECRET_KEY') ?? undefined,
+      messagingNgSenderId: Deno.env.get('MESSAGING_NG_SENDER_ID') ?? undefined,
       termiiApiKey: Deno.env.get('TERMII_API_KEY') ?? undefined,
       termiiSenderId: Deno.env.get('TERMII_SENDER_ID') ?? undefined,
       twilioAccountSid: Deno.env.get('TWILIO_ACCOUNT_SID') ?? undefined,

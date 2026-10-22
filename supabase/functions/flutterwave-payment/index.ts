@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { createDynamicAccount, verifiedBankTransfer, verifyFlutterwaveReference, verifyFlutterwaveTransaction } from '../_shared/flutterwave.ts'
+import { getNigerianTransfer, transferMatchesReservation } from '../_shared/flutterwave-payout.ts'
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS' }
@@ -13,7 +14,7 @@ Deno.serve(async (request) => {
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? ''
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
   const secret = Deno.env.get('FLUTTERWAVE_SECRET_KEY') ?? ''
-  if (!secret.startsWith('FLWSECK_TEST-')) return json({ error: 'Flutterwave sandbox payment is not configured' }, 503)
+  if (!secret) return json({ error: 'Flutterwave payment is not configured' }, 503)
   const admin = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } })
 
   // Webhooks remain disabled until the same secret hash is configured in both
@@ -24,6 +25,36 @@ Deno.serve(async (request) => {
     if (!expected || webhookSignature !== expected) return json({ error: 'Invalid webhook signature' }, 401)
     try {
       const event = await request.json() as { event?: string; data?: { id?: number; tx_ref?: string } }
+      if (event.event === 'transfer.completed' && Number.isSafeInteger(event.data?.id)) {
+        const transfer = await getNigerianTransfer(Number(event.data?.id), secret)
+        const merchantReference = /^(KWP-PAYOUT-[a-f0-9]{32})(?:_|$)/i.exec(transfer.reference)?.[1]
+        if (!merchantReference) return json({ received: true })
+        const { data: withdrawal, error: lookupError } = await admin.from('partner_withdrawals')
+          .select('id').eq('transfer_reference', merchantReference).maybeSingle()
+        if (lookupError) throw lookupError
+        if (!withdrawal) return json({ received: true })
+        const { data: expected, error: expectedError } = await admin.rpc('get_partner_withdrawal_transfer_attempt', {
+          p_withdrawal_id: withdrawal.id,
+        })
+        if (expectedError) throw expectedError
+        if (!transferMatchesReservation(transfer, expected)) throw new Error('Transfer did not match reserved payout')
+        if (transfer.status === 'SUCCESSFUL' || transfer.status === 'FAILED') {
+          const { error: finishError } = await admin.rpc('finish_partner_withdrawal_transfer', {
+            p_withdrawal_id: withdrawal.id, p_provider_transfer_id: transfer.id,
+            p_reference: expected.reference, p_provider_reference: transfer.reference,
+            p_status: transfer.status, p_amount_ngn: transfer.amountNgn, p_currency: transfer.currency,
+            p_bank_code: transfer.bankCode, p_account_number: transfer.accountNumber,
+          })
+          if (finishError) throw finishError
+        } else {
+          const { error: recordError } = await admin.rpc('record_partner_withdrawal_transfer_attempt', {
+            p_withdrawal_id: withdrawal.id, p_provider_transfer_id: transfer.id,
+            p_status: 'queued', p_provider_reference: transfer.reference,
+          })
+          if (recordError) throw recordError
+        }
+        return json({ received: true })
+      }
       if (event.event !== 'charge.completed' || !Number.isSafeInteger(event.data?.id)) return json({ received: true })
       const tx = await verifyFlutterwaveTransaction(Number(event.data?.id), secret)
       const reference = String(tx.tx_ref ?? '')

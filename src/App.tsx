@@ -22,16 +22,18 @@ import { CommissionPlansPanel } from './CommissionPlansPanel'
 import { MarketerCommissionPlansPanel } from './MarketerCommissionPlansPanel'
 import { BdoMarketerSharePlansPanel } from './BdoMarketerSharePlansPanel'
 import { CommissionPayoutPanel } from './CommissionPayoutPanel'
-import { PartnerInvitationClaim, PartnerOrganizationPanel } from './PartnerOrganizationPanel'
+import { PartnerInvitationClaim, PartnerRidersPanel } from './PartnerOrganizationPanel'
 import PartnerCompanyWelcome from './PartnerCompanyWelcome'
 import InternalExceptionInbox from './InternalExceptionInbox'
 import ParcelIdentifiers, { type ParcelIdentifier } from './ParcelIdentifiers'
 import CustomerRiderTracking from './CustomerRiderTracking'
+import CustomerPaymentReceipt from './CustomerPaymentReceipt'
 import ParcelPalsPanel, { type ParcelDestination, type ParcelPalContact } from './ParcelPalsPanel'
 import CustomerSavedParcels, { type SavedParcel } from './CustomerSavedParcels'
 import { PARCEL_LIMITS, PARCEL_MAX_QUANTITY } from './lib/parcel-limits'
 import './App.css'
 import './dark.css'
+import './customer-delivery-cards.css'
 
 type Customer = { id: string; company_name: string; status: string }
 type DeliveryRequest = {
@@ -49,10 +51,10 @@ type DeliveryRequest = {
   job_number?: string
   job_id?: string
   job_status?: string
+  sender_confirmation_status?: string
   pickup_code?: string
   parcels?: ParcelIdentifier[]
   job_history?: Array<{ status: string; changed_at: string }>
-  proofs?: Array<{ storage_path: string; signed_url: string; created_at: string; recipient_name: string | null }>
   customer_price?: number | null
   customer_currency?: string
   payments?: Array<{ payment_number: string; amount: number; currency: string; method: string; received_at: string; status: string }>
@@ -87,7 +89,7 @@ type FinanceJob = {
   partner_name?: string
   financials?: { customer_revenue: number; partner_cost: number; other_direct_cost: number; currency: string }
   payments: Array<{ id: string; job_id: string; payment_number: string; amount: number; currency: string; method: string; reference: string | null; received_at: string; status: string; reversal_reason: string | null }>
-  settlements: Array<{ id: string; job_id: string; settlement_number: string; amount: number; currency: string; status: string; request_reference: string; reference: string | null; created_by: string; approved_by: string | null }>
+  settlements: Array<{ id: string; job_id: string; settlement_number: string; amount: number; currency: string; status: string; request_reference: string; reference: string | null; withdrawal_id: string | null; created_by: string; approved_by: string | null }>
 }
 type FinanceTotal = { currency: string; customer_revenue: number; received: number; outstanding: number; partner_cost: number; direct_cost: number; gross_profit: number; settlements_due: number }
 
@@ -199,36 +201,31 @@ function App() {
     else {
       const requestRows = requestData ?? []
       const { data: orders, error: ordersError } = requestRows.length
-        ? await supabase.from('orders').select('service_request_id, order_number, customer_price, currency, jobs(id, job_number, status, job_status_history(new_status, changed_at), proof_of_delivery(storage_path, created_at, recipient_name), job_parcels(tracking_code, parcel_number, description, quantity))').in('service_request_id', requestRows.map((request) => request.id))
+        ? await supabase.from('orders').select('service_request_id, order_number, customer_price, currency, jobs(id, job_number, status, job_status_history(new_status, changed_at), job_parcels(tracking_code, parcel_number, description, quantity))').in('service_request_id', requestRows.map((request) => request.id))
         : { data: [], error: null }
       if (ordersError) setError(ordersError.message)
-      const orderReferences = new Map<string, { order_number: string; customer_price: number | null; customer_currency: string; job_id?: string; job_number?: string; job_status?: string; job_history?: Array<{ status: string; changed_at: string }>; parcels?: ParcelIdentifier[]; proofs?: Array<{ storage_path: string; created_at: string; recipient_name: string | null }>; payments?: DeliveryRequest['payments'] }>()
-      for (const order of (orders ?? []) as unknown as Array<{ service_request_id: string; order_number: string; customer_price: number | null; currency: string; jobs: { id: string; job_number: string; status: string; job_status_history: Array<{ new_status: string; changed_at: string }>; proof_of_delivery: Array<{ storage_path: string; created_at: string; recipient_name: string | null }>; job_parcels: ParcelIdentifier[] } | Array<{ id: string; job_number: string; status: string; job_status_history: Array<{ new_status: string; changed_at: string }>; proof_of_delivery: Array<{ storage_path: string; created_at: string; recipient_name: string | null }>; job_parcels: ParcelIdentifier[] } | null> | null }>) {
+      const orderReferences = new Map<string, { order_number: string; customer_price: number | null; customer_currency: string; job_id?: string; job_number?: string; job_status?: string; job_history?: Array<{ status: string; changed_at: string }>; parcels?: ParcelIdentifier[]; payments?: DeliveryRequest['payments'] }>()
+      for (const order of (orders ?? []) as unknown as Array<{ service_request_id: string; order_number: string; customer_price: number | null; currency: string; jobs: { id: string; job_number: string; status: string; job_status_history: Array<{ new_status: string; changed_at: string }>; job_parcels: ParcelIdentifier[] } | Array<{ id: string; job_number: string; status: string; job_status_history: Array<{ new_status: string; changed_at: string }>; job_parcels: ParcelIdentifier[] } | null> | null }>) {
         const job = Array.isArray(order.jobs) ? order.jobs[0] : order.jobs
-        orderReferences.set(order.service_request_id, { order_number: order.order_number, customer_price: order.customer_price, customer_currency: order.currency, job_id: job?.id, job_number: job?.job_number, job_status: job?.status, job_history: job?.job_status_history?.map((event) => ({ status: event.new_status, changed_at: event.changed_at })), parcels: job?.job_parcels, proofs: job?.proof_of_delivery })
+        orderReferences.set(order.service_request_id, { order_number: order.order_number, customer_price: order.customer_price, customer_currency: order.currency, job_id: job?.id, job_number: job?.job_number, job_status: job?.status, job_history: job?.job_status_history?.map((event) => ({ status: event.new_status, changed_at: event.changed_at })), parcels: job?.job_parcels })
       }
       const customerJobIds = [...new Set([...orderReferences.values()].flatMap((reference) => reference.job_id ? [reference.job_id] : []))]
       const { data: pickupCodeRows, error: pickupCodeError } = customerJobIds.length
         ? await supabase.rpc('get_my_pickup_handoff_codes', { p_job_ids: customerJobIds }) : { data: [], error: null }
       if (pickupCodeError) setError(pickupCodeError.message)
       const pickupCodeByJob = new Map(((pickupCodeRows ?? []) as Array<{ job_id: string; code: string }>).map((row) => [row.job_id, row.code]))
+      const { data: confirmationRows, error: confirmationError } = customerJobIds.length
+        ? await supabase.rpc('list_my_sender_delivery_confirmations') : { data: [], error: null }
+      if (confirmationError) setError(confirmationError.message)
+      const confirmationByJob = new Map(((confirmationRows ?? []) as Array<{ job_id: string; status: string }>).map((row) => [row.job_id, row.status]))
       const { data: receiptRows, error: receiptsError } = customerJobIds.length ? await supabase.rpc('list_my_customer_payments') : { data: [], error: null }
       if (receiptsError) setError(receiptsError.message)
       const receiptsByJob = new Map<string, NonNullable<DeliveryRequest['payments']>>()
       for (const receipt of (receiptRows ?? []) as Array<NonNullable<DeliveryRequest['payments']>[number] & { job_id: string }>) receiptsByJob.set(receipt.job_id, [...(receiptsByJob.get(receipt.job_id) ?? []), receipt])
       for (const reference of orderReferences.values()) if (reference.job_id) reference.payments = receiptsByJob.get(reference.job_id) ?? []
-      const paths = [...new Set([...orderReferences.values()].flatMap((reference) => reference.proofs?.map((proof) => proof.storage_path) ?? []))]
-      const { data: signedRows, error: signedError } = paths.length
-        ? await supabase.storage.from('proof-of-delivery').createSignedUrls(paths, 300)
-        : { data: [], error: null }
-      if (signedError) setError(signedError.message)
-      const signedByPath = new Map((signedRows ?? []).flatMap((row) => row.signedUrl ? [[row.path, row.signedUrl] as const] : []))
       setRequests(requestRows.map((request) => {
         const reference = orderReferences.get(request.id)
-        return { ...request, ...reference, pickup_code: reference?.job_id ? pickupCodeByJob.get(reference.job_id) : undefined, proofs: reference?.proofs?.flatMap((proof) => {
-          const signedUrl = signedByPath.get(proof.storage_path)
-          return signedUrl ? [{ ...proof, signed_url: signedUrl }] : []
-        }) }
+        return { ...request, ...reference, pickup_code: reference?.job_id ? pickupCodeByJob.get(reference.job_id) : undefined, sender_confirmation_status: reference?.job_id ? confirmationByJob.get(reference.job_id) : undefined }
       }))
     }
     if (notificationError) setError(notificationError.message)
@@ -405,7 +402,7 @@ function App() {
   return (
     <main className={`app-shell ${customerScreen ? 'customer-shell' : ''}`}>
       <header className="topbar">
-        <a className="brand" href="/" aria-label="Kwik-Parsel by Gohezo Integrated Services"><span className="brand-mark">K</span><span><strong>KWIK-PARSEL</strong><small>BY GOHEZO</small></span></a>
+        <a className="brand" href="/" aria-label="Kwik-Parsel by Gohezo Integrated Services"><img className="brand-mark" src="/favicon.svg" alt="" /><span><strong>KWIK-PARSEL</strong><small>BY GOHEZO</small></span></a>
         <div className="topbar-actions"><button type="button" className="theme-toggle" aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} aria-pressed={theme === 'dark'} onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')}><span className="theme-toggle-icon" aria-hidden="true">{theme === 'dark' ? <svg viewBox="0 0 24 24" focusable="false"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/></svg> : <svg viewBox="0 0 24 24" focusable="false"><path d="M20.4 15.5A8.5 8.5 0 0 1 8.5 3.6 8.5 8.5 0 1 0 20.4 15.5Z"/></svg>}</span><span className="theme-toggle-label">{theme === 'dark' ? 'Light mode' : 'Dark mode'}</span></button>{session && <div className="signed-in">{superAdmin && workspace !== 'account' && <button className="text-button" onClick={() => setWorkspace('account')}>Super Admin</button>}{operationsAccess && !operationsScreen && <button className="text-button" onClick={() => setWorkspace('operations')}>Operations</button>}{financeAccess && !financeScreen && <button className="text-button" onClick={() => setWorkspace('finance')}>Finance</button>}{bdoAccess && !bdoScreen && <button className="text-button" onClick={() => setWorkspace('bdo')}>Business Development</button>}{warehouseAccess && !warehouseScreen && <button className="text-button" onClick={() => setWorkspace('warehouse')}>Warehouse</button>}{customerAccess && !superAdmin && workspace !== 'staff' && <button className="text-button" onClick={() => setWorkspace('staff')}>Request staff access</button>}{customerInventoryAccess && !warehouseScreen && <button className="text-button" onClick={() => setWorkspace('warehouse')}>Inventory & fulfillment</button>}{!superAdmin && workspace !== 'account' && <button className="text-button" onClick={() => setWorkspace('account')}>Back to portal</button>}<span>{session.user.email}</span><button className="text-button" onClick={signOut}>Sign out</button></div>}</div>
       </header>
 
@@ -779,7 +776,7 @@ type PartnerPortalAssignment = {
   id: string
   status: string
   assigned_at: string
-  job: { id: string; job_number: string; status: string; pickup_address: string; pickup_city: string; delivery_address: string; delivery_city: string; delivery_latitude?: number | null; delivery_longitude?: number | null; recipient_name: string; recipient_phone: string; recipient_phone_secondary?: string | null; job_parcels?: ParcelIdentifier[]; proof_of_delivery?: Array<{ id: string; storage_path: string; recipient_name: string | null; created_at: string }> }
+  job: { id: string; job_number: string; status: string; pickup_address: string; pickup_city: string; delivery_address: string; delivery_city: string; delivery_latitude?: number | null; delivery_longitude?: number | null; recipient_name: string; recipient_phone: string; recipient_phone_secondary?: string | null; job_parcels?: ParcelIdentifier[] }
 }
 
 function PartnerPortal({ supabase, userId, canRespond, onError, onNotice }: {
@@ -796,7 +793,6 @@ function PartnerPortal({ supabase, userId, canRespond, onError, onNotice }: {
   const [busy, setBusy] = useState(false)
   const [otpSentFor, setOtpSentFor] = useState<string[]>([])
   const [otpCodes, setOtpCodes] = useState<Record<string, string>>({})
-  const [podFiles, setPodFiles] = useState<Record<string, File | undefined>>({})
   const [parcelLookup, setParcelLookup] = useState('')
 
   const loadAssignments = useCallback(async () => {
@@ -825,7 +821,7 @@ function PartnerPortal({ supabase, userId, canRespond, onError, onNotice }: {
     const rows = assignmentRows ?? []
     const jobIds = [...new Set(rows.map((row) => row.job_id))]
     const { data: jobs, error: jobsError } = jobIds.length
-      ? await supabase.from('jobs').select('id, job_number, status, pickup_address, pickup_city, delivery_address, delivery_city, delivery_latitude, delivery_longitude, recipient_name, recipient_phone, recipient_phone_secondary, job_parcels(tracking_code, parcel_number, description, quantity), proof_of_delivery(id, storage_path, recipient_name, created_at)').in('id', jobIds)
+      ? await supabase.from('jobs').select('id, job_number, status, pickup_address, pickup_city, delivery_address, delivery_city, delivery_latitude, delivery_longitude, recipient_name, recipient_phone, recipient_phone_secondary, job_parcels(tracking_code, parcel_number, description, quantity)').in('id', jobIds)
       : { data: [], error: null }
     if (jobsError) onError(jobsError.message)
     const jobsById = new Map((jobs ?? []).map((job) => [job.id, job]))
@@ -890,39 +886,11 @@ function PartnerPortal({ supabase, userId, canRespond, onError, onNotice }: {
     setBusy(false)
   }
 
-  async function uploadProof(assignment: PartnerPortalAssignment) {
-    const file = podFiles[assignment.job.id]
-    if (!canRespond || busy || !file) return
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
-      onError('Choose a JPEG, PNG, or WebP photo up to 5 MB.')
-      return
-    }
-    setBusy(true)
-    const extension = file.type === 'image/jpeg' ? 'jpg' : file.type === 'image/png' ? 'png' : 'webp'
-    const path = `${assignment.job.id}/${crypto.randomUUID()}.${extension}`
-    const { error: uploadError } = await supabase.storage.from('proof-of-delivery').upload(path, file, { contentType: file.type, upsert: false })
-    if (uploadError) onError(uploadError.message)
-    else {
-      const { error: recordError } = await supabase.from('proof_of_delivery').insert({
-        job_id: assignment.job.id, storage_path: path, content_type: file.type,
-        file_size_bytes: file.size, recipient_name: assignment.job.recipient_name, recorded_by: userId,
-      })
-      if (recordError) {
-        onError(recordError.message)
-        await supabase.storage.from('proof-of-delivery').remove([path])
-      } else {
-        onNotice(`Proof of delivery saved for ${assignment.job.job_number}.`)
-        await loadAssignments()
-      }
-    }
-    setBusy(false)
-  }
-
   const visibleAssignments=assignments.filter(({job})=>!parcelLookup.trim()||job.job_parcels?.some((parcel)=>parcel.tracking_code.toUpperCase()===parcelLookup.trim().toUpperCase()))
   return <main className="partner-page">
     {canRespond && <PartnerCompanyWelcome supabase={supabase} onError={onError} onNotice={onNotice} />}
     {canRespond && <PartnerBidScreen supabase={supabase} partnerIds={partnerIds} onError={onError} onNotice={onNotice} />}
-    {canRespond && <PartnerOrganizationPanel supabase={supabase} userId={userId} onError={onError} onNotice={onNotice} />}
+    {canRespond && <PartnerRidersPanel supabase={supabase} userId={userId} onError={onError} onNotice={onNotice} />}
     {canRespond && <ProximityPanel supabase={supabase} canConfigure={false} onError={onError} onNotice={onNotice} />}
     <div className="dashboard-heading"><div><p className="eyebrow">LOGISTICS PARTNER</p><h1>Assigned deliveries</h1><p className="section-intro">{partnerName || 'Jobs assigned to your partner account appear here.'}</p></div><button className="secondary-button" onClick={() => void loadAssignments()} disabled={loading}>Refresh deliveries</button></div>
     {!canRespond && <div className="role-preview-banner">Preview only: partner responses and delivery updates require a linked Partner account.</div>}
@@ -942,14 +910,7 @@ function PartnerPortal({ supabase, userId, canRespond, onError, onNotice }: {
               <button className="primary-button" disabled={!canRespond || busy || (otpCodes[job.id] ?? '').length !== 6} onClick={() => void verifyDeliveryCode(assignment)}>{busy ? 'Verifying...' : 'Verify code and confirm delivery'}</button>
             </>}
           </section>}
-          {assignment.status === 'completed' && job.status === 'delivered' && <section className="delivery-otp-panel pod-upload-panel" aria-label={`Proof of delivery for ${job.job_number}`}>
-            <h3>Proof of delivery</h3>
-            {job.proof_of_delivery?.length ? <p className="pod-saved-message">Photo proof saved for this delivery.</p> : <>
-              <p className="section-intro">Add a clear photo of the delivered parcel or signed receipt.</p>
-              <label className="field"><span>Delivery photo (up to 5 MB)</span><input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={(event) => setPodFiles((current) => ({ ...current, [job.id]: event.target.files?.[0] }))} /></label>
-              <button className="secondary-button" disabled={!canRespond || busy || !podFiles[job.id]} onClick={() => void uploadProof(assignment)}>{busy ? 'Saving proof...' : 'Upload proof of delivery'}</button>
-            </>}
-          </section>}
+
         </>}
       </article>
     })}</div>}
@@ -1049,11 +1010,68 @@ function DeliveryTimeline({ request }: { request: DeliveryRequest }) {
   </div>
 }
 
+function CustomerDeliveryCard({ request, confirmationStatus, expanded, onToggle, supabase, onError, onRefresh }: { request: DeliveryRequest; confirmationStatus?: string; expanded: boolean; onToggle: () => void; supabase: ReturnType<typeof getSupabaseClient>; onError: (message: string) => void; onRefresh: () => void }) {
+  const [confirmationBusy, setConfirmationBusy] = useState(false)
+  async function answerDeliveryConfirmation(approve: boolean) {
+    if (!request.job_id || confirmationBusy) return
+    setConfirmationBusy(true)
+    const { error } = await supabase.rpc('respond_sender_delivery_confirmation', { p_job_id: request.job_id, p_approve: approve })
+    if (error) onError(error.message)
+    else onRefresh()
+    setConfirmationBusy(false)
+  }
+  const status = ['submitted', 'under_review'].includes(request.status) && request.dispatch_match_status
+    ? dispatchStatusLabels[request.dispatch_match_status] ?? formatRequestStatus(request.status)
+    : formatRequestStatus(request.status)
+  const route = routeLabel(request.pickup_address, request.pickup_city, request.delivery_address, request.delivery_city)
+  return <article className={`customer-delivery-card${expanded ? ' is-expanded' : ''}`}>
+    <button className="customer-delivery-toggle" type="button" aria-expanded={expanded} aria-label={`${expanded ? 'Close parcel details for' : 'Track parcel'} ${request.request_number}`} onClick={onToggle}>
+      <span className="customer-delivery-card-top"><span className="customer-delivery-brand"><img src="/favicon.svg" alt="" /><strong>{request.request_number}</strong></span><span className={`request-status status-${request.status}`}>{status}</span></span>
+      <span className="customer-delivery-card-route">{route}</span>
+      {confirmationStatus === 'pending' && !['delivered','closed'].includes(request.job_status ?? '') && <span className="customer-delivery-confirmation-hint">Your delivery confirmation is needed</span>}
+      <span className="customer-delivery-card-bottom"><span>{new Intl.DateTimeFormat('en-NG', { timeStyle: 'short' }).format(new Date(request.created_at))}</span>{expanded ? <span className="customer-delivery-close" aria-hidden="true">×</span> : <span className="customer-delivery-action">Track parcel</span>}</span>
+    </button>
+    {expanded && <div className="customer-delivery-details">
+      <p className="customer-delivery-recipient">To {request.recipient_name}</p>
+      {['no_nearby', 'no_bids'].includes(request.dispatch_match_status ?? '') && <button className="secondary-button" type="button" onClick={async () => { const { error } = await supabase.rpc('retry_my_dispatch', { p_request: request.id }); if (error) onError(error.message); else onRefresh() }}>Try matching again</button>}
+      {request.order_number && <div className="request-references"><span>Order <strong>{request.order_number}</strong></span>{request.job_number && <span>Job <strong>{request.job_number}</strong></span>}{request.job_status && <span className={`job-status-label status-${request.job_status}`}>{formatStatus(request.job_status)}</span>}</div>}
+      {request.pickup_code && <div className="customer-pickup-code"><span>Pickup code for {request.job_number}</span><strong>{request.pickup_code}</strong><small>Give this code to the assigned rider only when handing over your parcel.</small></div>}
+      {confirmationStatus === 'pending' && !['delivered','closed'].includes(request.job_status ?? '') && <section className="delivery-otp-panel" aria-label={`Confirm delivery for ${request.job_number}`}>
+        <h3>Confirm delivery</h3><p>Are you sure that this parcel has reached its destination?</p>
+        <div className="partner-response-actions"><button className="secondary-button" type="button" disabled={confirmationBusy} onClick={() => void answerDeliveryConfirmation(false)}>No, it has not arrived</button><button className="primary-button" type="button" disabled={confirmationBusy} onClick={() => void answerDeliveryConfirmation(true)}>Yes, confirm delivery</button></div>
+      </section>}
+      {request.customer_price !== undefined && request.customer_price !== null && <CustomerPaymentReceipt requestNumber={request.request_number} orderNumber={request.order_number} amount={Number(request.customer_price)} currency={request.customer_currency ?? 'NGN'} payments={request.payments ?? []} />}
+      {request.job_status && <DeliveryTimeline request={request} />}
+      {request.job_id && !['delivered', 'closed', 'cancelled'].includes(request.job_status ?? '') && <CustomerRiderTracking supabase={supabase} jobId={request.job_id} />}
+      <ParcelIdentifiers parcels={request.parcels ?? []} />
+    </div>}
+  </article>
+}
+
 function Dashboard({ supabase, userId, onError, onNotice, customer, services, coverageLocations, coverageCorridors, requests, notifications, busy, onSubmit, onMarkRead, onRefresh }: { supabase: ReturnType<typeof getSupabaseClient>; userId: string; onError: (message: string) => void; onNotice: (message: string) => void; customer: Customer; services: Service[]; coverageLocations: CoverageLocation[]; coverageCorridors: CoverageCorridor[]; requests: DeliveryRequest[]; notifications: CustomerNotification[]; busy: boolean; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onMarkRead: (notification: CustomerNotification) => void; onRefresh: () => void }) {
   const [serviceId, setServiceId] = useState('')
   const [originId, setOriginId] = useState('')
   const [destinationId, setDestinationId] = useState('')
   const [activeFrame, setActiveFrame] = useState<'home'|'send'|'updates'|'tracking'>('home')
+  const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null)
+  const [confirmationStatuses, setConfirmationStatuses] = useState<Record<string, string>>({})
+  useEffect(() => {
+    let active = true
+    const refreshConfirmations = async () => {
+      if (document.visibilityState === 'hidden') return
+      const { data } = await supabase.rpc('list_my_sender_delivery_confirmations')
+      if (active && Array.isArray(data)) setConfirmationStatuses(Object.fromEntries(data.map((row: { job_id: string; status: string }) => [row.job_id, row.status])))
+    }
+    void refreshConfirmations()
+    const timer = window.setInterval(() => void refreshConfirmations(), 20000)
+    document.addEventListener('visibilitychange', refreshConfirmations)
+    return () => { active = false; window.clearInterval(timer); document.removeEventListener('visibilitychange', refreshConfirmations) }
+  }, [supabase])
+  const pendingConfirmation = requests.find((request) => request.job_id && !['delivered','closed'].includes(request.job_status ?? '') && (confirmationStatuses[request.job_id] ?? request.sender_confirmation_status) === 'pending')
+  const paymentReceivedAtByRequest = Object.fromEntries(requests.flatMap((request) => {
+    const receipt = request.payments?.find((payment) => payment.status === 'received')
+    return receipt ? [[request.id, receipt.received_at]] : []
+  }))
   useEffect(() => {
     const showMatching = () => setActiveFrame('tracking')
     window.addEventListener('customer-request-submitted', showMatching)
@@ -1118,8 +1136,11 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
       <div><p className="eyebrow">CUSTOMER PORTAL</p><h1>{activeFrame === 'home' ? 'Your parcels' : activeFrame === 'send' ? 'Send items' : activeFrame === 'updates' ? 'Updates' : 'Your deliveries'}</h1><p className="section-intro">{customer.company_name}</p></div>
       <span className={`profile-status status-${customer.status}`}>{customer.status}</span>
     </div>
+    {pendingConfirmation && <button className="customer-confirmation-alert" type="button" onClick={() => { setExpandedRequestId(pendingConfirmation.id); setActiveFrame('tracking') }}>
+      <strong>Confirm parcel arrival</strong><span>{pendingConfirmation.request_number}: your rider has asked you to verify delivery.</span><span>Review this parcel</span>
+    </button>}
     {activeFrame === 'home' && <>
-      {requests[0] && ['submitted', 'under_review'].includes(requests[0].status) && <section className="customer-app-frame" aria-label="Latest delivery update"><p className="eyebrow">LATEST DELIVERY · {requests[0].request_number}</p><CustomerQuotePanel supabase={supabase} requestIds={[requests[0].id]} pendingRequestIds={['waiting', 'bidding'].includes(requests[0].dispatch_match_status ?? '') ? [requests[0].id] : []} onError={onError} onNotice={onNotice} onRefresh={onRefresh} /></section>}
+      {requests[0] && ['submitted', 'under_review'].includes(requests[0].status) && <section className="customer-app-frame" aria-label="Latest delivery update"><p className="eyebrow">LATEST DELIVERY · {requests[0].request_number}</p><CustomerQuotePanel supabase={supabase} requestIds={[requests[0].id]} pendingRequestIds={['waiting', 'bidding'].includes(requests[0].dispatch_match_status ?? '') ? [requests[0].id] : []} paymentReceivedAtByRequest={paymentReceivedAtByRequest} onError={onError} onNotice={onNotice} onRefresh={onRefresh} /></section>}
       <nav className="customer-launch-grid" aria-label="Customer navigation">
         <button className="customer-launch-card" type="button" onClick={() => openFrame('send')}><span className="customer-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5v-9Z"/><path d="m3.5 7.7 8.5 4.4 8.5-4.4M12 12v9M7.5 5.2l9 4.6"/></svg></span><strong>Send items</strong><small>Book a pickup and delivery</small></button>
         <button className="customer-launch-card" type="button" onClick={openDeliveryInfo}><span className="customer-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></svg></span><strong>Edit my delivery info</strong><small>Work, home and other addresses</small></button>
@@ -1171,7 +1192,21 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
       </form>
     </section>}
     {activeFrame === 'updates' && <section className="notification-panel customer-notifications customer-app-frame"><div className="history-heading"><div><p className="eyebrow">UPDATES</p><h2>Messages about your parcels</h2></div><button type="button" className="text-button notification-refresh" onClick={onRefresh}>Refresh</button></div>{notifications.length === 0 ? <p className="notification-empty">No updates.</p> : <div className="notification-list">{notifications.map((notification) => <article className={`notification-item ${notification.read_at ? 'notification-read' : 'notification-unread'}`} key={notification.id}><div className="notification-copy"><div className="notification-title-row"><strong>{notification.title}</strong>{!notification.read_at && <span className="notification-new">New</span>}</div><p>{notification.body}</p><small>{new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(notification.created_at))}</small></div>{!notification.read_at && <button className="secondary-button notification-read-button" onClick={() => onMarkRead(notification)}>Mark as read</button>}</article>)}</div>}</section>}
-    {activeFrame === 'tracking' && <section className="history-panel customer-history customer-app-frame"><div className="history-heading"><div><p className="eyebrow">TRACKING</p><h2>Your deliveries</h2></div><span className="request-count">{requests.length}</span><button className="text-button" type="button" onClick={onRefresh}>Refresh</button></div>{requests.length === 0 ? <div className="empty-state"><span className="empty-icon" aria-hidden="true">ï¼‹</span><h3>No deliveries yet</h3></div> : <><CustomerQuotePanel supabase={supabase} requestIds={requests.map((request) => request.id)} pendingRequestIds={requests.filter((request) => ['waiting','bidding'].includes(request.dispatch_match_status ?? '')).map((request) => request.id)} onError={onError} onNotice={onNotice} onRefresh={onRefresh} /><div className="request-list">{requests.map((request) => <article className="request-item" key={request.id}><div className="request-item-top"><strong>{request.request_number}</strong><span className={`request-status status-${request.status}`}>{['submitted','under_review'].includes(request.status) && request.dispatch_match_status ? dispatchStatusLabels[request.dispatch_match_status] : formatRequestStatus(request.status)}</span></div>{['no_nearby','no_bids'].includes(request.dispatch_match_status ?? '') && <button className="secondary-button" type="button" onClick={async () => { const { error } = await supabase.rpc('retry_my_dispatch', { p_request: request.id }); if (error) onError(error.message); else onRefresh() }}>Try matching again</button>}<p className="customer-route-label">{routeLabel(request.pickup_address, request.pickup_city, request.delivery_address, request.delivery_city)}</p><small>{request.recipient_name} - {new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium' }).format(new Date(request.created_at))}</small>{request.order_number && <div className="request-references"><span>Order <strong>{request.order_number}</strong></span>{request.job_number && <span>Job <strong>{request.job_number}</strong></span>}{request.job_status && <span className={`job-status-label status-${request.job_status}`}>{formatStatus(request.job_status)}</span>}</div>}{request.pickup_code && <div className="customer-pickup-code"><span>Pickup code for {request.job_number}</span><strong>{request.pickup_code}</strong><small>Give this code to the assigned rider only when handing over your parcel.</small></div>}{request.customer_price !== undefined && request.customer_price !== null && <details className="customer-payment-summary"><summary>Payment</summary><span>Total: {new Intl.NumberFormat('en-NG',{style:'currency',currency:request.customer_currency ?? 'NGN'}).format(Number(request.customer_price))}</span><span>Received: {new Intl.NumberFormat('en-NG',{style:'currency',currency:request.customer_currency ?? 'NGN'}).format((request.payments ?? []).filter((payment) => payment.status === 'received').reduce((sum,payment) => sum + Number(payment.amount),0))}</span><span>Balance: {new Intl.NumberFormat('en-NG',{style:'currency',currency:request.customer_currency ?? 'NGN'}).format(Math.max(0,Number(request.customer_price) - (request.payments ?? []).filter((payment) => payment.status === 'received').reduce((sum,payment) => sum + Number(payment.amount),0)))}</span>{request.payments?.map((payment) => <small key={payment.payment_number}>{payment.payment_number} - {payment.method.replaceAll('_',' ')} - {new Intl.NumberFormat('en-NG',{style:'currency',currency:payment.currency}).format(Number(payment.amount))}{payment.status === 'reversed' ? ' - Reversed' : ''}</small>)}</details>}{request.job_status && <DeliveryTimeline request={request} />}{request.job_id && !['delivered','closed','cancelled'].includes(request.job_status ?? '') && <CustomerRiderTracking supabase={supabase} jobId={request.job_id} />}<ParcelIdentifiers parcels={request.parcels??[]} />{request.proofs?.map((proof, index) => <a className="pod-customer-link" key={proof.storage_path} href={proof.signed_url} target="_blank" rel="noreferrer">View proof of delivery {index + 1}</a>)}</article>)}</div></>}</section>}
+    {activeFrame === 'tracking' && <section className="history-panel customer-history customer-app-frame">
+      <div className="history-heading"><div><p className="eyebrow">TRACKING</p><h2>Your deliveries</h2></div><span className="request-count">{requests.length}</span><button className="text-button" type="button" onClick={onRefresh}>Refresh</button></div>
+      {requests.length === 0 ? <div className="empty-state"><span className="empty-icon" aria-hidden="true">?</span><h3>No deliveries yet</h3></div> : <>
+        <CustomerQuotePanel supabase={supabase} requestIds={requests.map((request) => request.id)} pendingRequestIds={requests.filter((request) => ['waiting', 'bidding'].includes(request.dispatch_match_status ?? '')).map((request) => request.id)} paymentReceivedAtByRequest={paymentReceivedAtByRequest} onError={onError} onNotice={onNotice} onRefresh={onRefresh} />
+        <div className="customer-delivery-groups">{Array.from(requests.reduce((groups, request) => {
+          const date = new Intl.DateTimeFormat('en-NG', { dateStyle: 'long' }).format(new Date(request.created_at))
+          const group = groups.get(date) ?? []
+          group.push(request)
+          groups.set(date, group)
+          return groups
+        }, new Map<string, DeliveryRequest[]>())).map(([date, group]) => <section className="customer-delivery-group" key={date} aria-label={`Deliveries on ${date}`}>
+          <h3>{date}</h3><div className="customer-delivery-grid">{group.map((request) => <CustomerDeliveryCard key={request.id} request={request} confirmationStatus={request.job_id ? confirmationStatuses[request.job_id] ?? request.sender_confirmation_status : undefined} expanded={expandedRequestId === request.id} onToggle={() => setExpandedRequestId(expandedRequestId === request.id ? null : request.id)} supabase={supabase} onError={onError} onRefresh={onRefresh} />)}</div>
+        </section>)}</div>
+      </>}
+    </section>}
   </main>
 }
 
@@ -1191,24 +1226,31 @@ function FinanceConsole({ supabase, userId, canRecord, canApprove, canPay, onErr
 
   const loadFinance = useCallback(async () => {
     setLoading(true)
-    const [jobResult, totalResult] = await Promise.all([
+    const [jobResult, totalResult, withdrawalResult] = await Promise.all([
       supabase.from('jobs').select('id, job_number, status, customer_id, partner_id').order('updated_at', { ascending: false }).limit(100),
       supabase.rpc('finance_dashboard_totals'),
+      supabase.from('partner_settlements').select('job_id').not('withdrawal_id', 'is', null).in('status', ['pending', 'approved']).order('created_at', { ascending: false }).limit(100),
     ])
     setTotals((totalResult.data ?? []) as FinanceTotal[])
-    const firstError = jobResult.error ?? totalResult.error
+    const firstError = jobResult.error ?? totalResult.error ?? withdrawalResult.error
     if (firstError) {
       onError(firstError.message)
       setJobs([])
       setLoading(false)
       return
     }
-    const rows = (jobResult.data ?? []) as unknown as Array<{ id: string; job_number: string; status: string; customer_id: string; partner_id: string | null }>
+    const recentRows = (jobResult.data ?? []) as unknown as Array<{ id: string; job_number: string; status: string; customer_id: string; partner_id: string | null }>
+    const outstandingIds = [...new Set(((withdrawalResult.data ?? []) as Array<{ job_id: string }>).map((row) => row.job_id))].filter((id) => !recentRows.some((job) => job.id === id))
+    const { data: outstandingJobs, error: outstandingError } = outstandingIds.length
+      ? await supabase.from('jobs').select('id, job_number, status, customer_id, partner_id').in('id', outstandingIds)
+      : { data: [], error: null }
+    if (outstandingError) { onError(outstandingError.message); setJobs([]); setLoading(false); return }
+    const rows = [...recentRows, ...((outstandingJobs ?? []) as typeof recentRows)]
     const ids = rows.map((job) => job.id)
     const [financialResult, paymentResult, settlementResult] = ids.length ? await Promise.all([
       supabase.from('job_financials').select('job_id, customer_revenue, partner_cost, other_direct_cost, currency').in('job_id', ids),
       supabase.from('customer_payments').select('id, payment_number, job_id, amount, currency, method, reference, received_at, status, reversal_reason').in('job_id', ids).order('received_at', { ascending: false }),
-      supabase.from('partner_settlements').select('id, settlement_number, job_id, amount, currency, status, request_reference, reference, created_by, approved_by').in('job_id', ids).order('created_at', { ascending: false }),
+      supabase.from('partner_settlements').select('id, settlement_number, job_id, amount, currency, status, request_reference, reference, withdrawal_id, created_by, approved_by').in('job_id', ids).order('created_at', { ascending: false }),
     ]) : [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }]
     const detailError = financialResult.error ?? paymentResult.error ?? settlementResult.error
     if (detailError) { onError(detailError.message); setJobs([]); setLoading(false); return }
@@ -1306,7 +1348,7 @@ function FinanceConsole({ supabase, userId, canRecord, canApprove, canPay, onErr
   const formatMoney = (amount: number, currency: string) => new Intl.NumberFormat('en-NG', { style: 'currency', currency, maximumFractionDigits: 2 }).format(amount)
 
   return <main className="finance-page">
-    <div className="dashboard-heading"><div><p className="eyebrow">KWIK-PARSEL FINANCE</p><h1>Finance desk</h1><p className="section-intro">Track job margins, customer receipts, and partner payouts. Record actual transfers manually; no payment gateway is connected.</p></div><button className="secondary-button" onClick={() => { onError(''); void loadFinance() }} disabled={loading}>Refresh financials</button></div>
+    <div className="dashboard-heading"><div><p className="eyebrow">KWIK-PARSEL FINANCE</p><h1>Finance desk</h1><p className="section-intro">Track job margins, customer receipts, legacy manual settlements, and verified automatic partner payouts.</p></div><button className="secondary-button" onClick={() => { onError(''); void loadFinance() }} disabled={loading}>Refresh financials</button></div>
     {!canRecord && <div className="role-preview-banner">Preview only: finance records and actions require Finance, Management, or Admin access.</div>}
     {(canApprove || canPay) && <CommissionPayoutPanel supabase={supabase} userId={userId} canReview={canApprove} canPay={canPay} onError={onError} onNotice={onNotice} />}
     {canApprove && <><CommissionPlansPanel supabase={supabase} canManage={canApprove} onError={onError} onNotice={onNotice} /><MarketerCommissionPlansPanel supabase={supabase} canManage={canApprove} onError={onError} onNotice={onNotice} /><BdoMarketerSharePlansPanel supabase={supabase} canManage={canApprove} onError={onError} onNotice={onNotice} /></>}
@@ -1325,7 +1367,7 @@ function FinanceConsole({ supabase, userId, canRecord, canApprove, canPay, onErr
           <form className="finance-form" onSubmit={(event) => void submitFinanceAction(event,job,'payment')}><h3>Record customer receipt</h3><div className="finance-field-grid"><Field label={`Amount (${financials.currency})`} name="amount" type="number" min="0.01" required /><label className="field"><span>Payment method</span><select name="method" defaultValue="bank_transfer"><option value="bank_transfer">Bank transfer</option><option value="cash">Cash</option><option value="pos">POS</option><option value="online">Online transfer</option><option value="other">Other</option></select></label><Field label="Receipt or transaction reference" name="reference" required /><Field label="Notes" name="notes" /></div><button className="secondary-button" disabled={!canRecord || busyKey===job.id}>Record receipt</button></form>
           {job.partner_id && ['delivered','closed'].includes(job.status) && <form className="finance-form" onSubmit={(event) => void submitFinanceAction(event,job,'settlement')}><h3>Create partner settlement</h3><div className="finance-field-grid"><Field label={`Amount (${financials.currency})`} name="amount" type="number" min="0.01" required /><Field label="Unique settlement request reference" name="reference" required /><Field label="Notes" name="notes" /></div><button className="secondary-button" disabled={!canRecord || busyKey===job.id}>Create settlement</button></form>}
           {job.payments.length > 0 && <div className="finance-record-list"><h3>Customer receipts</h3>{job.payments.map((payment) => <p key={payment.id}><strong>{payment.payment_number}</strong> ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· {formatMoney(Number(payment.amount),payment.currency)} ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· {payment.method.replaceAll('_',' ')}{payment.reference ? ` ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· ${payment.reference}` : ''} ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· {payment.status==='reversed' ? `Reversed: ${payment.reversal_reason}` : <button className="text-button finance-cancel" disabled={!canRecord || busyKey===payment.id} onClick={() => void reversePayment(payment)}>Reverse</button>}</p>)}</div>}
-          {job.settlements.length > 0 && <div className="finance-record-list"><h3>Partner settlements</h3>{job.settlements.map((settlement) => <div className="finance-settlement-row" key={settlement.id}><p><strong>{settlement.settlement_number}</strong> ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· {formatMoney(Number(settlement.amount),settlement.currency)} ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· <span className={`finance-status finance-status-${settlement.status}`}>{settlement.status}</span> ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· Request {settlement.request_reference}{settlement.reference ? ` ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· Transfer ${settlement.reference}` : ''}</p><div>{settlement.status==='pending' && <><button className="text-button" disabled={!canApprove || settlement.created_by===userId || busyKey===settlement.id} onClick={() => void updateSettlement(job,settlement,'approved')}>Approve</button><button className="text-button finance-cancel" disabled={!canRecord || busyKey===settlement.id} onClick={() => void updateSettlement(job,settlement,'cancelled')}>Cancel</button></>}{settlement.status==='approved' && <><button className="text-button" disabled={!canPay || settlement.approved_by===userId || busyKey===settlement.id} onClick={() => void updateSettlement(job,settlement,'paid')}>Mark paid</button><button className="text-button finance-cancel" disabled={!canRecord || busyKey===settlement.id} onClick={() => void updateSettlement(job,settlement,'cancelled')}>Cancel</button></>}</div></div>)}</div>}
+          {job.settlements.length > 0 && <div className="finance-record-list"><h3>Partner settlements</h3>{job.settlements.map((settlement) => <div className={`finance-settlement-row${settlement.withdrawal_id ? " finance-settlement-automatic" : ""}`} key={settlement.id}><p><strong>{settlement.settlement_number}</strong> ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· {formatMoney(Number(settlement.amount),settlement.currency)} ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· <span className={`finance-status finance-status-${settlement.status}`}>{settlement.status}</span> ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· Request {settlement.request_reference}{settlement.reference ? ` ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· Transfer ${settlement.reference}` : ''}</p>{settlement.withdrawal_id && <small>Automatic Flutterwave payout; status follows the verified bank transfer.</small>}<div>{settlement.status==='pending' && <><button className="text-button" disabled={!canApprove || settlement.created_by===userId || busyKey===settlement.id} onClick={() => void updateSettlement(job,settlement,'approved')}>Approve</button><button className="text-button finance-cancel" disabled={!canRecord || busyKey===settlement.id} onClick={() => void updateSettlement(job,settlement,'cancelled')}>Cancel</button></>}{settlement.status==='approved' && <><button className="text-button" disabled={!canPay || settlement.approved_by===userId || busyKey===settlement.id} onClick={() => void updateSettlement(job,settlement,'paid')}>Mark paid</button><button className="text-button finance-cancel" disabled={!canRecord || busyKey===settlement.id} onClick={() => void updateSettlement(job,settlement,'cancelled')}>Cancel</button></>}</div></div>)}</div>}
         </details>
       </article>
     })}</section>}

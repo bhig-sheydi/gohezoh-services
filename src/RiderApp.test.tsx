@@ -116,4 +116,20 @@ describe('company rider sign-in', () => {
     expect(mocks.rpc).not.toHaveBeenCalledWith('rider_update_job_status', { p_job_id: 'job-1', p_new_status: 'delivered' })
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
+
+  it('shows the sender phone without a pickup pin and asks the customer to verify arrival', async () => {
+    mocks.getSession.mockResolvedValue({ data: { session: { user: { id: 'rider-1', user_metadata: { full_name: 'Ada' } } } } } as never)
+    mocks.from.mockReturnValue({ select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: { role: 'rider' } }) }) }) }) })
+    mocks.rpc.mockImplementation(async (name: string) => {
+      if (name === 'list_my_rider_jobs') return { data: [{ job_id: 'job-1', job_number: 'JOB-1', status: 'in_transit', pickup_address: '1 Market Road', pickup_city: 'Lagos', delivery_address: '2 Market Road', delivery_city: 'Lagos', recipient_name: 'Receiver', recipient_phone: '08000000000', sender_name: 'Sender', sender_phone: '08012345678', parcel_summary: 'Books', company_name: 'Quick Riders' }], error: null }
+      if (name === 'request_sender_delivery_confirmation') return { data: { status: 'pending' }, error: null }
+      return { data: [], error: null }
+    })
+    render(<RiderApp />)
+    expect(await screen.findByText(/Sender: Sender.*08012345678/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Ask sender to confirm delivery' }))
+    await waitFor(() => expect(mocks.rpc).toHaveBeenCalledWith('request_sender_delivery_confirmation', { p_job_id: 'job-1' }))
+    expect(screen.getByRole('button', { name: 'Waiting for sender confirmation' })).toBeDisabled()
+    expect(mocks.rpc).not.toHaveBeenCalledWith('rider_update_job_status', { p_job_id: 'job-1', p_new_status: 'delivered' })
+  })
 })

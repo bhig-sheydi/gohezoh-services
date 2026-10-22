@@ -1,5 +1,8 @@
 export type SmsConfig = {
   provider: string
+  messagingNgPublicKey?: string
+  messagingNgSecretKey?: string
+  messagingNgSenderId?: string
   termiiApiKey?: string
   termiiSenderId?: string
   twilioAccountSid?: string
@@ -28,7 +31,25 @@ export async function sendDeliveryCode(
   code: string,
   fetcher: typeof fetch = fetch,
 ) {
-  const message = `Gohezoh delivery ${jobNumber}: give this code to the recipient to confirm delivery: ${code}. It expires in 10 minutes.`
+  const message = `Kwik-Parsel delivery ${jobNumber}: your delivery code is ${code}. Give it to the rider only when you receive your parcel. Expires in 10 minutes.`
+  if (config.provider === 'messaging_ng') {
+    if (!config.messagingNgPublicKey || !config.messagingNgSecretKey || !config.messagingNgSenderId) throw new Error('Messaging.ng SMS is not configured')
+    const response = await fetcher('https://messaging.ng/api/v1/messages/send', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'X-Public-Key': config.messagingNgPublicKey,
+        authorization: `Bearer ${config.messagingNgSecretKey}`,
+      },
+      body: JSON.stringify({ recipients: [termiiPhone(phone)], body: message, sender_id: config.messagingNgSenderId, channel: 'sms', route: 'transactional' }),
+    })
+    if (!response.ok) throw new Error(`SMS provider rejected the message (${response.status})`)
+    const result = await response.json() as { accepted?: unknown[]; failures?: unknown[]; error?: unknown }
+    if (result.error || (Array.isArray(result.failures) && result.failures.length > 0) || !Array.isArray(result.accepted) || result.accepted.length !== 1) {
+      throw new Error('SMS provider did not accept the message')
+    }
+    return
+  }
   if (config.provider === 'termii') {
     if (!config.termiiApiKey || !config.termiiSenderId) throw new Error('Termii SMS is not configured')
     const response = await fetcher('https://api.ng.termii.com/api/sms/send', {
@@ -50,5 +71,5 @@ export async function sendDeliveryCode(
     if (!response.ok) throw new Error(`SMS provider rejected the message (${response.status})`)
     return
   }
-  throw new Error('SMS provider must be set to termii or twilio')
+  throw new Error('SMS provider must be set to messaging_ng, termii or twilio')
 }

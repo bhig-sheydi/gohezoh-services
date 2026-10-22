@@ -3,7 +3,7 @@
 .topbar,.brand,.signed-in,.page-footer { display:flex; align-items:center; }
 .topbar { height:82px; justify-content:space-between; border-bottom:1px solid rgba(23,59,52,.12); }
 .brand { gap:12px; color:inherit; text-decoration:none; }
-.brand-mark { display:grid; width:40px; height:40px; place-items:center; border-radius:13px 13px 13px 4px; color:#f4f6ef; background:var(--ink); font-size:22px; font-weight:750; letter-spacing:-2px; }
+.brand-mark { display:block; width:40px; height:40px; flex:none; border-radius:10px; object-fit:contain; }
 .brand strong,.brand small { display:block; }.brand strong { font-size:15px; letter-spacing:.12em; }.brand small { margin-top:2px; color:var(--muted); font-size:8px; font-weight:700; letter-spacing:.16em; }
 .signed-in { gap:20px; color:#68786f; font-size:12px; }.text-button { padding:0; border:0; color:#62783a; background:none; font-weight:700; cursor:pointer; }.text-button:hover { text-decoration:underline; }
 .auth-layout { display:grid; min-height:calc(100vh - 140px); grid-template-columns:minmax(0,1fr) minmax(360px,440px); align-items:center; gap:clamp(54px,10vw,150px); padding:66px 0 78px; }
@@ -56,9 +56,6 @@
 }
 
 .delivery-otp-panel .section-intro { margin: 0; }
-.pod-upload-panel h3 { margin: 0; color: #184b36; }
-.pod-saved-message { margin: 0; color: #26744e; font-weight: 650; }
-.pod-customer-link { display: inline-flex; margin-top: 0.8rem; color: #196343; font-weight: 700; }
 .notification-panel { margin:0 0 24px; padding:24px; border:1px solid rgba(23,59,52,.08); border-radius:18px; background:rgba(255,255,252,.78); }.notification-panel .history-heading { flex-wrap:wrap; }.notification-panel .history-heading h2 { margin:8px 0 0; color:var(--ink); font-size:22px; }.notification-refresh { margin-left:auto; }.notification-empty { margin:20px 0 2px; color:#78867d; font-size:12px; }.notification-list { display:grid; margin-top:14px; }.notification-item { display:flex; align-items:center; justify-content:space-between; gap:18px; padding:14px 0; border-top:1px solid #e9eee4; }.notification-copy { display:grid; gap:6px; }.notification-title-row { display:flex; align-items:center; gap:8px; }.notification-title-row strong { color:#29483b; font-size:12px; }.notification-copy p { margin:0; color:#617168; font-size:11px; line-height:1.55; }.notification-copy small { color:#89938b; font-size:9px; }.notification-unread .notification-title-row strong { color:#173b34; }.notification-new { padding:3px 7px; border-radius:12px; color:#315542; background:#d8f0e2; font-size:8px; font-weight:800; text-transform:uppercase; }.notification-read { opacity:.78; }.notification-read-button { width:auto; min-height:34px; padding:0 12px; white-space:nowrap; }
 @media(max-width:680px) { .notification-panel { padding:20px; }.notification-item { align-items:flex-start; flex-direction:column; gap:10px; }.notification-read-button { align-self:flex-start; } }
 .finance-page { padding:48px 0 76px; }.finance-page .dashboard-heading h1 { margin:12px 0; font-size:clamp(42px,5.5vw,62px); }.finance-page .dashboard-heading .section-intro { max-width:620px; }.finance-summary { display:grid; gap:16px; margin-bottom:22px; }.finance-currency-group { padding:20px; border:1px solid rgba(23,59,52,.08); border-radius:16px; background:rgba(255,255,252,.7); }.finance-currency-group h2 { margin:0 0 14px; font-size:14px; }.finance-kpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(155px,1fr)); gap:10px; }.finance-kpis article { display:grid; gap:7px; padding:13px; border-radius:10px; background:#f5f8ef; }.finance-kpis span,.finance-job-margin small { color:#718077; font-size:9px; font-weight:700; }.finance-kpis strong { color:#24483a; font-size:14px; }.finance-job-list { display:grid; gap:14px; }.finance-job-card { padding:24px; }.finance-job-heading { display:flex; justify-content:space-between; gap:18px; }.finance-job-heading h2 { margin:6px 0; font-size:18px; }.finance-job-heading p:not(.eyebrow) { margin:0; color:#76847b; font-size:10px; }.finance-job-margin { display:grid; align-content:center; justify-items:end; gap:5px; }.finance-job-margin strong { color:#24563e; font-size:16px; }.finance-job-totals { display:flex; flex-wrap:wrap; gap:9px 18px; margin-top:17px; padding:13px 0; border-top:1px solid #e9eee4; border-bottom:1px solid #e9eee4; }.finance-job-totals span { display:grid; gap:5px; color:#829087; font-size:9px; }.finance-job-totals strong { color:#3d5b4d; font-size:11px; }.finance-edit-details { margin-top:15px; }.finance-edit-details summary { color:#315c47; font-size:11px; font-weight:750; cursor:pointer; }.finance-form { display:grid; gap:12px; margin-top:18px; padding-top:15px; border-top:1px solid #edf0e8; }.finance-form h3,.finance-record-list h3 { margin:0; font-size:12px; }.finance-field-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:11px; }.finance-form .secondary-button { width:max-content; min-height:38px; padding:0 14px; }.finance-record-list { display:grid; gap:8px; margin-top:18px; padding-top:15px; border-top:1px solid #edf0e8; }.finance-record-list p { margin:0; color:#68786f; font-size:10px; line-height:1.6; }.finance-record-list p strong { color:#345546; }.finance-settlement-row { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:9px; }.finance-settlement-row>div { display:flex; gap:12px; }.finance-status { padding:4px 7px; border-radius:10px; color:#705117; background:#fff0c2; font-size:8px; font-weight:800; text-transform:uppercase; }.finance-status-paid { color:#124b32; background:#d8f0e2; }.finance-status-cancelled { color:#762d27; background:#f9dfdc; }.finance-cancel { color:#8a4036; }.finance-empty { padding:20px; color:#76847b; font-size:11px; }.finance-loading { min-height:220px; }.customer-payment-summary { display:grid; gap:6px; margin-top:12px; padding:12px; border-radius:9px; color:#5f7165; background:#f3f7eb; font-size:10px; }.customer-payment-summary>strong { color:#29483b; font-size:11px; }.customer-payment-summary small { color:#75857a; }
@@ -106,17 +103,25 @@
 @media(max-width:680px) { .toast-email { top:80px; padding:15px; } }
 .commission-plans { margin:0 0 22px; }.commission-plans-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:18px; }.commission-plans-heading h2 { margin:4px 0 8px; font-size:18px; }.commission-plans-heading .finance-form-note { max-width:700px; }.commission-service-list { display:flex; flex-wrap:wrap; gap:12px 20px; margin:0; padding:12px; border:1px solid #dfe8dc; border-radius:10px; }.commission-service-list legend { padding:0 6px; color:#52685c; font-size:10px; font-weight:750; }.commission-service-list label { display:flex; align-items:center; gap:7px; color:#43584c; font-size:11px; }.commission-service-list p { flex-basis:100%; margin:0; }.commission-plan-list { display:grid; gap:8px; margin-top:18px; }.commission-plan-row { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; padding:13px; border:1px solid #e7ede5; border-radius:10px; }.commission-plan-row p,.commission-plan-row small { display:block; margin:5px 0 0; color:#728076; font-size:10px; text-transform:capitalize; }.commission-plan-row strong { font-size:12px; }
 
-.parcel-identifiers { display:grid; gap:8px; padding:12px; border:1px solid #dfe7d7; border-radius:10px; background:#fbfcf8; }
-.parcel-identifiers h3 { margin:0; font-size:13px; }
-.parcel-identifier { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:8px 0; border-top:1px solid #e7ecdf; }
-.parcel-identifier p { margin:4px 0 0; color:#637268; font-size:11px; }
-.parcel-barcode { display:block; width:min(190px,46%); height:auto; color:#17201b; }
+.parcel-identifiers { display:grid; gap:14px; min-width:0; padding:18px; border:1px solid #d5e2d4; border-radius:16px; color:#183b30; background:#f4f8f1; }
+.parcel-identifiers h3 { margin:0; font-size:16px; }
+.parcel-identifiers-brand { display:flex; align-items:center; gap:9px; }
+.parcel-identifiers-brand img { width:30px; height:30px; border-radius:8px; }
+.parcel-identifier-list { display:grid; gap:12px; }
+.parcel-identifier { display:grid; grid-template-columns:minmax(0,1fr) minmax(180px,280px); align-items:center; gap:16px; min-width:0; padding:15px; border:1px solid #d9e5d8; border-radius:12px; background:#fff; }
+.parcel-identifier-copy { display:grid; gap:5px; min-width:0; }
+.parcel-identifier-kicker { color:#57735f; font-size:10px; font-weight:850; letter-spacing:.1em; }
+.parcel-identifier-copy strong { color:#173e2f; font-size:16px; overflow-wrap:anywhere; }
+.parcel-identifier p { margin:3px 0 0; color:#344f3d; font-size:13px; line-height:1.4; overflow-wrap:anywhere; }
+.parcel-identifier-copy small { color:#627967; font-size:12px; }
+.parcel-identifier-barcode { display:grid; place-items:center; min-width:0; padding:9px 12px; border:1px solid #e0e7dc; border-radius:9px; background:#fff; }
+.parcel-barcode { display:block; width:100%; max-width:260px; height:auto; color:#17201b; }
 .parcel-lookup { max-width:480px; margin:14px 0 20px; }
-@media print { .parcel-barcode { width:190px; color:#000; } }
 
 .parcel-identifiers-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; }
-.parcel-barcode { flex:none; width:360px; max-width:100%; }
-.parcel-print-button { padding:7px 10px; font-size:10px; }
+.parcel-print-button { width:auto; min-height:36px; padding:7px 12px; font-size:12px; }
+.parcel-label-error { margin:0; color:#a52d2d; font-size:12px; }
+@media(max-width:680px) { .parcel-identifiers { padding:14px; }.parcel-identifier { grid-template-columns:minmax(0,1fr); }.parcel-identifier-barcode { justify-items:start; }.parcel-barcode { max-width:260px; } }
 .parcel-pals-panel { display:grid; gap:18px; margin:24px 0 0; padding:22px; border:1px solid rgba(23,59,52,.1); border-radius:16px; background:rgba(255,255,252,.82); }
 .parcel-pal-refresh { justify-self:end; font-size:10px; }
 .parcel-pals-heading { display:flex; align-items:center; justify-content:space-between; gap:22px; }
@@ -341,7 +346,6 @@
 .bdo-choice-list legend { padding:0 6px; color:#53685c; font-size:11px; font-weight:700; }
 .bdo-choice-list label { display:flex; align-items:center; gap:8px; color:#42594d; font-size:11px; }
 @media(max-width:680px) { .bdo-collapsible>summary { align-items:flex-start; flex-direction:column; gap:5px; }.bdo-collapsible>summary small { margin:0; }.bdo-collapsible-body { padding:14px; } }
-@media print { body:has(.parcel-identifiers.is-print-target) * { visibility:hidden !important; } body:has(.parcel-identifiers.is-print-target) .parcel-identifiers.is-print-target, body:has(.parcel-identifiers.is-print-target) .parcel-identifiers.is-print-target * { visibility:visible !important; } body:has(.parcel-identifiers.is-print-target) .parcel-identifiers.is-print-target { position:fixed; inset:20px auto auto 20px; width:390px; border:0; background:#fff; color:#000; } body:has(.parcel-identifiers.is-print-target) .parcel-print-button { display:none; } }
 .rider-shell .rider-login { margin: 4rem auto; }
 .rider-workspace { width: min(100%, 1100px); margin: 2rem auto; }
 .rider-workspace .partner-assignment-list { display: grid; gap: 1rem; }
@@ -404,3 +408,4 @@
 .customer-pickup-code { display: grid; gap: .3rem; margin: .8rem 0; padding: .9rem 1rem; border: 1px solid var(--line, #c9d5d0); border-radius: 1rem; background: var(--paper); color: var(--ink); }
 .customer-pickup-code strong { font-size: 1.6rem; letter-spacing: .2em; font-variant-numeric: tabular-nums; }
 .customer-pickup-code small { line-height: 1.4; }
+.finance-settlement-automatic > div { display: none; }

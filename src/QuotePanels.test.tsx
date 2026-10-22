@@ -70,6 +70,42 @@ describe('customer delivery quotes', () => {
     expect(screen.getByText(/Pay ₦2,500.00/)).toBeInTheDocument()
     expect(screen.getByText(/Your rider waits until payment is confirmed/)).toBeInTheDocument()
   })
+
+  it('hides old paid and expired notices but keeps recent payment and review notices', async () => {
+    const old = new Date(Date.now() - 12 * 60_000).toISOString()
+    const recent = new Date(Date.now() - 5 * 60_000).toISOString()
+    const { supabase } = client({ holds: [
+      { request_id: 'old-paid', status: 'paid', amount_ngn: 2000, account_number: null, bank_name: null, expires_at: old, reference: 'p1' },
+      { request_id: 'recent-paid', status: 'paid', amount_ngn: 2000, account_number: null, bank_name: null, expires_at: old, reference: 'p2' },
+      { request_id: 'old-expired', status: 'expired', amount_ngn: 2000, account_number: null, bank_name: null, expires_at: old, reference: 'p3' },
+      { request_id: 'review', status: 'review', amount_ngn: 2000, account_number: null, bank_name: null, expires_at: old, reference: 'p4' },
+    ] })
+    render(<CustomerQuotePanel supabase={supabase} requestIds={['old-paid', 'recent-paid', 'old-expired', 'review']} paymentReceivedAtByRequest={{ 'old-paid': old, 'recent-paid': recent }} onError={vi.fn()} onNotice={vi.fn()} onRefresh={vi.fn()} />)
+    await waitFor(() => expect(screen.getAllByRole('status', { name: 'Delivery payment' })).toHaveLength(2))
+    expect(screen.getByText('Payment confirmed')).toBeInTheDocument()
+    expect(screen.getByText('Payment needs review')).toBeInTheDocument()
+    expect(screen.getAllByAltText('Kwik-Parsel logo')).toHaveLength(2)
+    expect(screen.queryByText('Booking expired')).not.toBeInTheDocument()
+  })
+
+  it('marks a recent expired booking as an alert with the app logo', async () => {
+    const expiresAt = new Date(Date.now() - 60_000).toISOString()
+    const { supabase } = client({ holds: [{ request_id: 'request-1', status: 'expired', amount_ngn: 2000,
+      account_number: null, bank_name: null, expires_at: expiresAt, reference: 'p1' }] })
+    render(<CustomerQuotePanel supabase={supabase} requestIds={['request-1']} onError={vi.fn()} onNotice={vi.fn()} onRefresh={vi.fn()} />)
+    const alert = await screen.findByRole('status', { name: 'Delivery payment' })
+    expect(alert).toHaveClass('customer-payment-expired')
+    expect(screen.getByAltText('Kwik-Parsel logo')).toHaveAttribute('src', '/favicon.svg')
+  })
+
+  it('removes a paid notice when its ten-minute browser timer ends', async () => {
+    const receivedAt = new Date(Date.now() - 10 * 60_000 + 1500).toISOString()
+    const { supabase } = client({ holds: [{ request_id: 'request-1', status: 'paid', amount_ngn: 2000,
+      account_number: null, bank_name: null, expires_at: receivedAt, reference: 'p1' }] })
+    render(<CustomerQuotePanel supabase={supabase} requestIds={['request-1']} paymentReceivedAtByRequest={{ 'request-1': receivedAt }} onError={vi.fn()} onNotice={vi.fn()} onRefresh={vi.fn()} />)
+    expect(await screen.findByText('Payment confirmed')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByText('Payment confirmed')).not.toBeInTheDocument(), { timeout: 3000 })
+  })
 })
 
 describe('partner bidding', () => {

@@ -1,5 +1,5 @@
-.partner-company-welcome { display:flex; align-items:center; justify-content:space-between; gap:24px; min-height:160px; margin:0 0 26px; padding:26px 30px; border:1px solid var(--line); border-radius:20px; background:linear-gradient(115deg,#f3f8e9,#fffdf7); }
-.partner-company-identity { display:flex; align-items:center; gap:22px; min-width:0; }
+.partner-company-welcome { display:grid; grid-template-columns:minmax(0,1fr) minmax(300px,340px); align-items:start; gap:24px; min-height:160px; margin:0 0 26px; padding:26px 30px; border:1px solid var(--line); border-radius:20px; background:linear-gradient(115deg,#f3f8e9,#fffdf7); }
+.partner-company-identity { display:flex; align-items:center; align-self:center; gap:22px; min-width:0; }
 .partner-company-identity h1 { margin:6px 0; color:var(--ink); font-size:clamp(28px,3.5vw,44px); line-height:1.08; letter-spacing:-.05em; }
 .partner-company-identity .eyebrow { margin:0; }
 .partner-company-logo { display:grid; place-items:center; flex:none; width:100px; height:100px; padding:0; overflow:hidden; border:3px solid #fff; border-radius:50%; color:#315c47; background:#dfebd2; box-shadow:0 8px 25px #183a3020; cursor:pointer; }
@@ -11,9 +11,46 @@
 .partner-company-earnings span { color:#47724d; font-size:12px; font-weight:750; }
 .partner-company-earnings strong { color:#1d5138; font-size:clamp(23px,2.7vw,34px); }
 .partner-company-earnings small { color:#577060; font-size:11px; }
-@media(max-width:680px) { .partner-company-welcome { align-items:stretch; flex-direction:column; gap:15px; padding:20px; }.partner-company-logo { width:72px; height:72px; }.partner-company-identity { gap:14px; }.partner-company-earnings { min-width:0; }.partner-company-identity h1 { font-size:29px; } }
+.partner-company-finances { display:grid; gap:10px; min-width:0; }
+.partner-company-finances .partner-company-earnings { min-width:0; }
+.partner-company-payables { display:grid; gap:9px; padding:16px 18px; border:1px solid var(--line); border-radius:14px; background:var(--panel,#fff); color:var(--ink); }
+.partner-company-payables div { display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
+.partner-company-payables span { max-width:140px; color:var(--muted); font-size:12px; }
+.partner-company-payables strong { white-space:nowrap; font-size:16px; }
+.partner-company-payables p,.partner-company-payables small { margin:0; color:var(--muted); font-size:12px; line-height:1.4; }
+.partner-company-payables .primary-button { width:100%; }
+.partner-payout-destination,.partner-payout-account-form,.partner-payout-confirm,.partner-payout-status { display:grid; gap:8px; padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--surface,#fff); }
+.partner-payout-destination strong,.partner-payout-status strong { white-space:normal; }
+.partner-payout-destination .secondary-button,.partner-payout-status .secondary-button { justify-self:start; }
+.partner-payout-account-form { grid-column:1 / -1; gap:18px; padding:24px; border-radius:16px; box-shadow:0 12px 32px #173b2820; }
+.partner-payout-form-heading { display:flex; align-items:start; justify-content:space-between; gap:24px; }
+.partner-payout-form-heading h2 { margin:3px 0 6px; color:var(--ink); font-size:clamp(21px,2vw,27px); line-height:1.15; }
+.partner-payout-form-heading p:not(.eyebrow) { margin:0; color:var(--muted); font-size:14px; }
+.partner-payout-sandbox-note { margin:0; padding:11px 14px; border:1px solid #e5cc82; border-radius:10px; background:#fff7dc; color:#634d14; font-size:13px; line-height:1.45; }
+.partner-payout-close { display:grid; place-items:center; flex:none; width:36px; height:36px; padding:0; border:1px solid var(--line); border-radius:50%; background:transparent; color:var(--ink); font-size:24px; line-height:1; cursor:pointer; }
+.partner-payout-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
+.partner-payout-fields .field { display:grid; gap:7px; min-width:0; margin:0; }
+.partner-payout-fields .field span { max-width:none; color:var(--ink); font-size:13px; font-weight:700; }
+.partner-payout-fields select,.partner-payout-fields input { width:100%; min-height:48px; box-sizing:border-box; font-size:16px; }
+.partner-payout-fields input { letter-spacing:.1em; font-variant-numeric:tabular-nums; }
+.partner-payout-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.partner-payout-actions .primary-button { width:auto; }
+.partner-payout-resolved { display:grid; gap:4px; padding:14px 16px; border:1px solid #89bda0; border-radius:12px; background:#eaf7ee; }
+.partner-payout-resolved span { max-width:none; color:#315d43; font-weight:700; }
+.partner-payout-resolved strong { white-space:normal; font-size:18px; }
+.partner-payout-resolved small { color:#456d54; }
+.partner-payout-confirm p { color:var(--ink); }
+.partner-payout-confirm .secondary-button { width:100%; }
+.partner-company-payables .partner-payout-test-mode { padding:8px 10px; border-radius:8px; color:#664900; background:#fff1bd; font-weight:700; }
+@media(max-width:680px) { .partner-company-welcome { grid-template-columns:minmax(0,1fr); gap:15px; padding:20px; }.partner-company-logo { width:72px; height:72px; }.partner-company-identity { align-self:start; gap:14px; }.partner-company-earnings { min-width:0; }.partner-company-identity h1 { font-size:29px; }.partner-payout-account-form { grid-column:1; padding:18px; }.partner-payout-fields { grid-template-columns:minmax(0,1fr); } }
 :root[data-theme='dark'] .partner-company-welcome { background:linear-gradient(115deg,#203329,#182923); }
 :root[data-theme='dark'] .partner-company-logo { border-color:#3b5248; color:#d8e9c6; background:#294438; }
 :root[data-theme='dark'] .partner-company-earnings { background:#294438; }
 :root[data-theme='dark'] .partner-company-earnings span,:root[data-theme='dark'] .partner-company-earnings small { color:#b8d5bb; }
 :root[data-theme='dark'] .partner-company-earnings strong { color:#e9f2ea; }
+:root[data-theme='dark'] .partner-company-payables { background:#1b2c26; }
+:root[data-theme='dark'] .partner-payout-destination,:root[data-theme='dark'] .partner-payout-account-form,:root[data-theme='dark'] .partner-payout-confirm,:root[data-theme='dark'] .partner-payout-status { background:#20352c; }
+:root[data-theme='dark'] .partner-payout-resolved { border-color:#4c8860; background:#244736; }
+:root[data-theme='dark'] .partner-payout-sandbox-note { border-color:#755c27; background:#40351c; color:#f5dfa4; }
+:root[data-theme='dark'] .partner-payout-resolved span,:root[data-theme='dark'] .partner-payout-resolved small { color:#b8e0c4; }
+:root[data-theme='dark'] .partner-company-payables .partner-payout-test-mode { color:#ffe7a1; background:#57411c; }

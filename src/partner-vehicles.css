@@ -57,10 +57,37 @@
   .partner-onboarding-card .partner-vehicle-fields,.partner-onboarding-card .partner-vehicle-list { grid-template-columns:minmax(0,1fr); }
   .partner-onboarding-card .partner-step-nav button { gap:5px; font-size:11px; }
 }
-.rider-roster-card { display: flex; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
-.rider-roster-photo { width: 76px; flex: 0 0 76px; text-align: center; }
-.rider-roster-photo img,.rider-roster-photo>span { width: 68px; height: 68px; border-radius: 50%; display: grid; place-items: center; object-fit: cover; background: var(--surface, #dce7e5); color: var(--text, #193433); font-size: 1.5rem; }
-.rider-photo-edit { display: block; font-size: .75rem; cursor: pointer; margin-top: .35rem; }
-.rider-photo-edit input { width: 100%; font-size: .65rem; }
-.rider-roster-details { flex: 1 1 230px; min-width: 0; }
+.rider-roster-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:14px; margin-top:16px; }
+.rider-roster-card { min-width:0; padding:18px; border:1px solid var(--line); border-radius:16px; background:#fff; }
+.rider-roster-card-expanded { grid-column:1/-1; }
+.rider-roster-summary { display:grid; justify-items:center; align-content:start; gap:8px; text-align:center; }
+.rider-roster-summary>strong { max-width:100%; overflow-wrap:anywhere; color:var(--ink); font-size:15px; }
+.rider-roster-summary>.secondary-button { width:100%; margin-top:5px; font-size:12px; }
+.rider-roster-status { color:var(--muted); font-size:12px; text-transform:capitalize; }
+.rider-roster-photo img,.rider-roster-photo>span { width:64px; height:64px; border-radius:50%; display:grid; place-items:center; object-fit:cover; background:#dce7e5; color:var(--ink); font-size:1.5rem; }
+.rider-roster-details { min-width:0; margin-top:18px; padding-top:18px; border-top:1px solid var(--line); }
+.rider-details-heading { display:flex; align-items:start; justify-content:space-between; gap:12px; }
+.rider-details-heading h4 { margin:0 0 4px; color:var(--ink); font-size:18px; }
+.rider-details-heading p { margin:0; color:var(--muted); font-size:12px; }
+.rider-detail-columns { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:24px; margin-top:18px; }
+.rider-detail-settings { display:grid; align-content:start; gap:12px; min-width:0; }
+.rider-photo-edit { display:grid; gap:5px; font-size:12px; cursor:pointer; color:var(--ink); }
+.rider-photo-edit input { width:100%; font-size:12px; }
+.rider-rejection-reason { color:var(--ink); }
+.rider-delivery-history { min-width:0; }
+.rider-delivery-history h5 { margin:0 0 10px; color:var(--ink); font-size:15px; }
+.rider-delivery-history p { color:var(--muted); font-size:13px; }
+.rider-delivery-history ul { margin:0; padding:0; list-style:none; border-top:1px solid var(--line); }
+.rider-delivery-history li { padding:8px 0; border-bottom:1px solid var(--line); }
+.rider-delivery-line { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:3px 10px; }
+.rider-delivery-line strong { color:var(--ink); font-size:12px; }
+.rider-delivery-line span { min-width:0; overflow:hidden; color:var(--ink); font-size:12px; text-overflow:ellipsis; white-space:nowrap; }
+.rider-delivery-line small { color:var(--muted); font-size:11px; text-transform:capitalize; white-space:nowrap; }
 .rider-password-controls { margin-top: .75rem; display: grid; gap: .5rem; }
+@media(max-width:680px) { .rider-roster-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }.rider-roster-card { padding:12px; }.rider-roster-card-expanded { grid-column:1/-1; }.rider-roster-summary>.secondary-button { padding-inline:6px; }.rider-detail-columns { grid-template-columns:minmax(0,1fr); gap:18px; }.rider-delivery-line { grid-template-columns:auto minmax(0,1fr); }.rider-delivery-line small { grid-column:1/-1; } }
+:root[data-theme='dark'] .rider-roster-card { border-color:#496253; background:#1b2c25; }
+:root[data-theme='dark'] .rider-roster-card-expanded { background:#1b2c25; }
+:root[data-theme='dark'] .rider-roster-photo>span { color:#e9f2ea; background:#294438; }
+:root[data-theme='dark'] .rider-roster-status,:root[data-theme='dark'] .rider-details-heading p,:root[data-theme='dark'] .rider-delivery-history p,:root[data-theme='dark'] .rider-delivery-line small { color:#bfd2c2; }
+:root[data-theme='dark'] .rider-roster-details,:root[data-theme='dark'] .rider-delivery-history ul,:root[data-theme='dark'] .rider-delivery-history li { border-color:#496253; }
+:root[data-theme='dark'] .rider-delivery-line strong,:root[data-theme='dark'] .rider-delivery-line span,:root[data-theme='dark'] .rider-photo-edit,:root[data-theme='dark'] .rider-detail-settings small { color:#e9f2ea; }

@@ -7,6 +7,11 @@ type QuoteWindow = { request_id: string; deadline_at: string; status: string }
 type CustomerQuote = { request_id: string; customer_price_ngn: number | null; expires_at: string | null; status: string }
 type PaymentHold = { request_id: string; status: string; amount_ngn: number; account_number: string | null;
   bank_name: string | null; expires_at: string; reference: string }
+const TERMINAL_NOTICE_MS = 10 * 60 * 1000
+function terminalNoticeDeadline(hold: PaymentHold, paymentReceivedAt?: string) {
+  const timestamp = Date.parse(hold.status === 'paid' && paymentReceivedAt ? paymentReceivedAt : hold.expires_at)
+  return Number.isFinite(timestamp) ? timestamp + TERMINAL_NOTICE_MS : Number.POSITIVE_INFINITY
+}
 type CustomerBid = { bid_id: string; partner_name: string; partner_phone: string | null; rider_name: string | null;
   rider_phone: string | null; rider_photo_path: string | null; rider_photo_url?: string | null;
   bid_amount_ngn: number; eta_hours: number }
@@ -14,7 +19,7 @@ type OpenRequest = { request_id: string; request_number: string; pickup_city: st
 const money = (value: number) => new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' }).format(value)
 const date = (value: string) => new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 
-export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [], onError, onNotice, onRefresh }: { supabase: SupabaseClient; requestIds: string[]; pendingRequestIds?: string[]; onError: (message: string) => void; onNotice: (message: string) => void; onRefresh: () => void }) {
+export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [], paymentReceivedAtByRequest = {}, onError, onNotice, onRefresh }: { supabase: SupabaseClient; requestIds: string[]; pendingRequestIds?: string[]; paymentReceivedAtByRequest?: Record<string, string>; onError: (message: string) => void; onNotice: (message: string) => void; onRefresh: () => void }) {
   const requestIdKey = requestIds.join(',')
   const pendingIdKey = pendingRequestIds.join(',')
   const pendingIds = new Set(pendingRequestIds)
@@ -77,6 +82,17 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
     return () => clearInterval(timer)
   }, [activeHoldKey])
   useEffect(() => {
+    const current = Date.now()
+    const nextDeadline = Object.values(holds)
+      .filter((hold) => hold.status === 'paid' || hold.status === 'expired' || (hold.status !== 'review' && Date.parse(hold.expires_at) <= current))
+      .map((hold) => terminalNoticeDeadline(hold, paymentReceivedAtByRequest[hold.request_id]))
+      .filter((deadline) => deadline > current)
+      .sort((a, b) => a - b)[0]
+    if (nextDeadline === undefined || !Number.isFinite(nextDeadline)) return
+    const timer = window.setTimeout(() => setNow(Date.now()), nextDeadline - current)
+    return () => window.clearTimeout(timer)
+  }, [holds, paymentReceivedAtByRequest])
+  useEffect(() => {
     const active = Object.values(holdsRef.current).filter((hold) => hold.status === 'pending' && new Date(hold.expires_at).getTime() > Date.now())
     if (!active.length) return
     const timer = window.setInterval(() => { if (!document.hidden) void Promise.all(active.map(async (hold) => {
@@ -113,8 +129,10 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
     if (hold) {
       const seconds = Math.max(0, Math.ceil((new Date(hold.expires_at).getTime() - now) / 1000))
       const active = ['initializing', 'pending'].includes(hold.status) && seconds > 0
-      return <section className="customer-payment-card" key={requestId} aria-label="Delivery payment" role="status">
-        <p className="eyebrow">DELIVERY PAYMENT</p>
+      if (!active && hold.status !== 'review' && now >= terminalNoticeDeadline(hold, paymentReceivedAtByRequest[requestId])) return null
+      const displayStatus = hold.status === 'paid' ? 'paid' : active ? 'pending' : hold.status === 'review' ? 'review' : 'expired'
+      return <section className={`customer-payment-card customer-payment-${displayStatus}`} key={requestId} aria-label="Delivery payment" role="status">
+        <div className="customer-payment-heading"><img src="/favicon.svg" alt="Kwik-Parsel logo" /><p className="eyebrow">KWIK-PARSEL · DELIVERY PAYMENT</p></div>
         <h3>{hold.status === 'paid' ? 'Payment confirmed' : active ? `Pay ${money(Number(hold.amount_ngn))}` : hold.status === 'review' ? 'Payment needs review' : 'Booking expired'}</h3>
         {active && <><strong className="customer-payment-timer">{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')} left</strong>
           {hold.account_number && hold.bank_name ? <div className="customer-payment-account"><span>{hold.bank_name}</span><strong>{hold.account_number}</strong><button type="button" onClick={() => void navigator.clipboard.writeText(hold.account_number!)}>Copy account</button></div> : <><p>Preparing your temporary bank account…</p><button type="button" disabled={busy === requestId} onClick={() => void retryAccount(requestId)}>Retry account</button></>}

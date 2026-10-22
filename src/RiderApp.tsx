@@ -63,6 +63,7 @@ export default function RiderApp() {
   const [notice, setNotice] = useState('')
   const [codes, setCodes] = useState<Record<string, string>>({})
   const [pickupCodes, setPickupCodes] = useState<Record<string, string>>({})
+  const [senderConfirmationRequested, setSenderConfirmationRequested] = useState<Record<string, boolean>>({})
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => { setSession(data.session); setReady(true) })
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, next) => { setSession(next); setRider(null) })
@@ -161,6 +162,18 @@ export default function RiderApp() {
     setBusy(false)
   }
 
+  async function askSenderToConfirm(job: RiderJob) {
+    if (busy) return
+    setBusy(true); setError(''); setNotice('')
+    const { error: requestError } = await supabase.rpc('request_sender_delivery_confirmation', { p_job_id: job.job_id })
+    if (requestError) setError(requestError.message)
+    else {
+      setSenderConfirmationRequested((current) => ({ ...current, [job.job_id]: true }))
+      setNotice(`The sender has been asked to verify arrival for ${job.job_number}. Wait for their answer.`)
+    }
+    setBusy(false)
+  }
+
   return <main className="app-shell rider-shell">
     <header className="topbar"><a className="brand" href="/rider"><span className="brand-mark">K</span><span><strong>KWIK-PARSEL</strong><small>RIDER</small></span></a>
       {session && <button className="text-button" onClick={() => void supabase.auth.signOut()}>Sign out</button>}</header>
@@ -178,12 +191,13 @@ export default function RiderApp() {
       </article>)}</div></section>}
       {jobs.length === 0 && selectedPickups.length === 0 ? <section className="form-card"><h2>No jobs assigned yet</h2><p>Your company will assign deliveries here.</p></section> : jobs.length > 0 && <div className="partner-assignment-list">{jobs.map((job) => <article className="form-card partner-job-card" key={job.job_id}>
         <div className="review-title"><div><p className="eyebrow">{job.job_number}</p><h2>{label(job.status)}</h2></div></div>
-        {job.latitude != null && job.longitude != null && <p><strong>{job.sender_name} · {job.sender_phone}</strong><br /><a href={`https://www.google.com/maps/search/?api=1&query=${job.latitude},${job.longitude}`} target="_blank" rel="noreferrer">Open pickup directions</a></p>}
+        {(job.sender_name || job.sender_phone) && <p><strong>Sender: {job.sender_name || 'Name unavailable'} · {job.sender_phone || 'Phone unavailable'}</strong></p>}
+        {job.latitude != null && job.longitude != null && <p><a href={`https://www.google.com/maps/search/?api=1&query=${job.latitude},${job.longitude}`} target="_blank" rel="noreferrer">Open pickup directions</a></p>}
         <p>{job.parcel_summary}</p><div className="partner-job-route"><div><small>PICKUP</small><p>{job.pickup_address}<br />{job.pickup_city}</p></div><div><small>DELIVER TO</small><p>{job.delivery_address}<br />{job.delivery_city}</p><strong>{job.recipient_name} · {job.recipient_phone}</strong></div></div>
         {job.delivery_latitude != null && job.delivery_longitude != null && <p><a href={`https://www.google.com/maps/search/?api=1&query=${job.delivery_latitude},${job.delivery_longitude}`} target="_blank" rel="noreferrer">Open delivery pin</a></p>}
         {(nextStatus[job.status] ?? []).length === 1 && nextStatus[job.status][0] === 'exception' ? <button className="secondary-button" disabled={busy} onClick={() => void advance(job, 'exception')}>Report a problem</button> : (nextStatus[job.status] ?? []).length > 0 && <label className="field"><span>Update delivery</span><select disabled={busy} value="" onChange={(event) => { if (event.target.value) void advance(job, event.target.value) }}><option value="">Choose next step</option>{nextStatus[job.status].map((status) => <option key={status} value={status}>{label(status)}</option>)}</select></label>}
         {['partner_assigned','pickup_scheduled'].includes(job.status) && <section className="delivery-otp-panel" aria-label={`Pickup code for ${job.job_number}`}><label className="field"><span>Sender pickup code</span><input inputMode="numeric" autoComplete="one-time-code" value={pickupCodes[job.job_id] ?? ''} onChange={(event) => setPickupCodes((current) => ({ ...current, [job.job_id]: event.target.value.replace(/\D/g, '').slice(0, 8) }))} maxLength={8} placeholder="8-digit code" /></label><button className="primary-button" disabled={busy || (pickupCodes[job.job_id] ?? '').length !== 8} onClick={() => void confirmPickup(job)}>Confirm parcel collected</button></section>}
-        {['in_transit','picked_up','out_for_delivery'].includes(job.status) && <section className="delivery-otp-panel"><button className="secondary-button" disabled={busy} onClick={() => void sendCode(job)}>Send recipient code</button><label className="field"><span>Recipient code</span><input inputMode="numeric" value={codes[job.job_id] ?? ''} onChange={(event) => setCodes((current) => ({ ...current, [job.job_id]: event.target.value.replace(/\D/g, '').slice(0, 6) }))} maxLength={6} /></label><button className="primary-button" disabled={busy || (codes[job.job_id] ?? '').length !== 6} onClick={() => void verifyCode(job)}>Confirm delivery</button></section>}
+        {['in_transit','picked_up','out_for_delivery'].includes(job.status) && <section className="delivery-otp-panel"><button className="secondary-button" disabled={busy} onClick={() => void sendCode(job)}>Send recipient code</button><label className="field"><span>Recipient code</span><input inputMode="numeric" value={codes[job.job_id] ?? ''} onChange={(event) => setCodes((current) => ({ ...current, [job.job_id]: event.target.value.replace(/\D/g, '').slice(0, 6) }))} maxLength={6} /></label><button className="primary-button" disabled={busy || (codes[job.job_id] ?? '').length !== 6} onClick={() => void verifyCode(job)}>Confirm delivery</button><p>If the recipient cannot provide a code, call the sender at {job.sender_phone || 'the pickup number'}. Ask them to confirm only after they have independently checked that the recipient received the parcel.</p><button className="secondary-button" type="button" disabled={busy || !!senderConfirmationRequested[job.job_id]} onClick={() => void askSenderToConfirm(job)}>{senderConfirmationRequested[job.job_id] ? 'Waiting for sender confirmation' : 'Ask sender to confirm delivery'}</button></section>}
       </article>)}</div>}
     </section>}
     {error && <div className="toast toast-error" role="alert"><span>{error}</span><button type="button" onClick={() => setError('')}>Close</button></div>}
