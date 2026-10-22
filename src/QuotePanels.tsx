@@ -71,7 +71,8 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
   useEffect(() => {
     if (!pendingIdKey && !windows.some((row) => ['matching', 'open', 'awaiting_customer_selection'].includes(row.status))
       && !Object.values(holdsRef.current).some((hold) => ['initializing', 'pending'].includes(hold.status))) return
-    const timer = window.setInterval(() => { if (!document.hidden) { setNow(Date.now()); void load() } }, 5000)
+    const activeWindow = windows.some((row) => ['matching', 'open', 'awaiting_customer_selection'].includes(row.status))
+    const timer = window.setInterval(() => { if (!document.hidden) { setNow(Date.now()); void load() } }, activeWindow ? 5000 : 30000)
     const onFocus = () => { setNow(Date.now()); void load() }
     window.addEventListener('focus', onFocus)
     return () => { window.clearInterval(timer); window.removeEventListener('focus', onFocus) }
@@ -143,6 +144,7 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
       </section>
     }
     if (quote) return <div className="customer-quote-card" key={requestId}><strong>{quote.customer_price_ngn == null ? 'Quote under review' : `Delivery quote: ${money(Number(quote.customer_price_ngn))}`}</strong><small>{quote.expires_at ? `Accept by ${date(quote.expires_at)} · ` : ''}{quote.status.replaceAll('_', ' ')}</small>{quote.status === 'sent' && quote.customer_price_ngn != null && <button className="primary-button" disabled={busy === requestId} onClick={() => void accept(requestId)}>{busy === requestId ? 'Accepting...' : 'Accept quote'}</button>}</div>
+    if (bidWindow?.status === 'no_bids' && pendingIds.has(requestId)) return <section className="customer-bid-panel" key={requestId} role="status"><div className="customer-bid-wait"><div className="customer-bid-radar" aria-hidden="true"><span /><span /><span /><i /></div><div className="customer-bid-wait-copy"><h3>Searching for a rider</h3><p>We will keep checking for a rider whose route fits your delivery.</p><div className="customer-bid-progress customer-bid-progress-search" aria-label="Searching for a matching rider"><span /></div><small>Searching automatically</small></div></div></section>
     if (bidWindow?.status === 'no_bids') return <p className="customer-bid-empty" key={requestId}>No companies bid this time. Try matching again.</p>
     if (bidWindow?.status === 'matching') return <section className="customer-bid-panel" key={requestId} role="status"><div className="customer-bid-wait"><div className="customer-bid-radar" aria-hidden="true"><span /><span /><span /><i /></div><div className="customer-bid-wait-copy"><h3>Finding interested riders</h3><p>Checking riders near your pickup and those already heading your way.</p><div className="customer-bid-progress customer-bid-progress-search" aria-label="Matching riders"><span /></div></div></div></section>
     if (bidWindow) {
@@ -168,7 +170,7 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
         </> : <div className="customer-bid-wait" role="status"><div className="customer-bid-radar" aria-hidden="true"><span /><span /><span /><i /></div><div><h3>Checking company bids</h3><p>We’re collecting the bids placed before the window closed.</p></div></div>}
       </section>
     }
-    if (pendingIds.has(requestId)) return <section className="customer-bid-panel" key={requestId} role="status"><div className="customer-bid-wait"><div className="customer-bid-radar" aria-hidden="true"><span /><span /><span /><i /></div><div className="customer-bid-wait-copy"><h3>Finding interested riders</h3><p>Checking nearby companies now.</p><div className="customer-bid-progress customer-bid-progress-search" aria-label="Searching for nearby companies"><span /></div><small>Searching nearby riders</small></div></div></section>
+    if (pendingIds.has(requestId)) return <section className="customer-bid-panel" key={requestId} role="status"><div className="customer-bid-wait"><div className="customer-bid-radar" aria-hidden="true"><span /><span /><span /><i /></div><div className="customer-bid-wait-copy"><h3>Searching for a rider</h3><p>We will keep checking for a rider whose route fits your delivery.</p><div className="customer-bid-progress customer-bid-progress-search" aria-label="Searching for a matching rider"><span /></div><small>Searching automatically</small></div></div></section>
     return null
   })}</>
 }

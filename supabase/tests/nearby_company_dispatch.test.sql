@@ -129,9 +129,21 @@ begin
     '[{"description":"Books","quantity":1,"weight_kg":1,"length_cm":10,"width_cm":10,"height_cm":10}]'::jsonb,v_path,
     6.45,3.4,now(),'search');
   if (select dispatch_match_status from public.service_requests where id=v_request2)<>'waiting' then raise exception 'Unmatched request was not queued'; end if;
+  insert into public.delivery_quote_windows(request_id,corridor_id,status,published_at,deadline_at)
+    values(v_request2,v_corridor,'matching',now(),now()+interval '2 minutes');
+  perform set_config('request.jwt.claims','{"role":"service_role"}',true);
+  if public.finalize_live_route_match(v_request2)<>'no_rider' then raise exception 'Expected no-rider result'; end if;
+  if (select dispatch_match_status from public.service_requests where id=v_request2)<>'waiting'
+    or not exists(select 1 from public.dispatch_match_queue where request_id=v_request2) then
+    raise exception 'No-rider result stopped the persistent search'; end if;
+  update public.dispatch_match_queue set attempts=31,next_attempt_at=now()-interval '1 second' where request_id=v_request2;
+  perform public.process_dispatch_matches();
+  if not exists(select 1 from public.dispatch_match_queue where request_id=v_request2 and attempts=32) then
+    raise exception 'Persistent search stopped after the former 30-attempt limit'; end if;
   perform set_config('request.jwt.claim.sub',v_rider::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_rider,'role','authenticated','session_id',v_session)::text,true);
   perform public.report_rider_position(6.45,3.4,18,now());
+  update public.dispatch_match_queue set next_attempt_at=now()-interval '1 second' where request_id=v_request2;
   perform public.process_dispatch_matches();
   perform set_config('request.jwt.claims','{"role":"service_role"}',true);
   perform public.finalize_live_route_match(v_request2);

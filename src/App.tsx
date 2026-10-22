@@ -73,7 +73,7 @@ const jobStatusLabels: Record<string, string> = {
 const formatStatus = (status: string) => jobStatusLabels[status] ?? status.replaceAll('_', ' ')
 const requestStatusLabels: Record<string, string> = { submitted: 'Received', under_review: 'Under review', approved: 'Approved', rejected: 'Not accepted', converted: 'Order confirmed', cancelled: 'Cancelled' }
 const formatRequestStatus = (status: string) => requestStatusLabels[status] ?? status.replaceAll('_', ' ')
-const dispatchStatusLabels: Record<string, string> = { waiting: 'Finding nearby companies', bidding: 'Companies bidding', no_nearby: 'No nearby rider available', no_bids: 'No bids received', quote_ready: 'Bids ready' }
+const dispatchStatusLabels: Record<string, string> = { waiting: 'Searching for a rider', matching: 'Checking rider routes', bidding: 'Companies bidding', no_nearby: 'Searching for a rider', no_bids: 'No bids received', quote_ready: 'Bids ready' }
 const siteUrl = 'https://gohezoh-services.vercel.app/'
 const publicAppOrigin = (import.meta.env.VITE_PUBLIC_APP_URL || siteUrl).replace(/\/+$/, '')
 type Service = { id: string; code: string; name: string; description: string | null }
