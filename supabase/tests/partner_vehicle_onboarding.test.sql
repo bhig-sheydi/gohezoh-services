@@ -58,6 +58,12 @@ begin
   select partner_id into p from public.partner_application_vehicles where id=v;
   if p is null or not exists(select 1 from public.logistics_partners where id=p and partner_name='Fleet Test Company') then raise exception 'Company approval still requires manual selection'; end if;
   if not exists(select 1 from public.partner_application_vehicles where id=v and partner_id=p) then raise exception 'Approved vehicle not linked to company'; end if;
+  if public.company_dispatch_close_at(p,'2026-10-22 21:00:00+00'::timestamptz)
+      <> '2026-10-23 05:00:00+00'::timestamptz then
+    raise exception 'Overnight registered vehicle closing time was mapped to the wrong day'; end if;
+  if not public.company_dispatch_route_fits(p,100,'2026-10-22 21:00:00+00'::timestamptz)
+    or public.company_dispatch_route_fits(p,480,'2026-10-22 21:00:00+00'::timestamptz) then
+    raise exception 'Overnight closing buffer did not gate the route'; end if;
   perform set_config('request.jwt.claim.sub',u::text,true);
   denied:=false;
   begin perform public.remove_pending_partner_vehicle(v); exception when insufficient_privilege then denied:=true; end;

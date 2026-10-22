@@ -14,6 +14,7 @@ import { BDOMarketersPanel } from './BDOMarketersPanel'
 import { MarketerPortal } from './MarketerPortal'
 import { CustomerQuotePanel } from './QuotePanels'
 import PartnerBidScreen from './PartnerBidScreen'
+import CompanyDispatchHours from './CompanyDispatchHours'
 import ProximityPanel from './ProximityPanel'
 import { requestPosition, type PositionFix } from './lib/proximity'
 import PortHarcourtHubPanel from './PortHarcourtHubPanel'
@@ -893,6 +894,7 @@ function PartnerPortal({ supabase, userId, canRespond, onError, onNotice }: {
   const visibleAssignments=assignments.filter(({job})=>!parcelLookup.trim()||job.job_parcels?.some((parcel)=>parcel.tracking_code.toUpperCase()===parcelLookup.trim().toUpperCase()))
   return <main className="partner-page">
     {canRespond && <PartnerCompanyWelcome supabase={supabase} onError={onError} onNotice={onNotice} />}
+    {canRespond && managerPartnerIds.map((partnerId) => <CompanyDispatchHours key={partnerId} supabase={supabase} partnerId={partnerId} onError={onError} onNotice={onNotice} />)}
     {canRespond && <PartnerBidScreen supabase={supabase} partnerIds={partnerIds} onError={onError} onNotice={onNotice} />}
     {canRespond && <PartnerRidersPanel supabase={supabase} userId={userId} onError={onError} onNotice={onNotice} />}
     {canRespond && managerPartnerIds.map((partnerId) => <CompanyOperationsStaffPanel key={partnerId} supabase={supabase} partnerId={partnerId} onError={onError} onNotice={onNotice} />)}

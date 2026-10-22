@@ -22,9 +22,31 @@ begin
   insert into public.customer_users(customer_id,user_id) values(v_customer,v_customer_user);
   insert into public.logistics_partners(id,partner_name,contact_person,phone,status) values
     (v_company,'Near Company','Manager','08000000002','active'),(v_far_company,'Far Company','Manager','08000000003','active');
+  insert into public.company_daily_dispatch_closing(partner_id,work_date,closes_at,updated_by) values
+    (v_company,(now() at time zone 'Africa/Lagos')::date,now()+interval '6 hours',v_manager),
+    (v_far_company,(now() at time zone 'Africa/Lagos')::date,now()+interval '6 hours',v_far_manager);
+  if not public.company_dispatch_route_fits(v_company,30) then raise exception 'Feasible route was blocked before closing'; end if;
+  update public.company_daily_dispatch_closing set closes_at=now()+interval '49 minutes' where partner_id=v_company;
+  if public.company_dispatch_route_fits(v_company,30) then raise exception 'Closing time omitted the 20-minute buffer'; end if;
+  update public.company_daily_dispatch_closing set closes_at=now()+interval '6 hours' where partner_id=v_company;
   insert into public.partner_users(partner_id,user_id,membership_role) values
     (v_company,v_manager,'manager'),(v_far_company,v_far_manager,'manager'),
     (v_company,v_rider,'rider'),(v_company,v_rider2,'rider'),(v_far_company,v_far_rider,'rider');
+  perform set_config('request.jwt.claim.sub',v_manager::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_manager,'role','authenticated')::text,true);
+  if public.set_my_company_closing_time(v_company,
+    ((now()+interval '3 hours') at time zone 'Africa/Lagos')::time,
+    ((now()+interval '3 hours') at time zone 'Africa/Lagos')::date>(now() at time zone 'Africa/Lagos')::date)
+      <=now()+interval '2 hours' then raise exception 'Manager could not change daily closing'; end if;
+  if not exists(select 1 from public.my_company_dispatch_hours(v_company) where source='today') then
+    raise exception 'Manager cannot view updated closing time'; end if;
+  perform set_config('request.jwt.claim.sub',v_far_manager::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_far_manager,'role','authenticated')::text,true);
+  v_denied:=false;
+  begin perform public.set_my_company_closing_time(v_company,'18:00',false);
+  exception when insufficient_privilege then v_denied:=true; end;
+  if not v_denied then raise exception 'Another company changed closing time'; end if;
+  update public.company_daily_dispatch_closing set closes_at=now()+interval '6 hours' where partner_id=v_company;
   foreach v_id in array array[v_rider,v_rider2,v_far_rider] loop
     v_company_id:=case when v_id=v_far_rider then v_far_company else v_company end;
     insert into public.company_riders(partner_id,full_name,nin,licence_document_path,status)
@@ -61,9 +83,9 @@ begin
     raise exception 'Request must wait for route matching before bidding'; end if;
   perform set_config('request.jwt.claims','{"role":"service_role"}',true);
   perform public.upsert_dispatch_route_proposal(v_request,v_company,v_rider,'available','road-v2-live',20,
-    '{"tier":1,"estimate_source":"road"}'::jsonb,now()+interval '2 minutes');
+    '{"tier":1,"estimate_source":"road","total_route_minutes":30}'::jsonb,now()+interval '2 minutes');
   perform public.upsert_dispatch_route_proposal(v_request,v_far_company,v_far_rider,'available','road-v2-live',2,
-    '{"tier":2,"estimate_source":"road"}'::jsonb,now()+interval '2 minutes');
+    '{"tier":2,"estimate_source":"road","total_route_minutes":30}'::jsonb,now()+interval '2 minutes');
   if public.finalize_live_route_match(v_request)<>'tier_1' then
     raise exception 'A distant route displaced the nearby route'; end if;
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_customer_user,'role','authenticated')::text,true);
@@ -146,6 +168,8 @@ begin
   update public.dispatch_match_queue set next_attempt_at=now()-interval '1 second' where request_id=v_request2;
   perform public.process_dispatch_matches();
   perform set_config('request.jwt.claims','{"role":"service_role"}',true);
+  perform public.upsert_dispatch_route_proposal(v_request2,v_company,v_rider,'available','road-v2-live',20,
+    '{"tier":1,"estimate_source":"road","total_route_minutes":30}'::jsonb,now()+interval '2 minutes');
   perform public.finalize_live_route_match(v_request2);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_rider,'role','authenticated','session_id',v_session)::text,true);
   if (select dispatch_match_status from public.service_requests where id=v_request2)<>'bidding'

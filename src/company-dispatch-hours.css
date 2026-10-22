@@ -1,0 +1,10 @@
+.company-dispatch-hours { display:grid; grid-template-columns:minmax(0,1fr) minmax(220px,300px); gap:20px; align-items:center; margin:0 0 24px; }
+.company-dispatch-hours h2 { margin:0 0 8px; color:var(--ink); }
+.company-dispatch-hours p { margin:8px 0; color:var(--muted); }
+.company-dispatch-hours .company-dispatch-close { display:block; color:var(--ink); font-size:clamp(22px,2.4vw,30px); }
+.company-dispatch-hours small { color:var(--muted); }
+.company-dispatch-hours form { display:grid; gap:12px; }
+.company-dispatch-hours .field { margin:0; }
+.company-dispatch-next { display:flex; align-items:center; gap:8px; color:var(--ink); font-size:14px; }
+.company-dispatch-next input { accent-color:var(--accent,#376e55); }
+@media(max-width:640px) { .company-dispatch-hours { grid-template-columns:1fr; } }

@@ -127,10 +127,16 @@ Deno.serve(async (request) => {
       gps_captured_at: string; load_state: 'available' | 'almost_full'; active_pickups: number;
       distance_metres: number; existing_stops: StoredStop[]; active_jobs: Job[]; has_unroutable_jobs: boolean
     }>
+    const closingRows = await rpc('dispatch_company_closing_times', {
+      p_partners: [...new Set(candidates.map((c) => c.partner_id))],
+    }) as Array<{ partner_id: string; closes_at: string | null }>
+    const closingByCompany = new Map(closingRows.map((row) => [row.partner_id, row.closes_at]))
     const proposals = []
     const nearby = candidates.filter((c) => c.distance_metres <= 5000).slice(0, 3)
     const enRoute = candidates.filter((c) => c.distance_metres > 5000).slice(0, 3)
     for (const candidate of [...nearby, ...enRoute]) {
+      const closingAt = closingByCompany.get(candidate.partner_id)
+      if (!closingAt || Date.parse(closingAt) - Date.now() <= 20 * 60_000) continue
       const active = candidate.active_jobs ?? []
       const stored = (candidate.existing_stops ?? []).filter((s) => active.some((j) => j.job_id === s.job_id &&
         (s.kind === 'dropoff' || j.status === 'pickup_scheduled' || j.status === 'exception')))
@@ -150,13 +156,14 @@ Deno.serve(async (request) => {
       const proposal = planRiderRoute(rider, { jobId: requestId,
         pickup: { id: `${requestId}:pickup`, jobId: requestId, kind: 'pickup', point: pickup },
         dropoff: { id: `${requestId}:dropoff`, jobId: requestId, kind: 'dropoff', point: dropoff } }, matrix)
-      if (proposal) proposals.push(proposal)
+      if (proposal && Date.now() + (proposal.totalMinutes + 20) * 60_000 <= Date.parse(closingAt)) proposals.push(proposal)
     }
     for (const proposal of bestPerCompany(proposals)) await rpc('upsert_dispatch_route_proposal', {
       p_request: requestId, p_partner: proposal.companyId, p_rider: proposal.riderId,
       p_load_state: proposal.loadState, p_algorithm_version: 'road-v2-live', p_score: proposal.score,
       p_details: { tier: proposal.tier, pickup_eta_minutes: proposal.pickupEtaMinute,
-        max_existing_delay_minutes: proposal.maxExistingDelayMinutes, estimate_source: proposal.estimateSource },
+        max_existing_delay_minutes: proposal.maxExistingDelayMinutes, total_route_minutes: proposal.totalMinutes,
+        estimate_source: proposal.estimateSource },
       p_expires_at: quote.deadline_at,
     })
     await rpc('finalize_live_route_match', { p_request: requestId })
