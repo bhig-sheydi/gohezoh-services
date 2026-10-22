@@ -7,10 +7,7 @@ export type Stop = {
   kind: 'pickup' | 'dropoff'
   point: Point
   serviceMinutes?: number
-  earliestMinute?: number
-  latestMinute?: number
-  /** Existing customer promise; the planner will not silently worsen it. */
-  baselineEtaMinute?: number
+  /** A stop already shown to the rider as next cannot be moved behind new work. */
   pinned?: boolean
 }
 export type RoadLeg = { minutes: number; kilometres: number }
@@ -79,8 +76,6 @@ function evaluate(start: Point, stops: Stop[], matrix: RoadMatrix): Evaluation |
     if (!validLeg(leg)) return undefined
     time += leg.minutes
     kilometres += leg.kilometres
-    time = Math.max(time, stop.earliestMinute ?? 0)
-    if (time > (stop.latestMinute ?? Infinity)) return undefined
     if (stop.kind === 'pickup') picked.add(stop.jobId)
     else if (stops.some((item) => item.jobId === stop.jobId && item.kind === 'pickup') && !picked.has(stop.jobId)) return undefined
     arrivals.set(stop.id, time)
@@ -91,12 +86,46 @@ function evaluate(start: Point, stops: Stop[], matrix: RoadMatrix): Evaluation |
 }
 
 function isFiniteStop(stop: Stop): boolean {
-  return !!stop.id && !!stop.jobId && validPoint(stop.point) && (stop.serviceMinutes ?? 0) >= 0 &&
-    (stop.earliestMinute === undefined || Number.isFinite(stop.earliestMinute)) &&
-    (stop.latestMinute === undefined || Number.isFinite(stop.latestMinute))
+  return !!stop.id && !!stop.jobId && validPoint(stop.point) && (stop.serviceMinutes ?? 0) >= 0
 }
 
-/** Keeps existing stop order stable; inserts only the new pickup and drop-off. */
+/** Bounded road-time search: reduce kilometres and total parcel completion time. */
+export function optimizeCommittedRoute(start: Point, stops: Stop[], roads: RoadMatrix): Stop[] | undefined {
+  if (!validPoint(start) || stops.length > 9 || stops.some((s) => !isFiniteStop(s)) ||
+    new Set(stops.map((s) => s.id)).size !== stops.length) return undefined
+  if (!stops.length) return []
+  const allPickups = new Set(stops.filter((s) => s.kind === 'pickup').map((s) => s.jobId))
+  type State = { at: Point; route: Stop[]; remaining: Stop[]; picked: Set<string>;
+    minutes: number; kilometres: number; completionMinutes: number; score: number }
+  let beam: State[] = [{ at: start, route: [], remaining: stops, picked: new Set(),
+    minutes: 0, kilometres: 0, completionMinutes: 0, score: 0 }]
+  for (let depth = 0; depth < stops.length; depth++) {
+    const next: State[] = []
+    for (const state of beam) for (let i = 0; i < state.remaining.length; i++) {
+      const candidate = state.remaining[i]
+      if (depth === 0 && stops[0].pinned && candidate.id !== stops[0].id) continue
+      if (candidate.kind === 'dropoff' && allPickups.has(candidate.jobId) && !state.picked.has(candidate.jobId)) continue
+      const leg = roads(state.at, candidate.point)
+      if (!validLeg(leg)) continue
+      const minutes = state.minutes + leg.minutes + (candidate.serviceMinutes ?? 0)
+      const kilometres = state.kilometres + leg.kilometres
+      const completionMinutes = state.completionMinutes + (candidate.kind === 'dropoff' ? minutes : 0)
+      const route = [...state.route, candidate]
+      next.push({ at: candidate.point, route,
+        remaining: state.remaining.filter((_, index) => index !== i),
+        picked: candidate.kind === 'pickup' ? new Set([...state.picked, candidate.jobId]) : state.picked,
+        minutes, kilometres, completionMinutes,
+        score: 5 * kilometres + minutes + completionMinutes })
+    }
+    if (!next.length) return undefined
+    next.sort((a, b) => a.score - b.score ||
+      a.route.map((s) => s.id).join('|').localeCompare(b.route.map((s) => s.id).join('|')))
+    beam = next.slice(0, 64)
+  }
+  return beam[0].route
+}
+
+/** Optimize existing stops, then insert the new pickup and drop-off. */
 export function planRiderRoute(
   rider: RiderCandidate,
   request: DeliveryRequest,
@@ -121,7 +150,7 @@ export function planRiderRoute(
   if (!roads) return undefined
   const baseline = evaluate(rider.position, rider.stops, roads)
   if (!baseline) return undefined
-  const stops = rider.stops
+  const stops = matrix ? optimizeCommittedRoute(rider.position, rider.stops, roads) ?? rider.stops : rider.stops
   let best: RouteProposal | undefined
   let examined = 0
   for (let pickupAt = 0; pickupAt <= stops.length; pickupAt++) {
@@ -143,7 +172,6 @@ export function planRiderRoute(
         const newEta = route.arrivals.get(stop.id)
         if (oldEta === undefined || newEta === undefined) { feasible = false; break }
         const delay = Math.max(0, newEta - oldEta)
-        if (stop.baselineEtaMinute !== undefined && newEta > stop.baselineEtaMinute) { feasible = false; break }
         maxDelay = Math.max(maxDelay, delay)
         sumDelay += delay
       }
@@ -160,7 +188,7 @@ export function planRiderRoute(
         stops: matrix ? proposed : [], pickupEtaMinute: pickupEta, totalMinutes: matrix ? route.minutes : 0,
         totalKilometres: matrix ? route.kilometres : 0, maxExistingDelayMinutes: maxDelay,
         sumExistingDelayMinutes: sumDelay, tier,
-        score: 4 * pickupEta + extraMinutes + extraKilometres,
+        score: pickupEta + extraMinutes + 5 * extraKilometres,
         estimateSource: source, commitEligible: !!matrix,
       }
       if (!best || compareProposals(candidate, best, policy) < 0) best = candidate
@@ -170,10 +198,8 @@ export function planRiderRoute(
   return best
 }
 
-export function compareProposals(a: RouteProposal, b: RouteProposal, policy: PlannerPolicy = DEFAULT_POLICY): number {
+export function compareProposals(a: RouteProposal, b: RouteProposal, _policy: PlannerPolicy = DEFAULT_POLICY): number {
   if (a.tier !== b.tier) return a.tier - b.tier
-  const pickupGap = a.pickupEtaMinute - b.pickupEtaMinute
-  if (Math.abs(pickupGap) > policy.qualityBandMinutes) return pickupGap
   if (a.score !== b.score) return a.score - b.score
   return a.riderId.localeCompare(b.riderId)
 }

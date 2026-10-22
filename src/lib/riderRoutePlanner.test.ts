@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  bestPerCompany, compareProposals, planRiderRoute,
+  bestPerCompany, compareProposals, optimizeCommittedRoute, planRiderRoute,
   type DeliveryRequest, type RiderCandidate, type RoadMatrix, type Stop,
 } from '../../supabase/functions/_shared/rider-route-planner'
 
@@ -31,10 +31,38 @@ describe('deterministic route planner', () => {
     expect(plan?.stops[0].id).toBe('old-d')
   })
 
-  it('rejects missed existing promises', () => {
-    const promised: Stop = { id: 'old-d', jobId: 'old', kind: 'dropoff', point: point(8), latestMinute: 8, baselineEtaMinute: 8 }
-    const plan = planRiderRoute(rider({ stops: [promised] }), { ...request, dropoff: { ...dropoff, point: point(15) } }, matrix)
-    expect(plan?.stops.findIndex(s => s.id === 'old-d')).toBeLessThan(plan!.stops.findIndex(s => s.id === 'new-d'))
+  it('serves five drop-offs on route A before one opposite-side drop-off on B', () => {
+    const stops: Stop[] = [
+      { id: 'b', jobId: 'b', kind: 'dropoff', point: point(-10) },
+      ...Array.from({ length: 5 }, (_, i) => ({ id: `a-${i}`, jobId: `a-${i}`,
+        kind: 'dropoff' as const, point: point(10) })),
+    ]
+    expect(optimizeCommittedRoute(point(0), stops, matrix)?.map(s => s.id))
+      .toEqual(['a-0', 'a-1', 'a-2', 'a-3', 'a-4', 'b'])
+  })
+
+  it('finishes an acknowledged B stop before returning to A and its newly added C stop', () => {
+    const stops: Stop[] = [
+      { id: 'b', jobId: 'b', kind: 'dropoff', point: point(-10), pinned: true },
+      ...Array.from({ length: 5 }, (_, i) => ({ id: `a-${i}`, jobId: `a-${i}`,
+        kind: 'dropoff' as const, point: point(10) })),
+      { id: 'c', jobId: 'c', kind: 'dropoff', point: point(12) },
+    ]
+    const order = optimizeCommittedRoute(point(0), stops, matrix)?.map(s => s.id)
+    expect(order?.[0]).toBe('b')
+    expect(order?.slice(1, 6)).toEqual(['a-0', 'a-1', 'a-2', 'a-3', 'a-4'])
+    expect(order?.[6]).toBe('c')
+  })
+
+  it('keeps each pickup before its drop-off when reordering', () => {
+    const stops: Stop[] = [
+      { id: 'a-d', jobId: 'a', kind: 'dropoff', point: point(2) },
+      { id: 'a-p', jobId: 'a', kind: 'pickup', point: point(1) },
+      { id: 'b-d', jobId: 'b', kind: 'dropoff', point: point(-1) },
+    ]
+    const order = optimizeCommittedRoute(point(0), stops, matrix)?.map(s => s.id)
+    expect(order?.indexOf('a-p')).toBeLessThan(order!.indexOf('a-d'))
+    expect(order).toHaveLength(3)
   })
 
   it('excludes full riders without removing them from duty or imposing fabricated box capacity', () => {

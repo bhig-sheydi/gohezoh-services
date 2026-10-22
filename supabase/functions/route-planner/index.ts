@@ -1,6 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { geoapifyRoadMatrix } from '../_shared/geoapify-road-matrix.ts'
-import { bestPerCompany, planRiderRoute, DEFAULT_POLICY, type Point, type Stop, type RiderCandidate } from '../_shared/rider-route-planner.ts'
+import { bestPerCompany, optimizeCommittedRoute, planRiderRoute, DEFAULT_POLICY, type Point, type Stop, type RiderCandidate } from '../_shared/rider-route-planner.ts'
 
 type Event = { event_id: string; request_id: string; rider_id: string | null; event_kind: string }
 type Job = { job_id: string; status: string; pickup_latitude: number | null; pickup_longitude: number | null;
@@ -71,8 +71,8 @@ Deno.serve(async (request) => {
     const longRoute = next.length > 9
     const matrix = await roads([origin, ...next.slice(0, 9).map((s) => ({ latitude: s.latitude, longitude: s.longitude }))])
     if (!matrix) throw new Error('Road matrix unavailable or budget exhausted')
-    // Insert newly awarded pickups into the road-time route while preserving
-    // the rider's current next stop and existing customer ETA commitments.
+    // Keep the acknowledged next stop, then optimize the remaining accepted
+    // work for road distance and total parcel completion time.
     let ordered = (longRoute ? next : existing).map(stop)
     if (ordered[0]) ordered[0].pinned = true
     for (const job of longRoute ? [] : jobs) {
@@ -95,6 +95,10 @@ Deno.serve(async (request) => {
       for (const s of next) if (s.job_id === job.job_id && !ordered.some((item) => item.id === `${s.job_id}:${s.kind}`))
         ordered.push(stop(s))
     }
+    if (longRoute) {
+      const horizon = optimizeCommittedRoute(origin, ordered.slice(0, 9), matrix)
+      if (horizon) ordered = [...horizon, ...ordered.slice(9)]
+    } else ordered = optimizeCommittedRoute(origin, ordered, matrix) ?? ordered
     let at = origin
     let minutes = 0
     const sequenced = ordered.map((s, index) => {
