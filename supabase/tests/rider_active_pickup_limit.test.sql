@@ -38,7 +38,7 @@ begin
   insert into public.rider_credentials(user_id,partner_id,roster_id,rider_name,auth_secret_seed,link_hash,password_salt,password_hash,password_fingerprint)
     values(v_rider,v_partner,v_rider_roster,'Capacity test rider','capacity-seed-'||v_rider,'capacity-link-'||v_rider,'salt','hash','capacity-password-'||v_rider);
 
-  for v_i in 1..6 loop
+  for v_i in 1..7 loop
     v_request:=gen_random_uuid(); v_order:=gen_random_uuid(); v_job:=gen_random_uuid();
     insert into public.service_requests(id,customer_id,service_id,created_by,pickup_address,pickup_city,sender_name,sender_phone,delivery_address,delivery_city,recipient_name,recipient_phone)
     values(v_request,v_customer,v_service,v_customer_user,'1 Pickup Road','Lagos','Sender','+2348000000001','2 Delivery Road','Ibadan','Recipient','+2348000000002');
@@ -61,8 +61,13 @@ begin
   end loop;
   perform public.update_job_status(v_jobs[6],'pickup_scheduled');
   if (select count(*) from public.jobs where assigned_rider_id=v_rider and status='pickup_scheduled')<>6 then
-    raise exception 'An invented five-job box capacity still blocks the rider';
+    raise exception 'Rider should be allowed six active parcels';
   end if;
+  if public.rider_has_parcel_slot(v_rider) then raise exception 'Six active parcels left an extra slot'; end if;
+  begin
+    perform public.assign_job_to_rider(v_jobs[7],v_rider);
+    raise exception 'A seventh active parcel was assigned';
+  exception when check_violation then null; end;
   update public.service_requests set pickup_latitude=6.5244,pickup_longitude=3.3792,
     pickup_captured_at=now(),pickup_location_source='search'
     where id in (select o.service_request_id from public.jobs j
@@ -101,8 +106,8 @@ begin
   update public.pickup_handoff_codes set verified_at=now(),verified_by=v_rider where job_id=v_jobs[1];
   perform public.update_job_status(v_jobs[1],'in_transit');
   perform public.update_job_status(v_jobs[6],'pickup_scheduled');
-  if (select count(*) from public.jobs where assigned_rider_id=v_rider and status in ('pickup_scheduled','picked_up','exception'))<>5 then
-    raise exception 'Capacity should be released when the job enters transit';
+  if public.rider_has_parcel_slot(v_rider) then
+    raise exception 'A parcel in transit incorrectly released a slot';
   end if;
   -- An exception after a verified pickup must retain its drop-off, never
   -- send the rider back to the sender for another pickup.

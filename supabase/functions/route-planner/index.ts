@@ -83,7 +83,9 @@ Deno.serve(async (request) => {
         !planned.has(`${job.job_id}:pickup`)) {
         const proposal = planRiderRoute({ riderId, companyId: context.partner_id,
           position: origin, locationAgeSeconds: 0, locationAccuracyMetres: context.accuracy_metres ?? 0,
-          onDuty: true, loadState: 'available', activePickupCount: jobs.length, stops: ordered },
+          // These jobs are already assigned; the six-parcel admission check
+          // belongs to invitation and assignment, not replanning their custody.
+          onDuty: true, loadState: 'available', activePickupCount: 0, stops: ordered },
         { jobId: job.job_id,
           pickup: { id: `${job.job_id}:pickup`, jobId: job.job_id, kind: 'pickup', point: pickup },
           dropoff: { id: `${job.job_id}:dropoff`, jobId: job.job_id, kind: 'dropoff', point: dropoff } },
@@ -140,7 +142,7 @@ Deno.serve(async (request) => {
       const rider: RiderCandidate = { riderId: candidate.rider_id, companyId: candidate.partner_id,
         position: origin, onDuty: true, loadState: candidate.load_state,
         locationAgeSeconds: (Date.now() - Date.parse(candidate.gps_captured_at)) / 1000,
-        locationAccuracyMetres: candidate.accuracy_metres, activePickupCount: candidate.active_pickups, stops }
+        locationAccuracyMetres: candidate.accuracy_metres, activePickupCount: active.length, stops }
       const proposal = planRiderRoute(rider, { jobId: requestId,
         pickup: { id: `${requestId}:pickup`, jobId: requestId, kind: 'pickup', point: pickup },
         dropoff: { id: `${requestId}:dropoff`, jobId: requestId, kind: 'dropoff', point: dropoff } }, matrix)

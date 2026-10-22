@@ -42,10 +42,11 @@ describe('deterministic route planner', () => {
     expect(planRiderRoute(rider({ loadState: 'almost_full' }), request, matrix)?.loadState).toBe('almost_full')
   })
 
-  it('rejects stale or inaccurate GPS without inventing a parcel-count capacity', () => {
+  it('rejects stale or inaccurate GPS and enforces the six-parcel limit', () => {
     expect(planRiderRoute(rider({ locationAgeSeconds: 121 }), request, matrix)).toBeUndefined()
     expect(planRiderRoute(rider({ locationAccuracyMetres: 101 }), request, matrix)).toBeUndefined()
     expect(planRiderRoute(rider({ activePickupCount: 5 }), request, matrix)).toBeDefined()
+    expect(planRiderRoute(rider({ activePickupCount: 6 }), request, matrix)).toBeUndefined()
   })
 
   it('uses degraded estimates only for idle riders and never calls them road evidence', () => {
@@ -74,5 +75,11 @@ describe('deterministic route planner', () => {
     const nearbyWrongRoute = { ...base, riderId: 'near-wrong', tier: 3 as const, pickupEtaMinute: 2 }
     expect([nearbyWrongRoute, distantAligned, nearbyAligned].sort(compareProposals).map(p => p.riderId))
       .toEqual(['near-aligned', 'far-aligned', 'near-wrong'])
+  })
+  it('does not rank an otherwise equal route by delay to an existing parcel', () => {
+    const base = planRiderRoute(rider(), request, matrix)!
+    const delayed = { ...base, riderId: 'a', maxExistingDelayMinutes: 8, sumExistingDelayMinutes: 8 }
+    const noDelay = { ...base, riderId: 'b', maxExistingDelayMinutes: 0, sumExistingDelayMinutes: 0 }
+    expect([noDelay, delayed].sort(compareProposals).map(p => p.riderId)).toEqual(['a', 'b'])
   })
 })

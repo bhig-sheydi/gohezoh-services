@@ -36,7 +36,7 @@ The state stays `full` until the rider or authorized company manager explicitly 
 
 ## Feasibility, priority tiers, and scoring
 
-Hard constraints are checked before scoring: active on-duty rider and company; rider load state not `full`; fresh usable location; company service eligibility; funded/selected award for commitment; valid pickup and drop-off; the rider-reported full state; pickup before its drop-off; accepted pickup/drop-off windows; a bounded maximum detour; no unreasonable delay to any existing customer; and no assignment already committed elsewhere. The planner cannot calculate whether goods physically fit an unmeasured box. The company sees the parcel details and the rider's `almost_full` warning before it confirms its bid; the rider can mark `full` whenever no further parcel will fit.
+Hard constraints are checked before scoring: active on-duty rider and company; fewer than six assigned, unfinished parcels; rider load state not `full`; fresh usable location; company service eligibility; valid pickup and drop-off; pickup before its drop-off; explicit accepted deadlines; and no assignment already committed elsewhere. Routine delay to existing parcels is not a rejection criterion. The planner cannot calculate whether goods physically fit an unmeasured box. The company sees parcel details and the rider's `almost_full` warning before it bids; the rider can mark `full` whenever no further parcel will fit.
 
 For each feasible insertion, calculate `T_pickup`, total additional road minutes `DeltaT`, additional road kilometres `DeltaD`, maximum positive delay to any committed stop `MaxDelay`, weighted sum of those delays `DelaySum`, estimated empty kilometres saved compared with a separate trip, and route alignment. An aligned destination is close in **road travel time** or lies on the planned route with a small marginal detour, not merely near it on a map. A rider is travelling toward a point only when recent positions and the committed next stop support that direction; a single GPS reading cannot prove heading.
 
@@ -49,13 +49,13 @@ Assign a preference tier after feasibility:
 | 3 | Nearby rider can serve the request with a reasonable new route despite no destination overlap | Feasible insertion and bounded detour to existing jobs |
 | 4 | Other feasible rider | Meets all hard limits, with a bounded pickup ETA; includes idle riders and expanded-radius fallback |
 
-The live invitation rule compares feasible tiers in strict order: nearby aligned, then farther aligned, then nearby non-aligned. A candidate must pass pickup and existing-customer delay limits before entering a tier. Scores and rider IDs break ties within a tier. A possible future corridor has **zero** current score unless a real accepted job already uses it.
+The live invitation rule compares feasible tiers in strict order: nearby aligned, then farther aligned, then nearby non-aligned. A candidate must pass the pickup and explicit deadline limits before entering a tier. Scores and rider IDs break ties within a tier. A possible future corridor has **zero** current score unless a real accepted job already uses it.
 
 Use a lexicographic objective, not one opaque weighted sum:
 
-1. Reject infeasible plans and plans that worsen any accepted deadline or exceed a configurable maximum added delay (initial policy proposal: 10 minutes or 15% of remaining ETA, whichever is smaller; calibrate with observed operations before launch).
-2. Minimize the 95th-percentile risk-adjusted pickup ETA and maximum delay to existing customers. Inflate uncertain ETAs by measured provider error and location accuracy; do not present a point estimate as a guarantee.
-3. Among plans within a small service-quality band (initial proposal: 3 minutes), minimize `J = 4*T_pickup + 2*DelaySum + DeltaT + fuel_factor*DeltaD - bounded_empty_km_saving`, with minutes as the normalized unit and a capped fuel credit. Tune coefficients with recorded outcomes. This formula ranks candidates; it never overrides step 1.
+1. Reject plans that breach the six-active-parcel limit, pickup ETA limit, or an explicit accepted deadline.
+2. Compare nearby aligned routes before farther aligned routes, then nearby non-aligned routes. Do not rank by routine delay to existing parcels.
+3. Within a tier, minimize `J = 4*T_pickup + DeltaT + DeltaD` using road minutes and kilometres. Tune coefficients with recorded outcomes; this score never overrides step 1.
 4. Compare eligible tiers 1, 2, 3, then 4 before comparing scores within a tier. Avoid reassigning an already committed rider for a marginal score improvement.
 
 The tier and score thresholds are **launch policy proposals**, not existing product promises. Record them in versioned configuration so outcomes can be reproduced and tuned without changing historical decisions.
@@ -70,7 +70,9 @@ The server owns the plan. Clients display `next_stop`, ETA range, and `plan_vers
 
 ## Current live invitation behavior (22 October 2026)
 
-For new local requests with confirmed coordinates, a short `matching` stage now precedes the one-minute company bid window. The worker road-scores a bounded set of fresh, on-duty riders: first up to three within 5 km of pickup, then up to three farther riders whose committed next stop is within 2 km of pickup. Within that candidate set it invites companies from the first available tier: nearby riders with a feasible aligned route (tier 1), then farther riders with a feasible aligned route (tier 2), then nearby feasible riders without alignment. Only one rider represents each invited company. Existing bids retain their original window.
+For new local requests with confirmed coordinates, a short `matching` stage now precedes the one-minute company bid window. The worker road-scores a bounded set of fresh, on-duty riders: first up to three within 5 km of pickup, then up to three farther riders whose committed next stop is within 2 km of pickup. Within that candidate set it invites companies from the first available tier: nearby riders with a feasible aligned route (tier 1), then farther riders with a feasible aligned route (tier 2), then nearby feasible riders without alignment. Only one rider represents each invited company. A rider with six assigned, unfinished parcels is ineligible for a seventh; parcels already in transit still count. Existing bids retain their original window.
+
+Routine delay to an existing parcel is measured for diagnostics but does not disqualify or rank an otherwise feasible rider. Explicit delivery deadlines and the pickup ETA limit still apply. The rider's own `full` setting can stop invitations sooner than six parcels.
 
 This is a bounded candidate search, so it does not prove the globally best rider among all online riders. The road API quota is capped in the database. If road scoring fails or the quota is exhausted, the matching stage falls back to eligible nearby riders; no distant rider is invited merely because its straight-line route looks useful. A cron fallback resolves a matching stage left open for more than 45 seconds. Distant riders are rechecked for fresh GPS, active access and a committed next stop near pickup when their company bids and when paid assignment occurs. A selected company with no eligible rider still requires the existing paid-booking resolution workflow. The untested real-traffic cost and ETA claims below remain design targets, not verified production results.
 

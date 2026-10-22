@@ -31,8 +31,6 @@ export type PlannerPolicy = {
   maxLocationAgeSeconds: number
   maxLocationAccuracyMetres: number
   maxPickupMinutes: number
-  maxDelayMinutes: number
-  maxDelayFraction: number
   qualityBandMinutes: number
   maxEnumerations: number
 }
@@ -40,8 +38,6 @@ export const DEFAULT_POLICY: PlannerPolicy = {
   maxLocationAgeSeconds: 120,
   maxLocationAccuracyMetres: 100,
   maxPickupMinutes: 30,
-  maxDelayMinutes: 10,
-  maxDelayFraction: 0.15,
   qualityBandMinutes: 3,
   maxEnumerations: 512,
 }
@@ -109,6 +105,7 @@ export function planRiderRoute(
   idleFallback?: RoadMatrix,
 ): RouteProposal | undefined {
   if (!rider.onDuty || rider.loadState === 'full' ||
+    rider.activePickupCount >= 6 ||
     rider.locationAgeSeconds < 0 || rider.locationAgeSeconds > policy.maxLocationAgeSeconds ||
     rider.locationAccuracyMetres < 0 || rider.locationAccuracyMetres > policy.maxLocationAccuracyMetres ||
     !validPoint(rider.position) || request.pickup.kind !== 'pickup' || request.dropoff.kind !== 'dropoff' ||
@@ -146,8 +143,7 @@ export function planRiderRoute(
         const newEta = route.arrivals.get(stop.id)
         if (oldEta === undefined || newEta === undefined) { feasible = false; break }
         const delay = Math.max(0, newEta - oldEta)
-        const allowance = Math.min(policy.maxDelayMinutes, policy.maxDelayFraction * Math.max(oldEta, 1))
-        if (delay > allowance || (stop.baselineEtaMinute !== undefined && newEta > stop.baselineEtaMinute)) { feasible = false; break }
+        if (stop.baselineEtaMinute !== undefined && newEta > stop.baselineEtaMinute) { feasible = false; break }
         maxDelay = Math.max(maxDelay, delay)
         sumDelay += delay
       }
@@ -156,7 +152,7 @@ export function planRiderRoute(
       if (!validLeg(direct)) continue
       const extraMinutes = Math.max(0, route.minutes - baseline.minutes)
       const extraKilometres = Math.max(0, route.kilometres - baseline.kilometres)
-      const aligned = stops.length > 0 && extraMinutes <= direct.minutes + 5 && maxDelay <= 3
+      const aligned = stops.length > 0 && extraMinutes <= direct.minutes + 5
       const nearPickup = pickupEta <= 10
       const tier: 1 | 2 | 3 | 4 = aligned ? (nearPickup ? 1 : 2) : stops.length ? (nearPickup ? 3 : 4) : 4
       const candidate: RouteProposal = {
@@ -164,7 +160,7 @@ export function planRiderRoute(
         stops: matrix ? proposed : [], pickupEtaMinute: pickupEta, totalMinutes: matrix ? route.minutes : 0,
         totalKilometres: matrix ? route.kilometres : 0, maxExistingDelayMinutes: maxDelay,
         sumExistingDelayMinutes: sumDelay, tier,
-        score: 4 * pickupEta + 2 * sumDelay + extraMinutes + extraKilometres,
+        score: 4 * pickupEta + extraMinutes + extraKilometres,
         estimateSource: source, commitEligible: !!matrix,
       }
       if (!best || compareProposals(candidate, best, policy) < 0) best = candidate
@@ -178,8 +174,6 @@ export function compareProposals(a: RouteProposal, b: RouteProposal, policy: Pla
   if (a.tier !== b.tier) return a.tier - b.tier
   const pickupGap = a.pickupEtaMinute - b.pickupEtaMinute
   if (Math.abs(pickupGap) > policy.qualityBandMinutes) return pickupGap
-  const delayGap = a.maxExistingDelayMinutes - b.maxExistingDelayMinutes
-  if (Math.abs(delayGap) > policy.qualityBandMinutes) return delayGap
   if (a.score !== b.score) return a.score - b.score
   return a.riderId.localeCompare(b.riderId)
 }
