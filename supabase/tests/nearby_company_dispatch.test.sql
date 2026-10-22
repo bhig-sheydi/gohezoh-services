@@ -57,6 +57,16 @@ begin
     '2 Lagos Road','Lagos','Recipient','08000000005','Books',
     '[{"description":"Books","quantity":1,"weight_kg":1,"length_cm":10,"width_cm":10,"height_cm":10,"declared_value":1000,"price":500}]'::jsonb,v_path,
     6.45,3.4,18,now(),'browser');
+  if (select status from public.delivery_quote_windows where request_id=v_request)<>'matching' then
+    raise exception 'Request must wait for route matching before bidding'; end if;
+  perform set_config('request.jwt.claims','{"role":"service_role"}',true);
+  perform public.upsert_dispatch_route_proposal(v_request,v_company,v_rider,'available','road-v2-live',20,
+    '{"tier":1,"estimate_source":"road"}'::jsonb,now()+interval '2 minutes');
+  perform public.upsert_dispatch_route_proposal(v_request,v_far_company,v_far_rider,'available','road-v2-live',2,
+    '{"tier":2,"estimate_source":"road"}'::jsonb,now()+interval '2 minutes');
+  if public.finalize_live_route_match(v_request)<>'tier_1' then
+    raise exception 'A distant route displaced the nearby route'; end if;
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_customer_user,'role','authenticated')::text,true);
   if (select count(*) from public.company_bid_invitations where request_id=v_request)<>1 then raise exception 'Expected one invitation to the near company only'; end if;
   if exists(select 1 from public.partner_corridor_coverage where partner_id in (v_company,v_far_company)) then
     raise exception 'Proximity fixture must not depend on manual route assignments'; end if;
@@ -123,6 +133,9 @@ begin
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_rider,'role','authenticated','session_id',v_session)::text,true);
   perform public.report_rider_position(6.45,3.4,18,now());
   perform public.process_dispatch_matches();
+  perform set_config('request.jwt.claims','{"role":"service_role"}',true);
+  perform public.finalize_live_route_match(v_request2);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_rider,'role','authenticated','session_id',v_session)::text,true);
   if (select dispatch_match_status from public.service_requests where id=v_request2)<>'bidding'
     or (select count(*) from public.company_bid_invitations where request_id=v_request2)<>1 then
     raise exception 'Queued request did not route to the company after a rider returned'; end if;

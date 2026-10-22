@@ -175,11 +175,11 @@ export function planRiderRoute(
 }
 
 export function compareProposals(a: RouteProposal, b: RouteProposal, policy: PlannerPolicy = DEFAULT_POLICY): number {
+  if (a.tier !== b.tier) return a.tier - b.tier
   const pickupGap = a.pickupEtaMinute - b.pickupEtaMinute
   if (Math.abs(pickupGap) > policy.qualityBandMinutes) return pickupGap
   const delayGap = a.maxExistingDelayMinutes - b.maxExistingDelayMinutes
   if (Math.abs(delayGap) > policy.qualityBandMinutes) return delayGap
-  if (a.tier !== b.tier) return a.tier - b.tier
   if (a.score !== b.score) return a.score - b.score
   return a.riderId.localeCompare(b.riderId)
 }

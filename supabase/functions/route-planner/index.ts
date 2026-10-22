@@ -107,22 +107,24 @@ Deno.serve(async (request) => {
     await rpc('commit_rider_route_plan', { p_rider: riderId, p_expected_version: context.plan_version,
       p_stops: sequenced, p_estimate_source: 'road' })
   }
-  const shadow = async (requestId: string) => {
+  const liveMatch = async (requestId: string) => {
     const { data: quote } = await db.from('delivery_quote_windows').select('deadline_at,status').eq('request_id', requestId).maybeSingle()
-    if (!quote || quote.status !== 'open' || Date.parse(quote.deadline_at) <= Date.now()) return
+    if (!quote || quote.status !== 'matching') return
     const { data: delivery } = await db.from('service_requests')
       .select('pickup_latitude,pickup_longitude,delivery_latitude,delivery_longitude').eq('id', requestId).maybeSingle()
-    if (!delivery) return
+    if (!delivery) throw new Error('Delivery request is missing')
     const pickup = point(delivery.pickup_latitude, delivery.pickup_longitude)
     const dropoff = point(delivery.delivery_latitude, delivery.delivery_longitude)
-    if (!pickup || !dropoff) return
+    if (!pickup || !dropoff) throw new Error('Confirmed pickup and drop-off coordinates are required')
     const candidates = await rpc('route_planner_candidates', { p_request: requestId }) as Array<{
       partner_id: string; rider_id: string; latitude: number; longitude: number; accuracy_metres: number;
       gps_captured_at: string; load_state: 'available' | 'almost_full'; active_pickups: number;
-      existing_stops: StoredStop[]; active_jobs: Job[]; has_unroutable_jobs: boolean
+      distance_metres: number; existing_stops: StoredStop[]; active_jobs: Job[]; has_unroutable_jobs: boolean
     }>
     const proposals = []
-    for (const candidate of candidates.slice(0, 2)) {
+    const nearby = candidates.filter((c) => c.distance_metres <= 5000).slice(0, 3)
+    const enRoute = candidates.filter((c) => c.distance_metres > 5000).slice(0, 3)
+    for (const candidate of [...nearby, ...enRoute]) {
       const active = candidate.active_jobs ?? []
       const stored = (candidate.existing_stops ?? []).filter((s) => active.some((j) => j.job_id === s.job_id &&
         (s.kind === 'dropoff' || j.status === 'pickup_scheduled' || j.status === 'exception')))
@@ -146,17 +148,18 @@ Deno.serve(async (request) => {
     }
     for (const proposal of bestPerCompany(proposals)) await rpc('upsert_dispatch_route_proposal', {
       p_request: requestId, p_partner: proposal.companyId, p_rider: proposal.riderId,
-      p_load_state: proposal.loadState, p_algorithm_version: 'road-v1-shadow', p_score: proposal.score,
+      p_load_state: proposal.loadState, p_algorithm_version: 'road-v2-live', p_score: proposal.score,
       p_details: { tier: proposal.tier, pickup_eta_minutes: proposal.pickupEtaMinute,
         max_existing_delay_minutes: proposal.maxExistingDelayMinutes, estimate_source: proposal.estimateSource },
       p_expires_at: quote.deadline_at,
     })
+    await rpc('finalize_live_route_match', { p_request: requestId })
   }
   const events = await rpc('claim_route_planner_events', { p_limit: 5 }) as Event[]
   const outcomes = []
   for (const event of events) {
     try {
-      if (event.event_kind === 'shadow_invitation') await shadow(event.request_id)
+      if (event.event_kind === 'live_invitation') await liveMatch(event.request_id)
       else if (event.rider_id) await replan(event.rider_id)
       await rpc('finish_route_planner_event', { p_event_id: event.event_id, p_success: true })
       outcomes.push({ event_id: event.event_id, ok: true })

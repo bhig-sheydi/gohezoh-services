@@ -50,7 +50,7 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
     setQuotes(nextQuotes)
     setHolds(Object.fromEntries(((holdResult.data ?? []) as PaymentHold[]).filter((hold) => ids.includes(hold.request_id)).map((hold) => [hold.request_id, hold])))
     const ready = nextWindows.filter((row) => new Date(row.deadline_at).getTime() <= Date.now()
-      && ['open', 'awaiting_customer_selection'].includes(row.status)
+      && ['matching', 'open', 'awaiting_customer_selection'].includes(row.status)
       && !nextQuotes.some((quote) => quote.request_id === row.request_id))
     const results = await Promise.all(ready.map(async (row) => {
       const { data, error } = await supabase.rpc('list_customer_bid_offers', { p_request_id: row.request_id })
@@ -69,7 +69,7 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
   }, [supabase, requestIdKey, onError])
   useEffect(() => { const timer = window.setTimeout(() => { void load() }, 0); return () => clearTimeout(timer) }, [load])
   useEffect(() => {
-    if (!pendingIdKey && !windows.some((row) => ['open', 'awaiting_customer_selection'].includes(row.status))
+    if (!pendingIdKey && !windows.some((row) => ['matching', 'open', 'awaiting_customer_selection'].includes(row.status))
       && !Object.values(holdsRef.current).some((hold) => ['initializing', 'pending'].includes(hold.status))) return
     const timer = window.setInterval(() => { if (!document.hidden) { setNow(Date.now()); void load() } }, 5000)
     const onFocus = () => { setNow(Date.now()); void load() }
@@ -144,6 +144,7 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
     }
     if (quote) return <div className="customer-quote-card" key={requestId}><strong>{quote.customer_price_ngn == null ? 'Quote under review' : `Delivery quote: ${money(Number(quote.customer_price_ngn))}`}</strong><small>{quote.expires_at ? `Accept by ${date(quote.expires_at)} · ` : ''}{quote.status.replaceAll('_', ' ')}</small>{quote.status === 'sent' && quote.customer_price_ngn != null && <button className="primary-button" disabled={busy === requestId} onClick={() => void accept(requestId)}>{busy === requestId ? 'Accepting...' : 'Accept quote'}</button>}</div>
     if (bidWindow?.status === 'no_bids') return <p className="customer-bid-empty" key={requestId}>No companies bid this time. Try matching again.</p>
+    if (bidWindow?.status === 'matching') return <section className="customer-bid-panel" key={requestId} role="status"><div className="customer-bid-wait"><div className="customer-bid-radar" aria-hidden="true"><span /><span /><span /><i /></div><div className="customer-bid-wait-copy"><h3>Finding interested riders</h3><p>Checking riders near your pickup and those already heading your way.</p><div className="customer-bid-progress customer-bid-progress-search" aria-label="Matching riders"><span /></div></div></div></section>
     if (bidWindow) {
       const remaining = Math.max(0, Math.ceil((new Date(bidWindow.deadline_at).getTime() - now) / 1000))
       const waiting = remaining > 0

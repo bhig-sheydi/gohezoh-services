@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  bestPerCompany, planRiderRoute,
+  bestPerCompany, compareProposals, planRiderRoute,
   type DeliveryRequest, type RiderCandidate, type RoadMatrix, type Stop,
 } from '../../supabase/functions/_shared/rider-route-planner'
 
@@ -65,5 +65,14 @@ describe('deterministic route planner', () => {
     const b = planRiderRoute(rider({ riderId: 'b' }), request, matrix)!
     const c = planRiderRoute(rider({ riderId: 'c', companyId: 'other' }), request, matrix)!
     expect(bestPerCompany([b, c, a]).map(p => p.riderId)).toEqual(['a', 'c'])
+  })
+
+  it('prioritizes nearby route fit, then distant route fit, before a closer rider on the wrong route', () => {
+    const base = planRiderRoute(rider(), request, matrix)!
+    const nearbyAligned = { ...base, riderId: 'near-aligned', tier: 1 as const, pickupEtaMinute: 8 }
+    const distantAligned = { ...base, riderId: 'far-aligned', tier: 2 as const, pickupEtaMinute: 22 }
+    const nearbyWrongRoute = { ...base, riderId: 'near-wrong', tier: 3 as const, pickupEtaMinute: 2 }
+    expect([nearbyWrongRoute, distantAligned, nearbyAligned].sort(compareProposals).map(p => p.riderId))
+      .toEqual(['near-aligned', 'far-aligned', 'near-wrong'])
   })
 })
