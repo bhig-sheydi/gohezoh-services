@@ -52,8 +52,8 @@ export function PartnerInvitationClaim({ supabase, onError, onNotice, onApplicat
   </section>
 }
 
-export function PartnerRidersPanel({ supabase, userId, onError, onNotice }: {
-  supabase: SupabaseClient; userId: string; onError: (message: string) => void; onNotice: (message: string) => void
+export function PartnerRidersPanel({ supabase, userId, onError, onNotice, staffPartnerId }: {
+  supabase: SupabaseClient; userId: string; onError: (message: string) => void; onNotice: (message: string) => void; staffPartnerId?: string
 }) {
   const [members, setMembers] = useState<TeamMember[]>([])
   const [selectedPartner, setSelectedPartner] = useState('')
@@ -70,6 +70,7 @@ export function PartnerRidersPanel({ supabase, userId, onError, onNotice }: {
   const [busy, setBusy] = useState(false)
   const managers = useMemo(() => [...new Map(members.filter((member) => member.is_manager).map((member) => [member.partner_id, { id: member.partner_id, name: member.partner_name }])).values()], [members])
   const load = useCallback(async () => {
+    if (staffPartnerId) { setSelectedPartner(staffPartnerId); setLoading(false); return }
     setLoading(true)
     const teamResult = await supabase.rpc('list_my_partner_team')
     if (teamResult.error) onError(teamResult.error.message)
@@ -78,7 +79,7 @@ export function PartnerRidersPanel({ supabase, userId, onError, onNotice }: {
     setSelectedPartner((current) => team.some((member) => member.user_id === userId && member.is_manager && member.partner_id === current)
       ? current : (team.find((member) => member.user_id === userId && member.is_manager)?.partner_id ?? ''))
     setLoading(false)
-  }, [onError, supabase, userId])
+  }, [onError, staffPartnerId, supabase, userId])
   useEffect(() => { const timer = window.setTimeout(() => { void load() }, 0); return () => window.clearTimeout(timer) }, [load])
   useEffect(() => {
     const refresh = () => { void load() }

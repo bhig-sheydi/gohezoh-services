@@ -43,7 +43,7 @@ begin
 
   perform set_config('request.jwt.claim.sub',v_partner_user::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_partner_user,'role','authenticated')::text,true);
-  if not public.can_read_pod_job(v_job) or not public.can_upload_pod_job(v_job) then raise exception 'Completed assigned partner should read and upload delivery proof'; end if;
+  if not public.can_read_pod_job(v_job) or public.can_upload_pod_job(v_job) then raise exception 'Partner should read historical proof but cannot upload new proof'; end if;
   if public.pod_job_id_from_path(v_job::text||'/proof.webp') is distinct from v_job then raise exception 'Storage object path did not resolve to its delivery job'; end if;
   if public.pod_job_id_from_path('invalid/proof.webp') is not null then raise exception 'Malformed storage path should not resolve to a job'; end if;
 
@@ -53,9 +53,9 @@ begin
 
   perform set_config('request.jwt.claim.sub',v_operations_user::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_operations_user,'role','authenticated')::text,true);
-  if not public.can_upload_pod_job(v_job) then raise exception 'Operations should be able to add delivery evidence'; end if;
+  if public.can_upload_pod_job(v_job) then raise exception 'Operations can no longer add photo proof'; end if;
   if not exists (select 1 from storage.buckets where id='proof-of-delivery' and public=false and file_size_limit=5242880) then raise exception 'Expected a private five-megabyte proof bucket'; end if;
-  if not exists (select 1 from pg_policies where schemaname='storage' and tablename='objects' and policyname='pod_objects_upload_after_delivery') then raise exception 'Storage upload RLS policy is missing'; end if;
+  if exists (select 1 from pg_policies where schemaname='storage' and tablename='objects' and policyname='pod_objects_upload_after_delivery') then raise exception 'Obsolete photo-upload policy is still active'; end if;
 end;
 $$;
 rollback;

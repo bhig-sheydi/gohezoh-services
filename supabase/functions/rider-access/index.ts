@@ -3,13 +3,9 @@ import { bytes, createPassword, hashPassword, hex, hmac, sha256, validPublicKey,
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization,apikey,content-type,x-client-info', 'Access-Control-Allow-Methods': 'POST,OPTIONS' }
 const reply = (body: Record<string, unknown>, status = 200) => Response.json(body, { status, headers: cors })
-async function managerFor(admin: ReturnType<typeof createClient>, userId: string, partnerId: string) {
-  const { data: member } = await admin.from('partner_users').select('partner_id').eq('user_id', userId).eq('partner_id', partnerId).eq('membership_role', 'manager').maybeSingle()
-  if (!member) return false
-  const { data: role } = await admin.from('user_roles').select('user_id').eq('user_id', userId).eq('role', 'partner').maybeSingle()
-  if (!role) return false
-  const { data: partner } = await admin.from('logistics_partners').select('status').eq('id', partnerId).maybeSingle()
-  return partner?.status === 'active'
+async function canManageRiders(userClient: ReturnType<typeof createClient>, partnerId: string) {
+  const { data, error } = await userClient.rpc('company_staff_allowed', { p_partner_id: partnerId, p_permission: 'riders' })
+  return !error && data === true
 }
 
 Deno.serve(async (request) => {
@@ -30,8 +26,11 @@ Deno.serve(async (request) => {
     if (!authorization.startsWith('Bearer ')) return reply({ error: 'Company manager sign-in required' }, 401)
     const { data: { user } } = await admin.auth.getUser(authorization.slice(7))
     if (!user) return reply({ error: 'Company manager sign-in required' }, 401)
+    const { data: partnerRole } = await admin.from('user_roles').select('user_id').eq('user_id', user.id).eq('role', 'partner').maybeSingle()
+    if (!partnerRole) return reply({ error: 'Partner account required' }, 403)
     const partnerId = String(body.partnerId ?? '')
-    if (!await managerFor(admin, user.id, partnerId)) return reply({ error: 'Only this company manager can manage riders' }, 403)
+    const userClient = createClient(url, anonKey, { global: { headers: { Authorization: authorization } }, auth: { persistSession: false, autoRefreshToken: false } })
+    if (!await canManageRiders(userClient, partnerId)) return reply({ error: 'Company rider-management permission is required' }, 403)
     if (action === 'list') {
       const { data, error } = await admin.from('company_riders').select('id,full_name,phone,status,rejection_reason,photo_path,source_vehicle_id,created_at,rider_credentials(user_id,device_bound_at,device_label,password_revoked_at,revoked_at)')
         .eq('partner_id', partnerId).order('created_at', { ascending: false }).limit(100)

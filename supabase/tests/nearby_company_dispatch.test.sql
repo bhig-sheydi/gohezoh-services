@@ -137,9 +137,9 @@ begin
     raise exception 'Verified local payment did not confirm the job'; end if;
   if not exists(select 1 from public.orders o join public.jobs j on j.order_id=o.id
       join public.job_financials f on f.job_id=j.id join public.customer_payments p on p.job_id=j.id
-      where o.service_request_id=v_request and j.assigned_rider_id=v_rider and f.partner_cost=1600
+      where o.service_request_id=v_request and j.assigned_rider_id=v_rider and f.partner_cost=1500
         and p.amount=2000 and p.method='online') then
-    raise exception 'Paid booking did not route the rider and record the 20 percent partner fee'; end if;
+    raise exception 'Paid booking did not route the rider and record the 25 percent platform fee'; end if;
   if (select count(*) from public.orders where service_request_id=v_request)<>1 then raise exception 'Duplicate order'; end if;
   select j.id into v_job from public.jobs j join public.orders o on o.id=j.order_id where o.service_request_id=v_request;
   -- Prove the pickup handoff while rolling this subtest back so tracking keeps its pre-pickup fixture.

@@ -8,7 +8,7 @@ type Bank = { code: string; name: string }
 type PayoutAccount = { bankName: string; accountLast4: string; accountName: string; verifiedAt: string }
 type ResolvedAccount = { bankCode: string; bankName: string; accountNumber: string; accountName: string }
 type Withdrawal = { withdrawalId: string; status: 'reserved' | 'initiating' | 'queued' | 'successful' | 'failed' | 'unknown'; amountNgn: number; transferReference?: string }
-type Props = { supabase: ReturnType<typeof getSupabaseClient>; onError: (message: string) => void; onNotice: (message: string) => void }
+type Props = { supabase: ReturnType<typeof getSupabaseClient>; onError: (message: string) => void; onNotice: (message: string) => void; showPayout?: boolean; canEditLogo?: boolean }
 
 async function payoutErrorMessage(error: { message: string; context?: unknown }) {
   if (error.context instanceof Response) {
@@ -31,7 +31,7 @@ function localDayRange(now: Date) {
   }
 }
 
-export default function PartnerCompanyWelcome({ supabase, onError, onNotice }: Props) {
+export default function PartnerCompanyWelcome({ supabase, onError, onNotice, showPayout = true, canEditLogo = true }: Props) {
   const [company, setCompany] = useState<Company | null>(null)
   const [logoUrl, setLogoUrl] = useState<string | null>(null)
   const [now, setNow] = useState(() => new Date())
@@ -78,8 +78,8 @@ export default function PartnerCompanyWelcome({ supabase, onError, onNotice }: P
     const row = (data as Company[] | null)?.[0] ?? null
     setCompany(row)
     companyId.current = row?.partner_id ?? null
-    await refreshPayables(row?.partner_id)
-    if (row) {
+    if (showPayout) await refreshPayables(row?.partner_id)
+    if (row && showPayout) {
       const payout = await supabase.functions.invoke('flutterwave-payout', { body: { action: 'account', partnerId: row.partner_id } })
       if (payout.error) onError(await payoutErrorMessage(payout.error))
       else { setAccount((payout.data as { account?: PayoutAccount | null })?.account ?? null); setTestMode(!!payout.data?.testMode); setVerificationTestMode(!!payout.data?.verificationTestMode) }
@@ -88,7 +88,7 @@ export default function PartnerCompanyWelcome({ supabase, onError, onNotice }: P
     const signed = await supabase.storage.from('partner-logos').createSignedUrl(row.logo_path, 3600)
     if (signed.error) { onError(signed.error.message); setLogoUrl(null) }
     else setLogoUrl(signed.data?.signedUrl ?? null)
-  }, [onError, refreshPayables, supabase])
+  }, [onError, refreshPayables, showPayout, supabase])
 
   async function openAccountEditor() {
     if (!company) return
@@ -160,12 +160,12 @@ export default function PartnerCompanyWelcome({ supabase, onError, onNotice }: P
       if (day !== lastDay.current) { lastDay.current = day; void refresh() }
     }, 60_000)
     const payablesTimer = window.setInterval(() => {
-      if (document.visibilityState === 'visible') void refreshPayables()
+      if (showPayout && document.visibilityState === 'visible') void refreshPayables()
     }, 30_000)
-    const focused = () => { void refreshPayables() }
+    const focused = () => { if (showPayout) void refreshPayables() }
     window.addEventListener('focus', focused)
     return () => { window.clearTimeout(initial); window.clearInterval(timer); window.clearInterval(payablesTimer); window.removeEventListener('focus', focused) }
-  }, [refresh, refreshPayables])
+  }, [refresh, refreshPayables, showPayout])
 
   async function uploadLogo(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0]
@@ -193,13 +193,13 @@ export default function PartnerCompanyWelcome({ supabase, onError, onNotice }: P
   if (!company) return null
   return <section className="partner-company-welcome" aria-label="Company overview">
     <div className="partner-company-identity">
-      <button className="partner-company-logo" type="button" onClick={() => fileInput.current?.click()} disabled={busy} aria-label={logoUrl ? 'Change company logo' : 'Upload company logo'}>
+      <button className="partner-company-logo" type="button" onClick={() => fileInput.current?.click()} disabled={busy || !canEditLogo} aria-label={logoUrl ? 'Change company logo' : 'Upload company logo'}>
         {logoUrl ? <img src={logoUrl} alt={`${company.partner_name} logo`} /> : <span aria-hidden="true">+</span>}
       </button>
       <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => void uploadLogo(event)} className="partner-company-file" aria-label="Company logo image" />
-      <div><p className="eyebrow">{company.partner_name}</p><h1>{localGreeting(now.getHours())}, {company.ceo_name || 'partner'}</h1><p className="partner-company-logo-hint">{busy ? 'Saving logo...' : 'Tap the logo to change it'}</p></div>
+      <div><p className="eyebrow">{company.partner_name}</p><h1>{localGreeting(now.getHours())}, {company.ceo_name || 'partner'}</h1>{canEditLogo && <p className="partner-company-logo-hint">{busy ? 'Saving logo...' : 'Tap the logo to change it'}</p>}</div>
     </div>
-    <div className="partner-company-finances">
+    {showPayout && <div className="partner-company-finances">
       <div className="partner-company-earnings"><span>Today's earnings</span><strong>{new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' }).format(Number(company.earnings_ngn) || 0)}</strong><small>Confirmed from today's deliveries</small></div>
       {payables && <div className="partner-company-payables" aria-label="Company payout balance">
         {testMode && <p className="partner-payout-test-mode">Test mode — no real bank transfer will be made.</p>}
@@ -215,8 +215,8 @@ export default function PartnerCompanyWelcome({ supabase, onError, onNotice }: P
         {withdrawal && <div className="partner-payout-status" role="status"><span>Latest withdrawal</span><strong>{formatWithdrawalStatus(withdrawal.status)}</strong><small>{formatNaira(withdrawal.amountNgn)}{withdrawal.transferReference ? ` · ${withdrawal.transferReference}` : ''}</small>{!['successful','failed'].includes(withdrawal.status) && <button type="button" className="secondary-button" onClick={() => void checkWithdrawal()}>Check status</button>}</div>}
         <small>Paid delivery earnings become withdrawable after the recipient's code or booking customer's confirmation completes delivery.</small>
       </div>}
-    </div>
-    {editingAccount && <div className="partner-payout-account-form" aria-label="Bank account details">
+    </div>}
+    {showPayout && editingAccount && <div className="partner-payout-account-form" aria-label="Bank account details">
       <div className="partner-payout-form-heading"><div><p className="eyebrow">PAYOUT DETAILS</p><h2>{account ? 'Change bank account' : 'Add bank account'}</h2><p>Choose your bank and enter your account number. We will show the account name before you save.</p></div><button type="button" className="partner-payout-close" aria-label="Close bank account form" onClick={() => { setEditingAccount(false); setResolvedAccount(null); setAccountNumber('') }}>×</button></div>
       {verificationTestMode && <p className="partner-payout-sandbox-note">Bank verification is in test mode. Flutterwave accepts Access Bank sample accounts 0690000031–0690000041 only. To verify your real account, a live verification key must be configured; this does not enable withdrawals.</p>}
       <div className="partner-payout-fields">

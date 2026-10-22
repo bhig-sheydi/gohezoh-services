@@ -72,13 +72,12 @@ Deno.serve(async (request) => {
   try { body = await request.json() } catch { return json({ error: 'Invalid payout request' }, 400) }
   if (!uuid(body.partnerId)) return json({ error: 'Select your company' }, 400)
   const partnerId = body.partnerId
-  const [{ data: membership, error: memberError }, { data: partner, error: partnerError }] = await Promise.all([
-    admin.from('partner_users').select('partner_id').eq('partner_id', partnerId).eq('user_id', user.id)
-      .eq('membership_role', 'manager').maybeSingle(),
+  const [{ data: allowed, error: memberError }, { data: partner, error: partnerError }] = await Promise.all([
+    userClient.rpc('company_staff_allowed', { p_partner_id: partnerId, p_permission: 'withdraw' }),
     admin.from('logistics_partners').select('id,status').eq('id', partnerId).maybeSingle(),
   ])
-  if (memberError || partnerError || !membership || partner?.status !== 'active')
-    return json({ error: 'An active company manager is required' }, 403)
+  if (memberError || partnerError || !allowed || partner?.status !== 'active')
+    return json({ error: 'Company withdrawal permission is required' }, 403)
 
   try {
     if (body.action === 'banks') {

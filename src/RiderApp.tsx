@@ -94,6 +94,17 @@ export default function RiderApp() {
     document.addEventListener('visibilitychange', refresh)
     return () => { window.clearInterval(timer); document.removeEventListener('visibilitychange', refresh) }
   }, [session, rider, load])
+  useEffect(() => {
+    if (!session?.user || !rider) return
+    const check = async () => {
+      const { data, error } = await supabase.rpc('rider_session_active')
+      if (!error && data === false) { setError('Your rider access has ended. Ask company management for a new password.'); await supabase.auth.signOut() }
+    }
+    const timer = window.setInterval(() => { void check() }, 15000)
+    const focused = () => { void check() }
+    window.addEventListener('focus', focused)
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', focused) }
+  }, [rider, session, supabase])
 
   async function signIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
