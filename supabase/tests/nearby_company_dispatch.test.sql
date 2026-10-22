@@ -80,6 +80,29 @@ begin
   if (select count(*) from public.list_company_bid_pickups() where request_id=v_request and pickup_address='1 Lagos Road')<>1 then
     raise exception 'Near company cannot see pickup location'; end if;
   if public.submit_partner_quote(v_request,2000,2,'Pickup and delivery','None',true,'None') is null then raise exception 'Near company could not bid'; end if;
+  begin
+  perform set_config('request.jwt.claim.sub',v_rider::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_rider,'role','authenticated','session_id',v_session)::text,true);
+  if public.set_rider_load_state('almost_full')<>'almost_full' then raise exception 'Rider could not mark almost full'; end if;
+  if not exists(select 1 from public.rider_presence where user_id=v_rider) then raise exception 'Almost full stopped GPS presence'; end if;
+  perform set_config('request.jwt.claim.sub',v_manager::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_manager,'role','authenticated')::text,true);
+  if not exists(select 1 from public.list_company_bid_rider_loads()
+    where request_id=v_request and rider_name='Fixture Rider' and load_state='almost_full') then
+    raise exception 'Company did not receive almost-full bid warning'; end if;
+  perform set_config('request.jwt.claim.sub',v_rider::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_rider,'role','authenticated','session_id',v_session)::text,true);
+  if public.set_rider_load_state('full')<>'full' then raise exception 'Rider could not mark full'; end if;
+  if not exists(select 1 from public.rider_presence where user_id=v_rider) then raise exception 'Full rider lost GPS presence'; end if;
+  if not exists(select 1 from public.company_bid_invitations
+    where request_id=v_request and partner_id=v_company and rider_id=v_rider2) then
+    raise exception 'Full rider invitation was not reassigned to available company rider'; end if;
+  perform set_config('request.jwt.claim.sub',v_manager::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_manager,'role','authenticated')::text,true);
+  if not exists(select 1 from public.list_partner_bid_screen() where request_id=v_request) then
+    raise exception 'Company lost bid even though it has an available replacement rider'; end if;
+    raise sqlstate 'P0004' using message='ROLLBACK_RIDER_LOAD_SUBTEST';
+  exception when sqlstate 'P0004' then null; end;
   update public.rider_presence set received_at=now()-interval '3 minutes',captured_at=now()-interval '3 minutes' where partner_id=v_company;
   if exists(select 1 from public.list_partner_bid_screen() where request_id=v_request) then raise exception 'Stale rider kept bid visible'; end if;
   v_denied:=false;
@@ -142,6 +165,11 @@ begin
     raise exception 'Paid booking did not route the rider and record the 25 percent platform fee'; end if;
   if (select count(*) from public.orders where service_request_id=v_request)<>1 then raise exception 'Duplicate order'; end if;
   select j.id into v_job from public.jobs j join public.orders o on o.id=j.order_id where o.service_request_id=v_request;
+  update public.rider_credentials set load_state='full' where user_id=v_rider2;
+  v_denied:=false;
+  begin update public.jobs set assigned_rider_id=v_rider2 where id=v_job;
+  exception when check_violation then v_denied:=true; end;
+  if not v_denied then raise exception 'Direct job assignment ignored rider Full state'; end if;
   -- Prove the pickup handoff while rolling this subtest back so tracking keeps its pre-pickup fixture.
   begin
     perform set_config('request.jwt.claim.sub',v_customer_user::text,true);

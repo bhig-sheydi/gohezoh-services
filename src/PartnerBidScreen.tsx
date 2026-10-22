@@ -9,6 +9,7 @@ type Props = { supabase: SupabaseClient; partnerIds: string[]; onError: (message
 type Pickup = { request_id: string; pickup_address: string; sender_name: string; sender_phone: string; latitude: number; longitude: number; location_source: string; nearby_rider_name: string; distance_metres: number }
 type DeliveryPin = { request_id: string; latitude: number; longitude: number }
 type BidRoute = { request_id: string; pickup_address: string | null; delivery_address: string | null }
+type RiderLoad = { request_id: string; rider_name: string; load_state: 'available' | 'almost_full' | 'full' }
 const money = (value: number) => new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' }).format(value)
 
 export default function PartnerBidScreen({ supabase, partnerIds, onError, onNotice }: Props) {
@@ -21,6 +22,7 @@ export default function PartnerBidScreen({ supabase, partnerIds, onError, onNoti
   const [pickups, setPickups] = useState<Pickup[]>([])
   const [deliveryPins, setDeliveryPins] = useState<DeliveryPin[]>([])
   const [routes, setRoutes] = useState<BidRoute[]>([])
+  const [riderLoads, setRiderLoads] = useState<RiderLoad[]>([])
   const loading = useRef(false)
   const photos = useRef(new Map<string, { url: string; expires: number }>())
 
@@ -29,7 +31,7 @@ export default function PartnerBidScreen({ supabase, partnerIds, onError, onNoti
     if (loading.current) return
     loading.current = true
     try {
-    const [{ data, error }, locations, deliveries, routeAddresses] = await Promise.all([supabase.rpc('list_partner_bid_screen'), supabase.rpc('list_company_bid_pickups'), supabase.rpc('list_company_bid_delivery_locations'), supabase.rpc('list_partner_bid_route_addresses')])
+    const [{ data, error }, locations, deliveries, routeAddresses, loads] = await Promise.all([supabase.rpc('list_partner_bid_screen'), supabase.rpc('list_company_bid_pickups'), supabase.rpc('list_company_bid_delivery_locations'), supabase.rpc('list_partner_bid_route_addresses'), supabase.rpc('list_company_bid_rider_loads')])
     if (error) { onError(error.message); return }
     if (locations.error) { onError(locations.error.message); setPickups([]) }
     else setPickups(Array.isArray(locations.data) ? locations.data as Pickup[] : [])
@@ -37,6 +39,8 @@ export default function PartnerBidScreen({ supabase, partnerIds, onError, onNoti
     else setDeliveryPins(Array.isArray(deliveries.data) ? deliveries.data as DeliveryPin[] : [])
     if (routeAddresses.error) onError(routeAddresses.error.message)
     else setRoutes(Array.isArray(routeAddresses.data) ? routeAddresses.data as BidRoute[] : [])
+    if (loads.error) onError(loads.error.message)
+    else setRiderLoads(Array.isArray(loads.data) ? loads.data as RiderLoad[] : [])
     const rows = (data ?? []) as BidJob[]
     const withPhotos = await Promise.all(rows.map(async (job) => {
       if (!job.photo_path) return { ...job, photo_url: null }
@@ -54,7 +58,7 @@ export default function PartnerBidScreen({ supabase, partnerIds, onError, onNoti
 
   useEffect(() => {
     const initial = window.setTimeout(() => { setNow(new Date().getTime()); void load() }, 0)
-    const refresh = window.setInterval(() => { if (!document.hidden) void load() }, 30_000)
+    const refresh = window.setInterval(() => { if (!document.hidden) void load() }, 10_000)
     const clock = window.setInterval(() => { if (!document.hidden) setNow(new Date().getTime()) }, 1000)
     const onFocus = () => { setNow(new Date().getTime()); void load() }
     const onVisibility = () => { if (!document.hidden) onFocus() }
@@ -63,6 +67,7 @@ export default function PartnerBidScreen({ supabase, partnerIds, onError, onNoti
     const channel = supabase.channel('partner-open-bid-windows')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'delivery_quote_windows' }, () => { void load() })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'company_bid_invitations' }, () => { if (!document.hidden) void load() })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'company_bid_invitations' }, () => { if (!document.hidden) void load() })
       .subscribe((status) => { if (status === 'SUBSCRIBED') void load() })
     return () => {
       window.clearTimeout(initial); window.clearInterval(refresh); window.clearInterval(clock)
@@ -101,19 +106,21 @@ export default function PartnerBidScreen({ supabase, partnerIds, onError, onNoti
         const pickup = pickups.find((item) => item.request_id === job.request_id)
         const deliveryPin = deliveryPins.find((item) => item.request_id === job.request_id)
         const route = routes.find((item) => item.request_id === job.request_id)
+        const riderLoad = riderLoads.find((item) => item.request_id === job.request_id)
         return <article className="partner-bid-job" key={job.request_id}>
           <div className="partner-bid-photo">{job.photo_url ? <img src={job.photo_url} alt={`Goods for ${job.request_number}`} /> : <span>No parcel photo supplied</span>}</div>
           <div className="partner-bid-details"><small>{job.request_number}</small><h3>{job.parcel_summary || parcel?.description || 'Parcel delivery'}</h3>
             <div className="partner-bid-route"><span><small>PICKUP</small><strong>{routePoint(route?.pickup_address ?? pickup?.pickup_address, job.pickup_city)}</strong><small>{job.pickup_city}</small></span><span aria-hidden="true">→</span><span><small>DROP-OFF</small><strong>{routePoint(route?.delivery_address, job.delivery_city)}</strong><small>{job.delivery_city}</small></span></div>
             <div className="partner-bid-facts"><span>{parcel?.quantity ? `${parcel.quantity} item${parcel.quantity === 1 ? '' : 's'}` : 'Quantity not supplied'}</span><span>{parcel?.weight_kg ? `${parcel.weight_kg} kg each` : 'Weight not supplied'}</span><span>{parcel?.length_cm && parcel?.width_cm && parcel?.height_cm ? `${parcel.length_cm} × ${parcel.width_cm} × ${parcel.height_cm} cm each` : 'Size not supplied'}</span></div>
             <p className="partner-bid-rider">Your company bids. The matched rider is assigned automatically when the paid job is accepted.</p>
+            {riderLoad?.load_state === 'almost_full' && <p className="partner-bid-load-warning" role="status"><strong>Rider almost full</strong> · {riderLoad.rider_name}. Check the parcel size before bidding.</p>}
             {pickup && <div className="partner-bid-pickup"><strong>{pickup.pickup_address}</strong><p>{pickup.sender_name} · {pickup.sender_phone}</p>
               <small>{pickup.nearby_rider_name} was about {(pickup.distance_metres / 1000).toFixed(1)} km away when invited.</small>
               <p><a href={`https://www.google.com/maps/search/?api=1&query=${pickup.latitude},${pickup.longitude}`} target="_blank" rel="noreferrer">Open pickup directions</a>{pickup.location_source === 'search' && <small> Approximate address match</small>}</p>
             </div>}
             {deliveryPin && <p><a href={`https://www.google.com/maps/search/?api=1&query=${deliveryPin.latitude},${deliveryPin.longitude}`} target="_blank" rel="noreferrer">Open delivery pin</a></p>}
             <div className="partner-bid-actions"><strong className="partner-bid-timer" aria-label={`${remaining} seconds remaining`}>{String(Math.floor(remaining / 60)).padStart(2, '0')}:{String(remaining % 60).padStart(2, '0')}</strong>{job.own_bid_amount_ngn != null ? <span>Your bid: {money(Number(job.own_bid_amount_ngn))}</span> : <button className="partner-bid-button" type="button" onClick={() => setOpenBid(openBid === job.request_id ? null : job.request_id)}>Bid</button>}</div>
-            {openBid === job.request_id && job.own_bid_amount_ngn == null && <form className="partner-bid-form" onSubmit={(event) => void submit(event, job)}><div className="field-row"><label className="field"><span>Total price (NGN)</span><input name="amount" type="number" min="1000" step="0.01" required onChange={(event) => setBidAmounts((current) => ({ ...current, [job.request_id]: Number(event.target.value) }))} /></label><label className="field"><span>Delivery estimate (hours)</span><input name="eta_hours" type="number" min="1" required /></label></div>{job.pickup_city === job.delivery_city && <p className="partner-bid-split">Local delivery: Kwik-Parsel retains 25%; your company receives 75% after confirmed delivery{bidAmounts[job.request_id] >= 1000 ? ` (${money(Math.round(bidAmounts[job.request_id] * 0.75 * 100) / 100)})` : ""}.</p>}<details><summary>Bid terms</summary><label className="field"><span>Inclusions</span><textarea name="inclusions" required rows={2} defaultValue="Pickup and delivery" /></label><label className="field"><span>Exclusions</span><textarea name="exclusions" required rows={2} defaultValue="None" /></label><label className="field"><span>Surcharge conditions (write None if none)</span><textarea name="surcharge_conditions" required rows={2} defaultValue="None" /></label></details><label className="partner-bid-confirm"><input type="checkbox" name="availability_confirmed" required /> I confirm availability for this route and timing</label><button className="partner-bid-button" disabled={busy === job.request_id}>{busy === job.request_id ? 'Submitting...' : 'Submit bid'}</button></form>}
+            {openBid === job.request_id && job.own_bid_amount_ngn == null && <form className="partner-bid-form" onSubmit={(event) => void submit(event, job)}><div className="field-row"><label className="field"><span>Total price (NGN)</span><input name="amount" type="number" min="1000" step="0.01" required onChange={(event) => setBidAmounts((current) => ({ ...current, [job.request_id]: Number(event.target.value) }))} /></label><label className="field"><span>Delivery estimate (hours)</span><input name="eta_hours" type="number" min="1" required /></label></div>{job.pickup_city === job.delivery_city && <p className="partner-bid-split">Local delivery: Kwik-Parsel retains 25%; your company receives 75% after confirmed delivery{bidAmounts[job.request_id] >= 1000 ? ` (${money(Math.round(bidAmounts[job.request_id] * 0.75 * 100) / 100)})` : ""}.</p>}<details><summary>Bid terms</summary><label className="field"><span>Inclusions</span><textarea name="inclusions" required rows={2} defaultValue="Pickup and delivery" /></label><label className="field"><span>Exclusions</span><textarea name="exclusions" required rows={2} defaultValue="None" /></label><label className="field"><span>Surcharge conditions (write None if none)</span><textarea name="surcharge_conditions" required rows={2} defaultValue="None" /></label></details><label className="partner-bid-confirm"><input type="checkbox" name="availability_confirmed" required /> I confirm this parcel fits the rider's box and the rider is available for this route and timing</label><button className="partner-bid-button" disabled={busy === job.request_id}>{busy === job.request_id ? 'Submitting...' : 'Submit bid'}</button></form>}
           </div>
         </article>
       })}

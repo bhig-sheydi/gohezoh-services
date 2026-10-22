@@ -17,6 +17,8 @@
 .partner-bid-facts { display:flex; flex-wrap:wrap; gap:7px; }
 .partner-bid-facts span { padding:6px 9px; border-radius:8px; color:#345643; background:#e1edd7; font-size:12px; font-weight:700; }
 .partner-bid-rider { margin:0; color:#62776a; font-size:12px; }
+.partner-bid-load-warning { margin:0; padding:10px 12px; border:1px solid #e99595; border-radius:9px; color:#8f1717; background:#fff0f0; font-size:13px; font-weight:700; }
+.partner-bid-load-warning strong { color:#a10f0f; }
 .partner-bid-actions { display:flex; align-items:center; gap:15px; margin-top:3px; }
 .partner-bid-timer { color:#af422e; font-size:23px; font-variant-numeric:tabular-nums; }
 .partner-bid-button { min-height:42px; padding:0 21px; border:0; border-radius:9px; color:#fff; background:#176de4; font-weight:800; cursor:pointer; }
@@ -26,3 +28,5 @@
 .partner-bid-confirm { display:flex; align-items:center; gap:8px; font-size:12px; }.partner-bid-form .partner-bid-button { justify-self:start; }
 @media(max-width:680px) { .partner-bid-screen-display { min-height:180px; padding:9px; border-width:5px; }.partner-bid-job { grid-template-columns:1fr; }.partner-bid-photo { min-height:165px; max-height:220px; }.partner-bid-details { padding:15px; }.partner-bid-form .field-row { grid-template-columns:1fr; } }
 :root[data-theme='dark'] .partner-bid-job { background:#203329; }:root[data-theme='dark'] .partner-bid-details h3,:root[data-theme='dark'] .partner-bid-route strong { color:#e9f2ea; }:root[data-theme='dark'] .partner-bid-facts span { color:#e9f2ea; background:#385340; }:root[data-theme='dark'] .partner-bid-rider,:root[data-theme='dark'] .partner-bid-route small { color:#b8cbbb; }:root[data-theme='dark'] .partner-bid-form { background:#1b2c25; border-color:#3b5248; }
+:root[data-theme='dark'] .partner-bid-load-warning { color:#ffd7d7; background:#4b2025; border-color:#b4515a; }
+:root[data-theme='dark'] .partner-bid-load-warning strong { color:#ffcccc; }

@@ -3,10 +3,11 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import PartnerBidScreen from './PartnerBidScreen'
 
-function setup(jobs: Record<string, unknown>[], routes: Record<string, unknown>[] = []) {
+function setup(jobs: Record<string, unknown>[], routes: Record<string, unknown>[] = [], loads: Record<string, unknown>[] = []) {
   const rpc = vi.fn(async (name: string) => name === 'list_partner_bid_screen'
     ? { data: jobs, error: null } : name === 'list_partner_bid_route_addresses'
-      ? { data: routes, error: null } : { data: 'bid-1', error: null })
+      ? { data: routes, error: null } : name === 'list_company_bid_rider_loads'
+        ? { data: loads, error: null } : { data: 'bid-1', error: null })
   const createSignedUrl = vi.fn(async () => ({ data: { signedUrl: 'https://example.test/parcel' }, error: null }))
   let onWindowChange = () => {}
   const channel = { on: vi.fn((_type, _filter, callback: () => void) => { onWindowChange = callback; return channel }), subscribe: vi.fn(() => channel) }
@@ -41,10 +42,24 @@ describe('company bidding screen', () => {
     expect(screen.getByLabelText('Total price (NGN)')).toHaveAttribute('min', '1000')
     fireEvent.change(screen.getByLabelText('Total price (NGN)'), { target: { value: '7500' } })
     fireEvent.change(screen.getByLabelText('Delivery estimate (hours)'), { target: { value: '3' } })
-    fireEvent.click(screen.getByLabelText(/I confirm availability/))
+    fireEvent.click(screen.getByLabelText(/I confirm this parcel fits/))
     fireEvent.submit(screen.getByRole('button', { name: 'Submit bid' }).closest('form')!)
     await waitFor(() => expect(rpc).toHaveBeenCalledWith('submit_partner_quote', expect.objectContaining({ p_request_id: 'request-1', p_amount_ngn: 7500, p_eta_hours: 3 })))
     expect(notice).toHaveBeenCalledWith('Your private bid was submitted.')
+  })
+
+  it('warns the company in red when the proposed rider reports almost full', async () => {
+    const { supabase } = setup([{
+      request_id: 'request-1', request_number: 'REQ-1', pickup_city: 'Lagos', delivery_city: 'Lagos',
+      parcel_summary: 'Books', parcel_items: [{ weight_kg: 2, length_cm: 20, width_cm: 10, height_cm: 10 }],
+      photo_path: null, deadline_at: new Date(Date.now() + 60_000).toISOString(), own_bid_amount_ngn: null,
+    }], [], [{ request_id: 'request-1', rider_name: 'Ada Rider', load_state: 'almost_full' }])
+    render(<PartnerBidScreen supabase={supabase} partnerIds={['partner-1']} onError={vi.fn()} onNotice={vi.fn()} />)
+    const warning = await screen.findByText(/Rider almost full/)
+    expect(warning.closest('p')).toHaveClass('partner-bid-load-warning')
+    expect(warning.closest('p')).toHaveTextContent('Ada Rider')
+    fireEvent.click(screen.getByRole('button', { name: 'Bid' }))
+    expect(screen.getByLabelText(/I confirm this parcel fits/)).toBeRequired()
   })
 
   it('shows the saved pickup and drop-off instead of repeating the city', async () => {
