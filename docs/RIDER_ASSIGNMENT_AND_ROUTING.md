@@ -1,0 +1,131 @@
+# Rider assignment and route sequencing specification
+
+Status: implementation specification, not a description of deployed behavior. Scope: local, in-state deliveries using the current customer -> private company bid -> customer choice -> verified payment -> rider pickup-code -> recipient-code/customer-confirmed delivery flow. Interstate handoffs need a separate leg model before this planner can operate across companies.
+
+## Existing integration points and gaps
+
+The current local matcher uses a fresh (`<2 minutes`), accurate (`<=100 m`) rider GPS fix within 5 km of the pickup, chooses the closest eligible rider per company, and invites up to 50 companies for a one-minute bid. The invited rider is assigned when the paid company award is accepted, subject to a five-active-pickup guard. The customer's chosen company and its bid remain authoritative. The company, not the rider, bids. These rules are the compatibility boundary for this design.
+
+The existing database does **not** yet have a durable ordered stop plan, road travel-time matrix, vehicle payload/volume limits tied to riders, accepted delivery deadlines, or a route version. A count of five pickups is not a weight/volume or in-transit capacity check. The existing invitation's `rider_id` is a candidate, not a guaranteed reservation. Route-aware matching and automatic next-stop instructions must not be enabled until these gaps are implemented and tested. Address-search coordinates can be approximate; device GPS accuracy must not be inferred from them.
+
+The planner never assigns a company on behalf of the customer, changes a selected price, bypasses payment, or changes the existing custody codes. It selects the best rider *within each eligible company* for an invitation and commits a feasible route only after that company wins and payment is verified. No super-admin or BDO approval is part of this dispatch algorithm.
+
+## Architecture and data contract
+
+1. **Request normalizer** validates pickup/drop-off coordinates and their source, parcel aggregate weight and dimensions, desired pickup time, handling needs, and service area. It records missing or uncertain location evidence. A street centroid is a search hint, not an exact entrance or reliable ETA anchor.
+2. **Candidate discovery** uses PostGIS spatial indexes for fresh on-duty rider locations, plus a bounded expansion around *projected next stops* for riders with committed routes. It filters by active rider/company credentials, compatible vehicle, remaining payload/volume/parcel slots, current commitments, and company service area. It may look beyond the present 5 km radius only for route-aligned riders with a credible road ETA to pickup. Discovery returns several riders per company, then keeps the best feasible one.
+3. **Travel-time provider** supplies a road-network duration and distance matrix for the rider's present position, the new pickup/drop-off, and that rider's remaining stops. The provider must be separately configured, priced, cached, and tested. The current Geoapify address lookup/map tiles do not establish that a routing endpoint is configured. Cache by rounded coordinate pair, travel mode, traffic bucket, and short TTL; mark every estimate with source and age. Straight-line distance is suitable for cheap prefiltering only. If the road provider is unavailable, use a conservative calibrated distance estimate for *simple idle-rider pickup ranking*; do not claim route alignment or rearrange loaded riders from this estimate.
+4. **Per-rider sequencer** builds a feasible ordered stop plan and ETA for every candidate. It treats collected goods as already on board, pickup-before-drop-off as mandatory, and rider/company capacity as hard limits at every stop. It keeps completed stops out of the active plan.
+5. **Company invitation ranker** compares each company's best feasible candidate, creates one private invitation per company, and stores the proposed rider, score, estimate provenance, and expiration. Existing one-minute private bidding and customer choice remain intact. A preliminary candidate is not a rider assignment.
+6. **Award committer** revalidates the winning company's proposed rider and plan after verified payment. It serializes the rider and job, reserves capacity, writes the assignment and route version atomically, or selects the next feasible rider *from the same company*. If none is feasible, it follows a controlled failed-award/requote path; it never silently assigns another company.
+7. **Replanner** updates only affected riders after pickup-code verification, delivery confirmation, material movement, newly committed jobs, unavailability, or material traffic changes. It publishes a new version only if feasible and materially better. The rider sees one next stop with concise directions and a version number; an acknowledged or nearly reached stop is temporarily pinned to prevent churn.
+
+Suggested new tables: `rider_vehicle_capacity` (effective limits and approved vehicle association), `job_load` (canonical aggregate weight, volume/fit envelope, item count), `delivery_commitments` (accepted time windows and latest acceptable times), `rider_route_plans` (rider, version, state, estimate source/time, objective, created_at), `rider_route_stops` (sequence, job, pickup/drop-off, coordinates, status, ETA, service time, load-after-stop), `dispatch_decisions` (request, company, rider, tier, score components, rejected candidates/reasons, matrix version, algorithm version, idempotency key), and a bounded `route_replan_events` queue. Exact names may differ, but these facts must be persisted and access-controlled. Do not retain a rider GPS trail solely for planning; use the existing latest-presence row and audit decisions without raw location history.
+
+## Feasibility, priority tiers, and scoring
+
+Hard constraints are checked before scoring: active on-duty rider and company; fresh usable location; company service eligibility; funded/selected award for commitment; valid pickup and drop-off; vehicle able to carry every item; aggregate load never above weight, cubic volume, parcel count, and largest-item dimensions at any stop; pickup before its drop-off; accepted pickup/drop-off windows; a bounded maximum detour; no unreasonable delay to any existing customer; and no assignment already committed elsewhere. Vehicle-specific limits must be recorded rather than guessed from vehicle type. Unknown capacity means the rider is ineligible for stacking until the company supplies approved limits.
+
+For each feasible insertion, calculate `T_pickup`, total additional road minutes `DeltaT`, additional road kilometres `DeltaD`, maximum positive delay to any committed stop `MaxDelay`, weighted sum of those delays `DelaySum`, estimated empty kilometres saved compared with a separate trip, and route alignment. An aligned destination is close in **road travel time** or lies on the planned route with a small marginal detour, not merely near it on a map. A rider is travelling toward a point only when recent positions and the committed next stop support that direction; a single GPS reading cannot prove heading.
+
+Assign a preference tier after feasibility:
+
+| Tier | Meaning | Required evidence |
+| --- | --- | --- |
+| 1 | Pickup reachable soon **and** new destination coincides with or lies on/near a committed delivery path | Road ETA to pickup, insertion cost, and destination overlap all within configured bounds |
+| 2 | Present rider position is farther away, but a committed route reaches the pickup area soon; the onward destination aligns | Projected arrival at a committed stop, then feasible pickup and onward insertion |
+| 3 | Nearby rider can serve the request with a reasonable new route despite no destination overlap | Feasible insertion and bounded detour to existing jobs |
+| 4 | Other feasible rider | Meets all hard limits, with a bounded pickup ETA; includes idle riders and expanded-radius fallback |
+
+Tier is a **preference**, not a license to delay customers. Within and across tiers, compare projected outcomes. A lower-tier rider wins if the higher-tier rider exceeds the pickup promise, causes a material existing-customer delay, or has a materially worse objective. Equal or near-equal outcomes favor the lower-numbered tier and then stable rider ID. A possible future corridor has **zero** current score unless a real accepted job already uses it; speculative demand must never justify a detour.
+
+Use a lexicographic objective, not one opaque weighted sum:
+
+1. Reject infeasible plans and plans that worsen any accepted deadline or exceed a configurable maximum added delay (initial policy proposal: 10 minutes or 15% of remaining ETA, whichever is smaller; calibrate with observed operations before launch).
+2. Minimize the 95th-percentile risk-adjusted pickup ETA and maximum delay to existing customers. Inflate uncertain ETAs by measured provider error and location accuracy; do not present a point estimate as a guarantee.
+3. Among plans within a small service-quality band (initial proposal: 3 minutes), minimize `J = 4*T_pickup + 2*DelaySum + DeltaT + fuel_factor*DeltaD - bounded_empty_km_saving`, with minutes as the normalized unit and a capped fuel credit. Tune coefficients with recorded outcomes. This formula ranks candidates; it never overrides step 1.
+4. Prefer tiers 1, 2, 3, then 4 only when their objective is within the configured service-quality band. Avoid reassigning an already committed rider for a marginal score improvement.
+
+The tier and score thresholds are **launch policy proposals**, not existing product promises. Record them in versioned configuration so outcomes can be reproduced and tuned without changing historical decisions.
+
+## Stop sequencing
+
+Represent each undelivered job as a pickup `P(j)` and drop-off `D(j)`. A picked-up job has only `D(j)`. A pending unpaid selection has neither committed stop. Include current load at the rider's present position. Every candidate sequence must satisfy `P(j) < D(j)`, time windows, legal load at each step, and non-negative service time. Evaluate road travel from present position through all stops, not straight-line distances.
+
+For the existing small workload, enumerate **all insertion positions** for the new pickup/drop-off into the current order; for a picked-up job insert only its drop-off. Then apply a bounded local search (swap/relocate compatible stops and 2-opt where precedence survives) with a deterministic time/iteration cap. A beam search of at most 32 partial plans is the fallback when 10 or more stops make exhaustive insertion expensive. Keep the best feasible plan under the lexicographic objective. Never reorder an active handoff, a stop already acknowledged within its no-churn radius, or a time-critical committed stop without a material gain and deadline proof.
+
+The server owns the plan. Clients display `next_stop`, ETA range, and `plan_version`; a client never computes the authoritative order. Replan on a **meaningful event**, not every 15-second GPS write: a new funded job, pickup/delivery verification, rider offline, deviation beyond a proposed 500 m/5-minute threshold, or traffic ETA change beyond a proposed 10%. Debounce repeated events for the same rider, use the latest event, and rate-limit road matrix calls. Position changes below the threshold update display ETA only. A route update is published only if the improvement exceeds a proposed 3-minute/10% hysteresis or repairs an infeasible plan. Pin the next stop once the rider is within a proposed 300 m or 3 minutes, unless safety or cancellation requires a change.
+
+## Execution pseudocode
+
+```text
+on_request_ready(request):
+    validate_request_and_location(request)
+    riders = spatial_candidates_near_pickup(request, bounded_limit)
+           union riders_whose_committed_next_stops_reach_pickup(request, bounded_limit)
+    riders = filter_active_company_vehicle_capacity_and_location(riders)
+    for rider in riders, bounded_parallelism:
+        plan = load_committed_plan(rider)
+        matrix = road_matrix_or_safe_degraded_mode(rider, plan, request)
+        proposal = best_feasible_insertion(plan, request, matrix)
+        if proposal exists: score_and_tier(proposal)
+    invite_at_most_one_best_rider_per_company(up_to_50, one_minute_window)
+    if none: enqueue_bounded_retry_and_explain_wait_to_customer()
+
+on_customer_selection_and_verified_payment(request, company, payment):
+    assert selected_bid_belongs_to_company_and_payment_is_verified(payment)
+    lock_request_and_company_candidates_in_stable_order()
+    for rider in ranked_company_candidates:
+        lock_rider_row(); reload_presence_capacity_job_status_and_plan_version()
+        proposal = recompute_feasible_insertion_using_fresh_state()
+        if proposal feasible:
+            atomically assign_job_once_and_commit_incremented_plan_version()
+            append_decision_audit(); publish_next_stop(); return success
+    transition_to_controlled_failed_award_or_requote_with_payment_reconciliation()
+
+on_material_event(rider, event_id):
+    enqueue_idempotently(rider, event_id)
+    worker locks_rider_and_latest_plan_version()
+    discard_completed_stops(); refresh_current_load_and_commitments()
+    candidate = optimize_remaining_stops_with_budget()
+    if candidate feasible and (old infeasible or materially_better(candidate, old)):
+        compare_and_swap_plan_version(); audit_change(); publish_new_next_stop()
+
+on_pickup_code_or_delivery_confirmation(job):
+    verify_existing_custody_rule_atomically(); update_stop_state_once()
+    enqueue_replan_for_assigned_rider(); update_customer_eta_from_committed_plan()
+```
+
+Use a unique `(request_id, company_id)` invitation key, one selected bid, one active rider assignment per job, idempotent worker events, and transaction-level row locks or compare-and-swap route versions. Lock rider rows in stable UUID order for multi-rider transfers. Payment and custody functions remain the only transitions that unlock pickup and completion. An assignment retry must first read the committed result; it must not create a second job, debit, invitation, or payout.
+
+## Worked examples
+
+All times below are illustrative **road ETAs**, not promises derived from the current app.
+
+| Scenario | Feasible candidates and effect | Decision |
+| --- | --- | --- |
+| Nearby and aligned | Rider A is 4 min from pickup and already going toward its drop-off; insertion adds 3 min and delays an existing delivery by 2 min. Idle B is 2 min away but adds 18 min of empty driving. | A is tier 1 and wins if both meet the pickup promise; B wins if A's pickup ETA breaches it. |
+| Farther rider approaching pickup | A is 3 km away but will finish a committed drop-off 2 min from the new pickup in 7 min, then travel to the matching destination. Nearby B can arrive in 5 min but would make a separate 9 km trip. | A is tier 2 only if its 7-minute projected pickup and all existing commitments are acceptable; otherwise B wins. |
+| New useful route | A can detour 4 min to pick up and then deliver after its current parcel with no deadline violation. No aligned rider exists. | A is tier 3; future demand contributes no benefit. |
+| Drop-off along a route | Current road itinerary is A -> D. New pickup is 3 min away and drop-off C lies on the road to D; insertion adds 2 min. A geographically close point across a river would add 25 min. | The first is tier 1; the across-river case is rejected or ranked lower after road routing. |
+| Competing orders | Two requests seek the same rider with one free capacity slot. Both optimization workers read version 8. | The first transaction commits version 9. The other retries against version 9, chooses another rider or no match; it cannot double-book capacity. |
+
+## Failure and safety behavior
+
+- **Poor/stale GPS:** Exclude fixes older than two minutes or outside the accepted accuracy rule from automatic invitations. Ask the rider to refresh location. Search/saved-address coordinates carry their source and uncertainty; require customer confirmation and conservative ETA handling.
+- **Road service outage/quota:** Serve cached recent matrices if valid. For an idle rider with no committed stops, offer a degraded approximate pickup ranking clearly marked as such; do not stack or resequence active jobs. Queue a short retry and cap provider calls per request.
+- **No suitable rider:** Keep the request waiting with a bounded retry and visible status. Do not create a paid assignment with no feasible rider. Re-open bidding only under the existing quote-window rules; do not extend the one-minute deadline silently.
+- **Rider offline, lost device, or failed pickup:** Freeze the last committed route, stop offering new work, and trigger controlled reassignment of uncollected jobs within the chosen company. Goods already in custody require a documented physical handoff and custody verification; never merely move their database assignment to another rider.
+- **Traffic/deadline conflict:** Protect accepted commitments first; if all plans breach them, surface an exception and revised ETA instead of silently changing a promise. Route changes cannot override an active handoff or safety instructions.
+- **Capacity uncertainty:** Unknown vehicle limits or parcel dimensions prevent stacking. Count load across all undelivered goods, not just active pickups; the current five-pickup guard remains an additional ceiling until replaced by tested capacity logic.
+- **Location privacy:** Company receives only its invited pickup details; rider receives only assigned stops; customer receives only the existing restricted tracking view. Keep current location ephemeral and log scored decision factors rather than a GPS trail.
+
+## Performance, rollout, and tests
+
+Use the existing GiST index on `rider_presence.position`, a fresh-presence partial/partner index, indexed future stops, and a spatial search radius with a bounded top-K. Replan only riders touched by a job or material event. Cache road legs, batch matrix requests, cap per-request candidates and optimization time, and enqueue overflow. A bounded worker queue with dead-letter/retry state is preferable to expensive optimization inside a database trigger. At 1,000 riders, the planner should query tens of candidates per request, not every rider; load testing should use synthetic/local data rather than high-volume traffic on the free production database.
+
+Deploy in stages: (1) persist capacity and accepted commitments, validate against real vehicles and parcels; (2) shadow-score invitations without changing who receives bids; (3) compare shadow results to actual outcomes and tune thresholds; (4) enable route-aware invitations behind a feature flag while preserving company choice; (5) enable server-owned next-stop sequencing for one rider/company cohort; (6) expand only after assignment, ETA, custody, and cost metrics pass. Existing open bids and paid jobs keep their original terms and route until safely migrated.
+
+Test the pure planner with deterministic matrices: all five examples above; pickup-before-drop-off; goods already aboard; maximum dimensions and weight at every stop; deadlines; ambiguous coordinates; along-route versus across-river; idle fallback; stable tie breaks; hysteresis; route-provider failure; stale GPS; and completion removing stops. Test SQL concurrency with simultaneous awards, stale plan versions, duplicate queue events, rider revocation, unavailable rider, company permission failures, and paid-award revalidation. End-to-end tests must prove the company gets the bid, the customer chooses/pays, the invited rider receives the job or same-company fallback, codes advance custody, and only the assigned rider sees next-stop instructions. Do not change current live invitations until these pass.
+
+Track pickup-wait p50/p90/p95, on-time pickup/delivery rates, extra kilometres and minutes per job, empty kilometres, rider active/idle time, route changes per job, customer ETA error, failed or reversed assignments, cost per routed job, matrix cache hit rate, and planner p95 latency. Compare with a nearest-rider baseline in shadow mode and by controlled cohorts. Launch gates should include no increase in missed commitments or double assignments, a measurable reduction in pickup wait/empty kilometres, and stable provider spend under a defined daily budget; exact numerical targets require baseline data.
