@@ -4,7 +4,7 @@ declare
   v_customer_user uuid:=gen_random_uuid(); v_manager uuid:=gen_random_uuid(); v_far_manager uuid:=gen_random_uuid(); v_operations uuid:=gen_random_uuid();
   v_rider uuid:=gen_random_uuid(); v_rider2 uuid:=gen_random_uuid(); v_far_rider uuid:=gen_random_uuid();
   v_customer uuid:=gen_random_uuid(); v_company uuid:=gen_random_uuid(); v_far_company uuid:=gen_random_uuid();
-  v_service uuid; v_corridor uuid; v_request uuid:=gen_random_uuid(); v_request2 uuid:=gen_random_uuid(); v_path text; v_denied boolean:=false;
+  v_service uuid; v_corridor uuid; v_request uuid:=gen_random_uuid(); v_request2 uuid:=gen_random_uuid(); v_request3 uuid:=gen_random_uuid(); v_path text; v_denied boolean:=false;
   v_id uuid; v_owner uuid; v_company_id uuid; v_session uuid:=gen_random_uuid(); v_job uuid; v_pickup_code text; v_pickup_result jsonb; v_attempt integer;
 begin
   select id into v_service from public.services where code='SRV-0001';
@@ -95,6 +95,31 @@ begin
   if not exists(select 1 from public.company_bid_invitations where request_id=v_request and partner_id=v_company and rider_id=v_rider) then
     raise exception 'Nearest rider did not source the company invitation'; end if;
   if (select dispatch_match_status from public.service_requests where id=v_request)<>'bidding' then raise exception 'Customer matching status is wrong'; end if;
+  -- A simultaneous request for the same company waits its turn and gets a full minute.
+  insert into public.service_requests(id,customer_id,service_id,created_by,pickup_address,pickup_city,sender_name,sender_phone,
+    delivery_address,delivery_city,recipient_name,recipient_phone,parcel_summary,parcel_items,parcel_photo_path,
+    pickup_latitude,pickup_longitude,pickup_accuracy_metres,pickup_captured_at,pickup_location_source)
+  select v_request3,customer_id,service_id,created_by,pickup_address,pickup_city,sender_name,sender_phone,
+    delivery_address,delivery_city,recipient_name,recipient_phone,parcel_summary,parcel_items,parcel_photo_path,
+    pickup_latitude,pickup_longitude,pickup_accuracy_metres,pickup_captured_at,pickup_location_source
+  from public.service_requests where id=v_request;
+  perform set_config('request.jwt.claims','{"role":"service_role"}',true);
+  perform public.upsert_dispatch_route_proposal(v_request3,v_company,v_rider,'available','road-v2-live',20,
+    '{"tier":1,"estimate_source":"road","total_route_minutes":30}'::jsonb,now()+interval '2 minutes');
+  if public.finalize_live_route_match(v_request3)<>'tier_1' then raise exception 'Queued route was not invited'; end if;
+  if not exists(select 1 from public.company_bid_invitations first_slot
+    join public.company_bid_invitations next_slot on next_slot.partner_id=first_slot.partner_id
+    where first_slot.request_id=v_request and next_slot.request_id=v_request3
+      and next_slot.starts_at>=first_slot.deadline_at
+      and next_slot.deadline_at=next_slot.starts_at+interval '1 minute') then
+    raise exception 'Company bid slots overlapped or lost the one-minute window'; end if;
+  if (select deadline_at from public.delivery_quote_windows where request_id=v_request3)<>
+    (select deadline_at from public.company_bid_invitations where request_id=v_request3 and partner_id=v_company) then
+    raise exception 'Customer wait did not include the queued company turn'; end if;
+  perform set_config('request.jwt.claim.sub',v_manager::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_manager,'role','authenticated')::text,true);
+  if exists(select 1 from public.list_partner_bid_screen() where request_id=v_request3) then
+    raise exception 'Company saw its next bid before its turn'; end if;
   perform set_config('request.jwt.claim.sub',v_far_manager::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_far_manager,'role','authenticated')::text,true);
   if exists(select 1 from public.list_partner_bid_screen() where request_id=v_request) then raise exception 'Far company saw a bid'; end if;

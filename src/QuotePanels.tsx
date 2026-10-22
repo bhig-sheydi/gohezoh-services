@@ -155,9 +155,8 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
         {waiting ? <div className="customer-bid-wait" role="status">
           <div className="customer-bid-radar" aria-hidden="true"><span /><span /><span /><i /></div>
           <div className="customer-bid-wait-copy"><p className="eyebrow">MATCHING YOUR DELIVERY</p><h3>Finding interested riders</h3>
-            <p>Invited companies have {remaining} seconds to bid.</p>
-            <div className="customer-bid-progress" role="progressbar" aria-label="Bidding window" aria-valuemin={0} aria-valuemax={60} aria-valuenow={Math.max(0, 60 - remaining)}><span style={{ width: `${Math.min(100, Math.max(0, (60 - remaining) / 60 * 100))}%` }} /></div>
-            <small>{remaining}s left in the bidding window</small></div>
+            {remaining > 60 ? <><p>Companies are taking turns to bid on your delivery.</p><div className="customer-bid-progress customer-bid-progress-search" aria-label="Company bids queued"><span /></div><small>Last company window closes in about {Math.ceil(remaining / 60)} minutes</small></>
+              : <><p>Companies have {remaining} seconds left to bid.</p><div className="customer-bid-progress" role="progressbar" aria-label="Bidding window" aria-valuemin={0} aria-valuemax={60} aria-valuenow={Math.max(0, 60 - remaining)}><span style={{ width: `${Math.min(100, Math.max(0, (60 - remaining) / 60 * 100))}%` }} /></div><small>{remaining}s left in the bidding window</small></>}</div>
         </div> : bids.length ? <><header className="customer-bid-heading"><p className="eyebrow">YOUR DELIVERY OPTIONS</p><h3>You have {bids.length} interested {bids.length === 1 ? 'company' : 'companies'}</h3></header>
           <div className="customer-bid-grid">{bids.map((bid) => <article className="customer-bid-offer" key={bid.bid_id}>
             <div className="customer-bid-rider">{bid.rider_photo_url ? <img src={bid.rider_photo_url} alt={`${bid.rider_name ?? 'Rider'} profile`} /> : <div className="customer-bid-no-photo" aria-label="No rider photo">Photo unavailable</div>}

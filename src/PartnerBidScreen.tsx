@@ -98,7 +98,7 @@ export default function PartnerBidScreen({ supabase, partnerIds, onError, onNoti
   }
 
   return <section className="partner-bid-screen" aria-label="Bidding screen">
-    <header className="partner-bid-screen-header"><div><p className="eyebrow">LIVE BIDDING</p><h2>Jobs to bid on</h2></div><button className="secondary-button" onClick={() => void load()}>Refresh</button></header>
+    <header className="partner-bid-screen-header"><div><p className="eyebrow">LIVE BIDDING</p><h2>Jobs to bid on</h2><small>Jobs appear one at a time for each company. Each gets a full minute.</small></div><button className="secondary-button" onClick={() => void load()}>Refresh</button></header>
     <div className="partner-bid-screen-display">
       {jobs.filter((job) => new Date(job.deadline_at).getTime() > now).map((job) => {
         const remaining = Math.max(0, Math.ceil((new Date(job.deadline_at).getTime() - now) / 1000))
