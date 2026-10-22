@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  bestPerCompany, compareProposals, optimizeCommittedRoute, planRiderRoute,
+  bestPerCompany, compareProposals, followsCarriedParcelRoute, optimizeCommittedRoute, planRiderRoute,
   type DeliveryRequest, type RiderCandidate, type RoadMatrix, type Stop,
 } from '../../supabase/functions/_shared/rider-route-planner'
 
@@ -63,6 +63,31 @@ describe('deterministic route planner', () => {
     const order = optimizeCommittedRoute(point(0), stops, matrix)?.map(s => s.id)
     expect(order?.indexOf('a-p')).toBeLessThan(order!.indexOf('a-d'))
     expect(order).toHaveLength(3)
+  })
+
+  it('derives intended direction from parcels already in the rider’s custody', () => {
+    const carried: Stop[] = [{ id: 'a-d', jobId: 'a', kind: 'dropoff', point: point(10) }]
+    expect(followsCarriedParcelRoute(point(0), carried, point(2), point(6))).toBe(true)
+    expect(followsCarriedParcelRoute(point(0), carried, point(-2), point(6))).toBe(false)
+    expect(followsCarriedParcelRoute(point(0), carried, point(2), point(-6))).toBe(false)
+    expect(followsCarriedParcelRoute(point(0), [
+      { id: 'a-p', jobId: 'a', kind: 'pickup', point: point(1) }, ...carried,
+    ], point(2), point(6))).toBe(false)
+  })
+
+  it('recognizes the planned return from B toward parcels on A', () => {
+    const carried: Stop[] = [
+      { id: 'b-d', jobId: 'b', kind: 'dropoff', point: point(-10), pinned: true },
+      { id: 'a-d', jobId: 'a', kind: 'dropoff', point: point(10) },
+    ]
+    expect(followsCarriedParcelRoute(point(0), carried, point(2), point(8))).toBe(true)
+  })
+
+  it('does not call an opposite-direction delivery route-aligned', () => {
+    const carried: Stop = { id: 'a-d', jobId: 'a', kind: 'dropoff', point: point(10) }
+    const opposite = { ...request, pickup: { ...pickup, point: point(-2) },
+      dropoff: { ...dropoff, point: point(-6) } }
+    expect(planRiderRoute(rider({ stops: [carried] }), opposite, matrix)?.tier).toBe(3)
   })
 
   it('excludes full riders without removing them from duty or imposing fabricated box capacity', () => {

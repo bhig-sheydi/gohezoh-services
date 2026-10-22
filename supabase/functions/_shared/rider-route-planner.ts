@@ -89,6 +89,31 @@ function isFiniteStop(stop: Stop): boolean {
   return !!stop.id && !!stop.jobId && validPoint(stop.point) && (stop.serviceMinutes ?? 0) >= 0
 }
 
+/** Intended direction comes from parcels already in custody, not GPS heading. */
+export function followsCarriedParcelRoute(position: Point, stops: Stop[], pickup: Point, dropoff: Point): boolean {
+  if (![position, pickup, dropoff].every(validPoint)) return false
+  const awaitingPickup = new Set(stops.filter((s) => s.kind === 'pickup').map((s) => s.jobId))
+  const carriedDropoffs = stops.filter((s) => s.kind === 'dropoff' && !awaitingPickup.has(s.jobId))
+  let from = position
+  for (const destination of carriedDropoffs) {
+    const latitudeScale = 111.2
+    const longitudeScale = latitudeScale * Math.cos((from.latitude + destination.point.latitude) / 2 * Math.PI / 180)
+    const east = (destination.point.longitude - from.longitude) * longitudeScale
+    const north = (destination.point.latitude - from.latitude) * latitudeScale
+    const length = Math.hypot(east, north)
+    if (length < 0.2) { from = destination.point; continue }
+    const forward = (point: Point) =>
+      ((point.longitude - from.longitude) * longitudeScale * east +
+        (point.latitude - from.latitude) * latitudeScale * north) / length
+    const pickupAlong = forward(pickup)
+    const newTripAlong = forward(dropoff) - pickupAlong
+    // A 200 m tolerance absorbs small address and GPS inaccuracies.
+    if (pickupAlong >= -0.2 && newTripAlong >= -0.2) return true
+    from = destination.point
+  }
+  return false
+}
+
 /** Bounded road-time search: reduce kilometres and total parcel completion time. */
 export function optimizeCommittedRoute(start: Point, stops: Stop[], roads: RoadMatrix): Stop[] | undefined {
   if (!validPoint(start) || stops.length > 9 || stops.some((s) => !isFiniteStop(s)) ||
@@ -180,7 +205,8 @@ export function planRiderRoute(
       if (!validLeg(direct)) continue
       const extraMinutes = Math.max(0, route.minutes - baseline.minutes)
       const extraKilometres = Math.max(0, route.kilometres - baseline.kilometres)
-      const aligned = stops.length > 0 && extraMinutes <= direct.minutes + 5
+      const aligned = followsCarriedParcelRoute(rider.position, stops, request.pickup.point,
+        request.dropoff.point) && extraMinutes <= direct.minutes + 5
       const nearPickup = pickupEta <= 10
       const tier: 1 | 2 | 3 | 4 = aligned ? (nearPickup ? 1 : 2) : stops.length ? (nearPickup ? 3 : 4) : 4
       const candidate: RouteProposal = {
