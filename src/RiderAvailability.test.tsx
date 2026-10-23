@@ -7,14 +7,15 @@ vi.mock('./lib/rider-tracking', () => ({ startRiderTracking: vi.fn(() => () => {
 afterEach(() => { delete window.KwikParselNative; vi.clearAllMocks() })
 
 describe('RiderAvailability', () => {
-  it('shows connecting until the server accepts a rider location', () => {
-    render(<RiderAvailability supabase={{ rpc: vi.fn(async () => ({ data: 'available', error: null })) } as never} />)
+  it('shows connecting until the server confirms a fresh rider location', async () => {
+    const rpc = vi.fn(async (name: string) => ({ data: name === 'my_rider_online' ? true : 'available', error: null }))
+    render(<RiderAvailability supabase={{ rpc } as never} />)
     fireEvent.click(screen.getByRole('button', { name: 'Go online' }))
     expect(screen.getByRole('heading', { name: 'Connecting' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'On duty' })).not.toBeInTheDocument()
     const options = vi.mocked(startRiderTracking).mock.lastCall?.[0]
     act(() => options?.status('Online · GPS ±20 m'))
-    expect(screen.getByRole('heading', { name: 'On duty' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'On duty' })).toBeInTheDocument()
   })
 
   it('marks a rider full without stopping tracking', async () => {
@@ -31,7 +32,7 @@ describe('RiderAvailability', () => {
   it('starts phone tracking with a position-only grant and leaves browser polling off', async () => {
     const postMessage = vi.fn()
     window.KwikParselNative = { postMessage }
-    const rpc = vi.fn(async (name: string) => ({ data: name === 'issue_rider_tracking_token' ? 'a'.repeat(64) : 'available', error: null }))
+    const rpc = vi.fn(async (name: string) => ({ data: name === 'issue_rider_tracking_token' ? 'a'.repeat(64) : name === 'my_rider_online' ? true : 'available', error: null }))
     render(<RiderAvailability supabase={{ rpc, auth: { getSession: vi.fn(async () => ({ data: { session: { user: { id: 'rider' } } }, error: null })) } } as never} />)
     expect(screen.getByText(/Phone GPS stays on duty/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Go online' }))
@@ -39,6 +40,15 @@ describe('RiderAvailability', () => {
     await waitFor(() => expect(postMessage).toHaveBeenCalledWith(JSON.stringify({ type: 'rider:start', trackingToken: 'a'.repeat(64) })))
     expect(startRiderTracking).not.toHaveBeenCalled()
     act(() => window.dispatchEvent(new CustomEvent('kwik-parsel:native', { detail: { type: 'rider:status', active: true, message: 'Online · phone GPS ±20 m' } })))
-    expect(screen.getByRole('heading', { name: 'On duty' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'On duty' })).toBeInTheDocument()
+  })
+  it('shows location paused when the server has no fresh rider fix', async () => {
+    const rpc = vi.fn(async (name: string) => ({ data: name === 'my_rider_online' ? false : 'available', error: null }))
+    render(<RiderAvailability supabase={{ rpc } as never} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Go online' }))
+    const options = vi.mocked(startRiderTracking).mock.lastCall?.[0]
+    act(() => options?.status('Online · GPS ±20 m'))
+    expect(await screen.findByRole('heading', { name: 'Location paused' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'On duty' })).not.toBeInTheDocument()
   })
 })
