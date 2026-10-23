@@ -41,8 +41,8 @@ public final class RiderLocationService extends Service implements LocationListe
     private final AtomicBoolean sending = new AtomicBoolean(false);
     private LocationManager locations;
     private volatile String trackingToken;
-    private long lastSentAt;
-    private Location lastSent;
+    private volatile long lastSentAt;
+    private volatile Location lastSent;
     public static volatile boolean active = false;
     public static volatile String status = "Offline";
 
@@ -69,11 +69,11 @@ public final class RiderLocationService extends Service implements LocationListe
         try {
             boolean provider = false;
             if (locations.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                locations.requestLocationUpdates(LocationManager.GPS_PROVIDER, 10000L, 25f, this, Looper.getMainLooper());
+                locations.requestLocationUpdates(LocationManager.GPS_PROVIDER, 10000L, 0f, this, Looper.getMainLooper());
                 provider = true;
             }
             if (locations.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-                locations.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 10000L, 25f, this, Looper.getMainLooper());
+                locations.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 10000L, 0f, this, Looper.getMainLooper());
                 provider = true;
             }
             if (!provider) { status = "Turn on phone location to go online"; stopTracking(); }
@@ -90,8 +90,6 @@ public final class RiderLocationService extends Service implements LocationListe
         long now = System.currentTimeMillis();
         if (lastSent != null && now - lastSentAt < 60000L && lastSent.distanceTo(fix) < 50f) return;
         if (!sending.compareAndSet(false, true)) return;
-        lastSentAt = now;
-        lastSent = new Location(fix);
         String token = trackingToken;
         uploads.execute(() -> {
             PowerManager power = (PowerManager) getSystemService(POWER_SERVICE);
@@ -109,6 +107,8 @@ public final class RiderLocationService extends Service implements LocationListe
                     status = "Rider access ended. Sign in and go online again.";
                     stopTracking();
                 } else if (result >= 200 && result < 300) {
+                    lastSentAt = System.currentTimeMillis();
+                    lastSent = new Location(fix);
                     status = "Online · phone GPS ±" + Math.round(fix.getAccuracy()) + " m";
                 } else status = "Could not send location. Retrying…";
             } catch (Exception error) { status = "No connection. Retrying location…"; }
