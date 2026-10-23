@@ -5,7 +5,7 @@ declare
   v_rider uuid:=gen_random_uuid(); v_rider2 uuid:=gen_random_uuid(); v_far_rider uuid:=gen_random_uuid();
   v_customer uuid:=gen_random_uuid(); v_company uuid:=gen_random_uuid(); v_far_company uuid:=gen_random_uuid();
   v_service uuid; v_corridor uuid; v_request uuid:=gen_random_uuid(); v_request2 uuid:=gen_random_uuid(); v_request3 uuid:=gen_random_uuid(); v_path text; v_denied boolean:=false;
-  v_id uuid; v_owner uuid; v_company_id uuid; v_session uuid:=gen_random_uuid(); v_job uuid; v_pickup_code text; v_pickup_result jsonb; v_attempt integer;
+  v_id uuid; v_owner uuid; v_company_id uuid; v_session uuid:=gen_random_uuid(); v_job uuid; v_pickup_code text; v_pickup_result jsonb; v_attempt integer; v_tracking_token text;
 begin
   select id into v_service from public.services where code='SRV-0001';
   select c.id into v_corridor from public.coverage_corridors c join public.coverage_locations o on o.id=c.origin_id
@@ -64,6 +64,17 @@ begin
   if public.report_rider_position(6.45,3.4,18,now()) then raise exception 'Second rider location was not throttled'; end if;
   perform public.stop_rider_availability();
   if exists(select 1 from public.rider_presence where user_id=v_rider) then raise exception 'Going offline left a rider online'; end if;
+  v_tracking_token:=public.issue_rider_tracking_token();
+  if v_tracking_token !~ '^[0-9a-f]{64}$' then raise exception 'Native tracking token was not random and scoped'; end if;
+  perform set_config('request.jwt.claims','{"role":"anon"}',true);
+  if not public.report_native_rider_position(v_tracking_token,6.45,3.4,18,clock_timestamp()) then
+    raise exception 'Native position-only grant did not report GPS'; end if;
+  perform public.revoke_rider_tracking_token(v_tracking_token);
+  v_denied:=false;
+  begin perform public.report_native_rider_position(v_tracking_token,6.45,3.4,18,clock_timestamp());
+  exception when insufficient_privilege then v_denied:=true; end;
+  if not v_denied then raise exception 'Revoked phone grant still reported a position'; end if;
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_rider,'role','authenticated','session_id',v_session)::text,true);
   if not public.report_rider_position(6.45,3.4,18,now()) then raise exception 'Rider could not return online'; end if;
   insert into public.rider_presence(user_id,partner_id,position,accuracy_metres,captured_at) values
     (v_rider2,v_company,extensions.st_setsrid(extensions.st_makepoint(3.401,6.45),4326)::extensions.geography,20,now()),

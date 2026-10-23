@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "org.gohezohservices.kwikparsel",
+      "sha256_cert_fingerprints": [
+        "C6:B7:0F:B0:29:E7:93:D0:32:FF:EF:BE:96:DE:E5:A1:06:EA:F1:02:5B:24:F2:0F:52:5A:CE:33:2F:91:7D:77"
+      ]
+    }
+  }
+]

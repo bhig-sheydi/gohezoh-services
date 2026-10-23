@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { startRiderTracking } from './lib/rider-tracking'
+import { askNativeRiderStatus, hasNativeRiderTracking, listenNativeRiderStatus, startNativeRiderTracking, stopNativeRiderTracking } from './lib/native-rider'
 
 type LoadState = 'available' | 'almost_full' | 'full'
 const loadOptions: { value: LoadState; label: string }[] = [
@@ -12,9 +13,22 @@ const loadOptions: { value: LoadState; label: string }[] = [
 export default function RiderAvailability({ supabase }: { supabase: SupabaseClient }) {
   const [enabled, setEnabled] = useState(false)
   const [status, setStatus] = useState('Offline')
+  const [nativeBusy, setNativeBusy] = useState(false)
   const [loadState, setLoadState] = useState<LoadState | null>(null)
   const [loadBusy, setLoadBusy] = useState(false)
   const [loadError, setLoadError] = useState('')
+  const nativeTracking = hasNativeRiderTracking()
+  useEffect(() => {
+    if (!nativeTracking) return
+    const unsubscribe = listenNativeRiderStatus(({ active, message }) => {
+      setEnabled(active)
+      setStatus(message)
+      setNativeBusy(false)
+    })
+    askNativeRiderStatus()
+    const timer = window.setInterval(() => { if (!document.hidden) askNativeRiderStatus() }, 10_000)
+    return () => { unsubscribe(); window.clearInterval(timer) }
+  }, [nativeTracking])
   useEffect(() => {
     let active = true
     void supabase.rpc('my_rider_load_state').then(({ data, error }) => {
@@ -33,7 +47,7 @@ export default function RiderAvailability({ supabase }: { supabase: SupabaseClie
     setLoadBusy(false)
   }
   useEffect(() => {
-    if (!enabled) return
+    if (!enabled || nativeTracking) return
     return startRiderTracking({
       report: async (fix) => {
         const { error } = await supabase.rpc('report_rider_position', {
@@ -45,14 +59,34 @@ export default function RiderAvailability({ supabase }: { supabase: SupabaseClie
       offline: async () => { await supabase.rpc('stop_rider_availability') },
       status: setStatus, failed: () => setEnabled(false),
     })
-  }, [enabled, supabase])
+  }, [enabled, nativeTracking, supabase])
+  async function toggleDuty() {
+    if (nativeTracking) {
+      if (nativeBusy) return
+      setNativeBusy(true)
+      if (enabled) {
+        stopNativeRiderTracking()
+        setStatus('Stopping phone location…')
+      } else {
+        const { data, error } = await supabase.auth.getSession()
+        if (error || !data.session) { setStatus('Sign in again to go online.'); setNativeBusy(false); return }
+        try {
+          const { data: token, error: tokenError } = await supabase.rpc('issue_rider_tracking_token')
+          if (tokenError || typeof token !== 'string') throw new Error(tokenError?.message || 'Could not start phone tracking.')
+          startNativeRiderTracking(token)
+          setStatus('Starting phone location…')
+        }
+        catch (startError) { setStatus(startError instanceof Error ? startError.message : 'Phone location unavailable.'); setNativeBusy(false) }
+      }
+      return
+    }
+    setStatus(enabled ? 'Offline' : 'Getting your location…')
+    setEnabled(!enabled)
+  }
   return <section className="form-card rider-availability" aria-label="Rider availability">
-    <div><h2>{enabled && status.startsWith('Online') ? 'On duty' : enabled ? 'Connecting' : 'Off duty'}</h2><p role="status">{status}</p>
-      <small>Keep this screen open. Nearby jobs go to your company for bidding.</small></div>
-    <button type="button" className="primary-button" onClick={() => {
-      setStatus(enabled ? 'Offline' : 'Getting your location…')
-      setEnabled(!enabled)
-    }}>{enabled ? 'Go offline' : 'Go online'}</button>
+    <div><h2>{enabled && status.startsWith('Online') ? 'On duty' : enabled || nativeBusy ? 'Connecting' : 'Off duty'}</h2><p role="status">{status}</p>
+      <small>{nativeTracking ? 'Phone GPS stays on duty with a visible notification, including when the screen is off.' : 'Keep this screen open. Nearby jobs go to your company for bidding.'}</small></div>
+    <button type="button" className="primary-button" disabled={nativeBusy} onClick={() => void toggleDuty()}>{enabled ? 'Go offline' : 'Go online'}</button>
     <div className="rider-load-control">
       <strong>Box space</strong>
       <div className="rider-load-options" role="group" aria-label="Box space">

@@ -1,0 +1,49 @@
+plugins { id 'com.android.application' }
+
+def webEnv = [:]
+def envFile = file('../../.env.local')
+if (envFile.exists()) {
+    envFile.eachLine { line ->
+        def at = line.indexOf('=')
+        if (at > 0 && !line.startsWith('#')) webEnv[line.substring(0, at).trim()] = line.substring(at + 1).trim().replaceAll('^"|"$', '')
+    }
+}
+def apiKey = System.getenv('VITE_SUPABASE_PUBLISHABLE_KEY') ?: webEnv['VITE_SUPABASE_PUBLISHABLE_KEY']
+if (!apiKey) throw new GradleException('Set VITE_SUPABASE_PUBLISHABLE_KEY in the environment or root .env.local before building Android.')
+def signing = new Properties()
+def signingFile = rootProject.file('signing.properties')
+if (signingFile.exists()) signingFile.withInputStream { signing.load(it) }
+
+android {
+    namespace 'org.gohezohservices.kwikparsel'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'org.gohezohservices.kwikparsel'
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName '1.0.0'
+        buildConfigField 'String', 'SUPABASE_API_KEY', '"' + apiKey.replace('\\', '\\\\').replace('"', '\\"') + '"'
+    }
+    buildFeatures { buildConfig true }
+    if (signingFile.exists()) {
+        signingConfigs {
+            release {
+                storeFile rootProject.file('release-signing-v2.jks')
+                storePassword signing.getProperty('storePassword')
+                keyAlias signing.getProperty('keyAlias')
+                keyPassword signing.getProperty('keyPassword')
+            }
+        }
+        buildTypes { release { signingConfig signingConfigs.release } }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    implementation 'androidx.webkit:webkit:1.18.0'
+}

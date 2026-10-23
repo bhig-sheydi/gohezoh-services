@@ -1,9 +1,10 @@
 import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import RiderAvailability from './RiderAvailability'
 import { startRiderTracking } from './lib/rider-tracking'
 
 vi.mock('./lib/rider-tracking', () => ({ startRiderTracking: vi.fn(() => () => {}) }))
+afterEach(() => { delete window.KwikParselNative; vi.clearAllMocks() })
 
 describe('RiderAvailability', () => {
   it('shows connecting until the server accepts a rider location', () => {
@@ -25,5 +26,19 @@ describe('RiderAvailability', () => {
     expect(await screen.findByText('New orders are paused. Tracking and current deliveries continue.')).toBeInTheDocument()
     expect(rpc).toHaveBeenCalledWith('set_rider_load_state', { p_state: 'full' })
     expect(screen.getByRole('button', { name: 'Go online' })).toBeInTheDocument()
+  })
+
+  it('starts phone tracking with a position-only grant and leaves browser polling off', async () => {
+    const postMessage = vi.fn()
+    window.KwikParselNative = { postMessage }
+    const rpc = vi.fn(async (name: string) => ({ data: name === 'issue_rider_tracking_token' ? 'a'.repeat(64) : 'available', error: null }))
+    render(<RiderAvailability supabase={{ rpc, auth: { getSession: vi.fn(async () => ({ data: { session: { user: { id: 'rider' } } }, error: null })) } } as never} />)
+    expect(screen.getByText(/Phone GPS stays on duty/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Go online' }))
+    expect(screen.getByRole('button', { name: 'Go online' })).toBeDisabled()
+    await waitFor(() => expect(postMessage).toHaveBeenCalledWith(JSON.stringify({ type: 'rider:start', trackingToken: 'a'.repeat(64) })))
+    expect(startRiderTracking).not.toHaveBeenCalled()
+    act(() => window.dispatchEvent(new CustomEvent('kwik-parsel:native', { detail: { type: 'rider:status', active: true, message: 'Online · phone GPS ±20 m' } })))
+    expect(screen.getByRole('heading', { name: 'On duty' })).toBeInTheDocument()
   })
 })

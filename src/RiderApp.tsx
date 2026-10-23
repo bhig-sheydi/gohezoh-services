@@ -4,6 +4,7 @@ import { getSupabaseClient } from './lib/supabase'
 import { riderDeviceProof } from './lib/rider-device'
 import { routeLabel } from './lib/route-label'
 import RiderAvailability from './RiderAvailability'
+import { stopNativeRiderTracking } from './lib/native-rider'
 import RiderNextStop, { type RiderRouteStop } from './RiderNextStop'
 import './App.css'
 import './dark.css'
@@ -68,7 +69,10 @@ export default function RiderApp() {
   const [senderConfirmationRequested, setSenderConfirmationRequested] = useState<Record<string, boolean>>({})
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => { setSession(data.session); setReady(true) })
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, next) => { setSession(next); setRider(null) })
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, next) => {
+      if (event === 'SIGNED_OUT') stopNativeRiderTracking()
+      setSession(next); setRider(null)
+    })
     return () => subscription.unsubscribe()
   }, [supabase])
   const load = useCallback(async () => {

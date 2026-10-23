@@ -18,7 +18,7 @@ const nativeOptions: PositionOptions = { ...browserOptions, timeout: 15_000 }
 
 declare global {
   interface Window {
-    GohezohLocation?: { requestPosition: (requestId: string, options?: PositionOptions) => void }
+    GohezohLocation?: { requestPosition?: (requestId: string, options?: PositionOptions) => void; postMessage?: (message: string) => void }
     ReactNativeWebView?: { postMessage: (message: string) => void }
   }
 }
@@ -103,7 +103,8 @@ export function requestPosition(options: LocationRequestOptions = {}): Promise<P
     options.signal?.addEventListener('abort', onAbort, { once: true })
     window.addEventListener('gohezoh:position', onPosition as EventListener)
     try {
-      if (window.GohezohLocation) window.GohezohLocation.requestPosition(requestId, nativeOptions)
+      if (window.GohezohLocation?.postMessage) window.GohezohLocation.postMessage(JSON.stringify({ type: 'position:request', requestId }))
+      else if (window.GohezohLocation?.requestPosition) window.GohezohLocation.requestPosition(requestId, nativeOptions)
       else window.ReactNativeWebView?.postMessage(JSON.stringify({ type: 'gohezoh:position:request', requestId, options: nativeOptions }))
     } catch {
       finish(deviceError('unavailable'))
