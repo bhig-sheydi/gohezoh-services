@@ -170,32 +170,52 @@ public final class MainActivity extends Activity {
 
     private void findPosition(String id) {
         LocationManager manager = (LocationManager) getSystemService(LOCATION_SERVICE);
-        String provider = manager.isProviderEnabled(LocationManager.GPS_PROVIDER) ? LocationManager.GPS_PROVIDER
-            : manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) ? LocationManager.NETWORK_PROVIDER : null;
-        if (provider == null) { sendPositionError(id, "unavailable"); return; }
+        boolean gps = manager.isProviderEnabled(LocationManager.GPS_PROVIDER);
+        boolean network = manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER);
+        if (!gps && !network) { sendPositionError(id, "unavailable"); return; }
         AtomicBoolean done = new AtomicBoolean(false);
         Handler handler = new Handler(Looper.getMainLooper());
+        Location[] best = { null };
         LocationListener listener = new LocationListener() {
             @Override public void onLocationChanged(Location fix) {
-                if (!done.compareAndSet(false, true)) return;
-                manager.removeUpdates(this);
-                try {
-                    JSONObject result = new JSONObject();
-                    result.put("type", "gohezoh:position:result"); result.put("requestId", id);
-                    result.put("latitude", fix.getLatitude()); result.put("longitude", fix.getLongitude());
-                    result.put("accuracyMetres", (double) fix.getAccuracy()); result.put("capturedAt", fix.getTime());
-                    sendEvent("gohezoh:position", result);
-                } catch (Exception error) { sendPositionError(id, "invalid"); }
+                if (done.get() || !fix.hasAccuracy() || fix.getAccuracy() < 0 ||
+                    Math.abs(System.currentTimeMillis() - fix.getTime()) > 60000) return;
+                if (best[0] == null || fix.getAccuracy() < best[0].getAccuracy()) best[0] = fix;
+                if (fix.getAccuracy() <= 100 && done.compareAndSet(false, true)) {
+                    manager.removeUpdates(this);
+                    sendPosition(id, fix);
+                }
             }
             @Override public void onProviderDisabled(String provider) { }
             @Override public void onProviderEnabled(String provider) { }
             @Override public void onStatusChanged(String provider, int status, Bundle extras) { }
         };
         handler.postDelayed(() -> {
-            if (done.compareAndSet(false, true)) { manager.removeUpdates(listener); sendPositionError(id, "timeout"); }
-        }, 15000);
-        try { manager.requestLocationUpdates(provider, 0L, 0f, listener, Looper.getMainLooper()); }
-        catch (SecurityException error) { done.set(true); sendPositionError(id, "permission_denied"); }
+            if (done.compareAndSet(false, true)) {
+                manager.removeUpdates(listener);
+                if (best[0] == null) sendPositionError(id, "timeout");
+                else sendPosition(id, best[0]);
+            }
+        }, 11000);
+        try {
+            if (gps && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED)
+                manager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0L, 0f, listener, Looper.getMainLooper());
+            if (network) manager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 0L, 0f, listener, Looper.getMainLooper());
+        } catch (SecurityException error) {
+            done.set(true); manager.removeUpdates(listener); sendPositionError(id, "permission_denied");
+        } catch (IllegalArgumentException error) {
+            done.set(true); manager.removeUpdates(listener); sendPositionError(id, "unavailable");
+        }
+    }
+
+    private void sendPosition(String id, Location fix) {
+        try {
+            JSONObject result = new JSONObject();
+            result.put("type", "gohezoh:position:result"); result.put("requestId", id);
+            result.put("latitude", fix.getLatitude()); result.put("longitude", fix.getLongitude());
+            result.put("accuracyMetres", (double) fix.getAccuracy()); result.put("capturedAt", fix.getTime());
+            sendEvent("gohezoh:position", result);
+        } catch (Exception error) { sendPositionError(id, "invalid"); }
     }
 
     private void sendPositionError(String id, String code) {
