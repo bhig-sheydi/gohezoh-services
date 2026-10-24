@@ -59,4 +59,12 @@ describe('one-field drop-off location', () => {
     expect(document.querySelector('[name=delivery_longitude]')).toHaveValue('7.0096482')
     expect(screen.getByText(/Named place 29 m away/)).toBeInTheDocument()
   })
+  it('labels a broad reverse-geocode result as an area rather than a precise address', async () => {
+    vi.mocked(requestAddressPosition).mockResolvedValue({ latitude: 4.882269, longitude: 7.0096482, accuracyMetres: 350, capturedAt: 1000, source: 'native' } as never)
+    vi.mocked(identifyCurrentLocation).mockResolvedValue({ label: 'Rumuodumaya 101014', landmarkDistanceMetres: null, matchedAddress: { ...result, specificity: 'area' } as never })
+    render(<form><select name="delivery_city" defaultValue="Port Harcourt"><option>Port Harcourt</option></select><DeliveryPoint supabase={supabase} /></form>)
+    await userEvent.setup().click(screen.getByRole('button', { name: /I'm here/ }))
+    expect(await screen.findByText(/The map found only an area, not your building or street/)).toHaveTextContent('Phone accuracy ±350 m')
+    expect(document.querySelector('[name=delivery_location_confirmed]')).toBeNull()
+  })
 })

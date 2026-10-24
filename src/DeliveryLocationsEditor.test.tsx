@@ -37,7 +37,7 @@ describe('delivery location editor', () => {
     expect(within(card).getByLabelText('Address')).toHaveValue('Ibeku')
     expect(within(card).getByLabelText('City')).toHaveValue('Umuahia')
     expect(within(card).getByLabelText('State')).toHaveValue('Abia')
-    expect(within(card).getByRole('status')).toHaveTextContent('Approximate address. Edit any incorrect details.')
+    expect(within(card).getByRole('status')).toHaveTextContent('The map found only an area, not your building or street. Phone accuracy ±500 m.')
     await user.clear(within(card).getByLabelText('Address'))
     await user.type(within(card).getByLabelText('Address'), '12 Palm Street')
     expect(within(card).queryByRole('checkbox')).not.toBeInTheDocument()

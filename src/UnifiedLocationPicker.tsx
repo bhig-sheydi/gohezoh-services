@@ -127,7 +127,10 @@ export default function UnifiedLocationPicker({ kind, supabase, userId, destinat
       if (!controller.signal.aborted) {
         setQuery(result.label); setAddress(result.label); setFix(device); setPoint(device)
         setPinVersion((value) => value + 1); setSuggestions([])
-        setNote(`${result.landmarkDistanceMetres === null ? 'Mapped address' : `Named place ${result.landmarkDistanceMetres} m away`} · GPS ±${Math.round(device.accuracyMetres)} m. Confirm the point.`)
+        const areaOnly = result.landmarkDistanceMetres === null && result.matchedAddress?.specificity === 'area'
+        setNote(areaOnly
+          ? `Phone accuracy ±${Math.round(device.accuracyMetres)} m. The map found only an area, not your building or street. Add the exact address or search a nearby place before confirming.`
+          : `${result.landmarkDistanceMetres === null ? 'Mapped address' : `Named place ${result.landmarkDistanceMetres} m away`} · phone accuracy ±${Math.round(device.accuracyMetres)} m. Confirm the point.`)
         setNeedsPin(device.accuracyMetres > 100)
       }
     } catch (cause) { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Could not get your location.') }

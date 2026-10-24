@@ -31,7 +31,9 @@ export default function DeliveryLocationsEditor({ supabase, userId, destinations
     coordinates.current.set(slot, result.evidence)
     setOptions(null)
     const approximate = result.specificity !== 'building' || (result.evidence.accuracyMetres ?? 0) > 100 || (result.distanceMetres ?? 0) > 100 || (result.confidence !== null && result.confidence < 0.8)
-    setFeedback({ slot, message: approximate ? 'Approximate address. Edit any incorrect details.' : 'Address filled. Check before saving.', error: false })
+    setFeedback({ slot, message: result.specificity === 'area'
+      ? `The map found only an area, not your building or street.${result.evidence.accuracyMetres === null ? '' : ` Phone accuracy ±${Math.round(result.evidence.accuracyMetres)} m.`} Add the exact address before saving.`
+      : approximate ? 'Approximate address. Edit any incorrect details.' : 'Address filled. Check before saving.', error: false })
   }
   async function findOptions(slot: number) {
     if (operation.current) return

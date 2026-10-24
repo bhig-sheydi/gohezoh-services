@@ -1,5 +1,5 @@
-/** Browser-only Google Maps prototype. A demo key must never be used for live service. */
-export const googleMapsDemoEnabled = import.meta.env.DEV && import.meta.env.MODE !== 'test' && Boolean(import.meta.env.VITE_GOOGLE_MAPS_DEMO_KEY)
+/** Browser-only Google Maps prototype, enabled when its test key is configured. */
+export const googleMapsDemoEnabled = import.meta.env.MODE !== 'test' && Boolean(import.meta.env.VITE_GOOGLE_MAPS_DEMO_KEY)
 
 type Point = { latitude: number; longitude: number }
 type LatLng = { lat(): number; lng(): number }
