@@ -22,6 +22,7 @@ describe('pickup location selection', () => {
     expect(screen.getByText(/Searching communities — please wait/)).toBeInTheDocument()
     expect(screen.queryByRole('textbox', { name: 'Street name' })).toBeNull()
     await user.click(await screen.findByRole('button', { name: /Eliozu/ }))
+    expect(screen.queryByRole('button', { name: /use GPS/i })).not.toBeInTheDocument()
     expect(invoke).toHaveBeenCalledWith('location-address', expect.objectContaining({ body: expect.objectContaining({ action: 'suggest', type: 'locality' }) }))
     expect(screen.getByLabelText('Pickup community')).toHaveValue('Eliozu')
     expect(document.querySelector('.pickup-location .pin-correction')).toBeInTheDocument()
@@ -31,6 +32,7 @@ describe('pickup location selection', () => {
     expect(screen.getByRole('textbox', { name: 'Street name' })).toHaveValue('Orji Woko Close')
     expect(screen.getByLabelText('This is the pickup location.')).toBeInTheDocument()
     expect(document.querySelector('[name=pickup_latitude]')).toHaveValue('4.831')
+    expect(document.querySelector('[name=pickup_location_source]')).toHaveValue('search')
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('location-address', expect.objectContaining({ body: expect.objectContaining({ action: 'nearby_suggest', text: 'Orji' }) })))
   })
   it('uses saved coordinates and removes them when the address is edited', async () => {

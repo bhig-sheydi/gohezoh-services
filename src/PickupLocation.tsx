@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { requestAddressPosition } from './lib/proximity'
 import { searchAddress, suggestAreas, type AddressSuggestion, type LocationEvidence } from './lib/geoapify-geocoding'
 import type { ParcelDestination } from './ParcelPalsPanel'
 import PinCorrection from './PinCorrection'
@@ -91,28 +90,22 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
       setMatched(`${item.address}, ${item.city}`)
     }
   }
-  async function locate(gps: boolean) {
+  async function locate() {
     if (pending.current) return
     setBusy(true); setError(''); setFix(null); setMatched(''); setNeedsPin(false)
     const controller = new AbortController(); pending.current = controller
     try {
-      if (gps) {
-        const result = await requestAddressPosition({ signal: controller.signal })
-        if (result.accuracyMetres > 100) throw new Error('GPS is too imprecise. Find your typed address instead, or try outdoors.')
-        if (!controller.signal.aborted) { setMapPoint(result); setStreetSeed(streetDraft.current); setMapVersion((value) => value + 1); setFix(result); setMatched('Current phone location') }
-      } else {
-        const form = container.current!.closest('form')!
-        const values = new FormData(form)
-        const address = String(values.get('pickup_address') ?? '').trim()
-        const community = String(values.get('pickup_community') ?? '').trim()
-        const city = String(values.get('pickup_city') ?? '').trim()
-        if (!community || !address || !city) throw new Error('Enter the pickup community and street, then choose its city.')
-        const result = await searchAddress(supabase, communityPlaceId ? address : `${address}, ${community}, ${city}, ${values.get('pickup_state') || ''}, Nigeria`, controller.signal, communityPlaceId || undefined)
-        const state = String(values.get('pickup_state') ?? '').trim()
-        if (state && result.state && result.state.toLowerCase().replace(/ state$/, '') !== state.toLowerCase().replace(/ state$/, '')) throw new Error('The mapped address is in another state. Check the pickup area and try again.')
-        const broad = result.specificity === 'area' || (result.confidence !== null && result.confidence < 0.7)
-        if (!controller.signal.aborted) { setMapPoint(result.evidence); setStreetSeed(streetDraft.current); setMapVersion((value) => value + 1); setFix(result.evidence); setMatched(broad ? 'Only a broad area was found. Adjust its pin to confirm pickup.' : `${result.address}, ${result.city}, ${result.state}`); setNeedsPin(broad) }
-      }
+      const form = container.current!.closest('form')!
+      const values = new FormData(form)
+      const address = String(values.get('pickup_address') ?? '').trim()
+      const community = String(values.get('pickup_community') ?? '').trim()
+      const city = String(values.get('pickup_city') ?? '').trim()
+      if (!community || !address || !city) throw new Error('Enter the pickup community and street, then choose its city.')
+      const result = await searchAddress(supabase, communityPlaceId ? address : `${address}, ${community}, ${city}, ${values.get('pickup_state') || ''}, Nigeria`, controller.signal, communityPlaceId || undefined)
+      const state = String(values.get('pickup_state') ?? '').trim()
+      if (state && result.state && result.state.toLowerCase().replace(/ state$/, '') !== state.toLowerCase().replace(/ state$/, '')) throw new Error('The mapped address is in another state. Check the pickup area and try again.')
+      const broad = result.specificity === 'area' || (result.confidence !== null && result.confidence < 0.7)
+      if (!controller.signal.aborted) { setMapPoint(result.evidence); setStreetSeed(streetDraft.current); setMapVersion((value) => value + 1); setFix(result.evidence); setMatched(broad ? 'Only a broad area was found. Adjust its pin to confirm pickup.' : `${result.address}, ${result.city}, ${result.state}`); setNeedsPin(broad) }
     } catch (cause) { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Location unavailable') }
     finally { if (pending.current === controller) { pending.current = null; if (!controller.signal.aborted) setBusy(false) } }
   }
@@ -124,8 +117,7 @@ export default function PickupLocation({ supabase, userId, onCitySelected }: {
     {!communityReady && <small className="address-search-hint">Type at least 3 letters above, then tap your community from the suggestions.</small>}
     {communityStatus === 'loading' && <small role="status" className="address-search-status"><span className="address-search-spinner" aria-hidden="true" />Searching communities — please wait for suggestions.</small>}
     {communityStatus === 'empty' && <div className="address-search-fallback"><small>No mapped area found. Try a shorter name or continue with what you typed.</small><button type="button" className="text-button" onClick={() => { setCommunityReady(true); setCommunityStatus('idle') }}>Use typed community</button></div>}
-    {communityReady && <><div className="field-row"><button type="button" className="secondary-button" disabled={busy} onClick={() => void locate(false)}>{busy ? 'Finding pickup…' : 'Find pickup address'}</button>
-      <button type="button" className="text-button" disabled={busy} onClick={() => void locate(true)}>I’m here — use GPS</button></div>
+    {communityReady && <><div className="field-row"><button type="button" className="secondary-button" disabled={busy} onClick={() => void locate()}>{busy ? 'Finding pickup…' : 'Find pickup address'}</button></div>
     {error && <small role="alert">{error}</small>}
     <PinCorrection key={mapVersion} supabase={supabase} initial={mapPoint} initialStreet={streetSeed} streetInputName="pickup_address" requireMove={needsPin} compactMap autoSelectSuggestion streetSearchRadiusMetres={3000}
       onStreetChange={(street) => { streetDraft.current = street; setFix(null); setMatched(''); setSlot('') }}
