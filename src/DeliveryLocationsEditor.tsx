@@ -10,7 +10,7 @@ const fieldValue = (form: HTMLFormElement, name: string) => (form.elements.named
 export default function DeliveryLocationsEditor({ supabase, userId, destinations, onSaved, onClose, onError, onNotice }: Props) {
   const [busy, setBusy] = useState<{ slot: number; kind: 'lookup' | 'save' | 'remove' } | null>(null)
   const [feedback, setFeedback] = useState<{ slot: number; message: string; error: boolean } | null>(null)
-  const [suggestion, setSuggestion] = useState<{ slot: number; at: number } | null>(null)
+  const [suggestion, setSuggestion] = useState<{ slot: number; at: number; evidence: LocationEvidence } | null>(null)
   const [options, setOptions] = useState<{ slot: number; results: AddressSuggestion[] } | null>(null)
   const [pinSlot, setPinSlot] = useState<number | null>(null)
   const [pinInitial, setPinInitial] = useState<LocationEvidence | null>(null)
@@ -26,7 +26,7 @@ export default function DeliveryLocationsEditor({ supabase, userId, destinations
       const input = form.elements.namedItem(name)
       if (input instanceof HTMLInputElement && result[name]) input.value = result[name]
     }
-    setSuggestion({ slot, at: result.evidence.capturedAt })
+    setSuggestion({ slot, at: result.evidence.capturedAt, evidence: result.evidence })
     coordinates.current.set(slot, result.evidence)
     setOptions(null)
     const approximate = result.specificity !== 'building' || (result.evidence.accuracyMetres ?? 0) > 100 || (result.distanceMetres ?? 0) > 100 || (result.confidence !== null && result.confidence < 0.8)
@@ -37,12 +37,15 @@ export default function DeliveryLocationsEditor({ supabase, userId, destinations
     const form = forms.current.get(slot)
     if (!form) return
     const address = fieldValue(form, 'address'), city = fieldValue(form, 'city')
-    if (address.length < 5 || !city) { setFeedback({ slot, message: 'Enter the street, building or landmark and city first.', error: true }); return }
+    if (!address) { setFeedback({ slot, message: 'Type any address or place name to search.', error: true }); return }
     const controller = new AbortController(); operation.current = controller
     setBusy({ slot, kind: 'lookup' }); setOptions(null); setFeedback(null)
     try {
-      const results = await suggestAddresses(supabase, `${address}, ${city}, Nigeria`, controller.signal)
-      if (!controller.signal.aborted) setOptions({ slot, results: results.filter((result) => result.specificity !== 'area') })
+      const results = await suggestAddresses(supabase, [address, city, 'Nigeria'].filter(Boolean).join(', '), controller.signal)
+      if (!controller.signal.aborted) {
+        setOptions({ slot, results })
+        if (!results.length) setFeedback({ slot, message: 'No mapped match. Try another name or use your current location.', error: false })
+      }
     } catch (cause) { if (!controller.signal.aborted) setFeedback({ slot, message: cause instanceof Error ? cause.message : 'Address search failed.', error: true }) }
     finally { if (operation.current === controller) { operation.current = null; setBusy(null) } }
   }
@@ -102,22 +105,22 @@ export default function DeliveryLocationsEditor({ supabase, userId, destinations
 
   return <section className="parcel-pal-destinations" aria-labelledby="parcel-pal-destinations-heading">
     <div className="history-heading"><h3 id="parcel-pal-destinations-heading" tabIndex={-1}>Delivery addresses</h3><button className="text-button" type="button" onClick={onClose}>Done</button></div>
-    <p className="location-consent">At this address? Get address shares your location with Geoapify. You can edit the result.</p>
+    <p className="location-consent">At this address? Get address uses your phone's position. Check the point before saving.</p>
     <div className="parcel-pal-destination-grid">{[1, 2, 3].map((slot) => {
       const saved = destinations.find((item) => item.slot === slot)
-      return <form className="parcel-pal-destination-card" key={slot} ref={(form) => { if (form) forms.current.set(slot, form); else forms.current.delete(slot) }} onChange={(event) => { if (['address','city','state'].includes((event.target as HTMLElement).getAttribute('name') ?? '')) coordinates.current.delete(slot) }} onSubmit={(event) => void save(event, slot)}>
+      return <form className="parcel-pal-destination-card" key={slot} ref={(form) => { if (form) forms.current.set(slot, form); else forms.current.delete(slot) }} onChange={(event) => { if (['address','city','state'].includes((event.target as HTMLElement).getAttribute('name') ?? '')) { coordinates.current.delete(slot); if (suggestion?.slot === slot) setSuggestion(null) } }} onSubmit={(event) => void save(event, slot)}>
         <strong>{slot === 1 ? 'Work' : slot === 2 ? 'Home' : 'Other'}</strong>
         <input type="hidden" name="slot" value={slot} />
         <fieldset className="delivery-address-fields" disabled={!!busy}>
-          <label className="field"><span>Address</span><input name="address" defaultValue={saved?.address ?? ''} required maxLength={500} /></label>
+          <label className="field"><span>Address</span><input name="address" defaultValue={saved?.address ?? ''} placeholder="Building, street, landmark or place name" required maxLength={300} /></label>
           <div className="field-row"><label className="field"><span>City</span><input name="city" defaultValue={saved?.city ?? ''} required maxLength={100} /></label><label className="field"><span>State</span><input name="state" defaultValue={saved?.state ?? ''} required maxLength={100} /></label></div>
           <label className="field"><span>Second phone (optional)</span><input name="secondary_phone" type="tel" defaultValue={saved?.secondary_phone ?? ''} /></label>
         </fieldset>
         <div className="parcel-pal-actions"><button className="secondary-button" type="button" disabled={!!busy} onClick={() => void detect(slot)}>{busy?.kind === 'lookup' && busy.slot === slot ? 'Getting address...' : 'Get address'}</button><button className="secondary-button" type="button" disabled={!!busy} onClick={() => void findOptions(slot)}>Find options</button></div>
         {options?.slot === slot && <div className="address-suggestions" role="group" aria-label={`${saved?.label ?? 'Delivery'} address suggestions`}>{options.results.map((result, index) => <button type="button" key={`${result.latitude}-${result.longitude}-${index}`} onClick={() => apply(slot, result)}><strong>{result.address}</strong><small>{result.city}, {result.state} · {result.specificity} match</small></button>)}</div>}
         {feedback?.slot === slot && <p className="parcel-pal-location-quality" role={feedback.error ? 'alert' : 'status'}>{feedback.message}</p>}
-        {suggestion?.slot === slot && <button className="text-button" type="button" onClick={() => { setPinInitial(coordinates.current.get(slot) ?? null); setPinSlot(slot) }}>Adjust pin</button>}
-        {pinSlot === slot && pinInitial && <PinCorrection supabase={supabase} initial={pinInitial} onClose={() => setPinSlot(null)} onChoose={(point, address) => { coordinates.current.set(slot, point); if (address) apply(slot, { ...address, evidence: point }); setPinSlot(null); setSuggestion({ slot, at: point.capturedAt }) }} />}
+        {suggestion?.slot === slot && <><small>Selected point: {suggestion.evidence.latitude.toFixed(6)}, {suggestion.evidence.longitude.toFixed(6)}{suggestion.evidence.accuracyMetres != null ? ` · phone accuracy ±${Math.round(suggestion.evidence.accuracyMetres)} m` : ' · mapped point'}</small><button className="text-button" type="button" onClick={() => { setPinInitial(coordinates.current.get(slot) ?? null); setPinSlot(slot) }}>Adjust pin</button></>}
+        {pinSlot === slot && pinInitial && <PinCorrection supabase={supabase} initial={pinInitial} onClose={() => setPinSlot(null)} onChoose={(point, address) => { coordinates.current.set(slot, point); if (address) apply(slot, { ...address, evidence: point }); setPinSlot(null); setSuggestion({ slot, at: point.capturedAt, evidence: point }) }} />}
         {suggestion?.slot === slot && <label className="location-confirm" key={suggestion.at}><input type="checkbox" required />Address is correct.</label>}
         <div className="parcel-pal-actions"><button className="primary-button" disabled={!!busy}>{busy?.slot === slot && busy.kind === 'save' ? 'Saving...' : 'Save location'}</button>{saved && <button className="text-button" type="button" disabled={!!busy} onClick={() => void remove(slot)}>{busy?.slot === slot && busy.kind === 'remove' ? 'Removing...' : 'Remove'}</button>}</div>
         <small className="location-attribution">Address suggestions by <a href="https://www.geoapify.com/" target="_blank" rel="noreferrer">Geoapify</a> and <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a></small>

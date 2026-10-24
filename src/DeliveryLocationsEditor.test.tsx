@@ -3,9 +3,9 @@ import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import DeliveryLocationsEditor from './DeliveryLocationsEditor'
-import { getAddressFromCurrentPosition, type AddressSuggestion } from './lib/geoapify-geocoding'
+import { getAddressFromCurrentPosition, suggestAddresses, type AddressSuggestion } from './lib/geoapify-geocoding'
 
-vi.mock('./lib/geoapify-geocoding', () => ({ getAddressFromCurrentPosition: vi.fn() }))
+vi.mock('./lib/geoapify-geocoding', () => ({ getAddressFromCurrentPosition: vi.fn(), suggestAddresses: vi.fn() }))
 const result: AddressSuggestion = { address: '10 Palm Street', city: 'Umuahia', state: 'Abia', latitude: 5.5, longitude: 7.5, specificity: 'building', resultType: 'building', confidence: null, distanceMetres: 10, evidence: { latitude: 5.5, longitude: 7.5, accuracyMetres: 12, capturedAt: Date.now(), source: 'browser' }, qualityNote: 'Building-level suggestion; check the building and street.' }
 function setup() {
   const upsert = vi.fn(() => ({ abortSignal: vi.fn(async () => ({ error: null })) }))
@@ -15,6 +15,17 @@ function setup() {
 }
 
 describe('delivery location editor', () => {
+  it('searches a free-form place name without a city or minimum address shape', async () => {
+    vi.mocked(suggestAddresses).mockResolvedValueOnce([result])
+    const { props } = setup()
+    render(<DeliveryLocationsEditor {...props} />)
+    const card = screen.getByText('Work').closest('form')!
+    const user = userEvent.setup()
+    await user.type(within(card).getByLabelText('Address'), 'HQ')
+    await user.click(within(card).getByRole('button', { name: 'Find options' }))
+    await waitFor(() => expect(suggestAddresses).toHaveBeenCalledWith(expect.anything(), 'HQ, Nigeria', expect.anything()))
+    expect(await within(card).findByRole('group', { name: /address suggestions/ })).toHaveTextContent('10 Palm Street')
+  })
   it('fills area-only results, allows corrections and offers no map', async () => {
     vi.mocked(getAddressFromCurrentPosition).mockResolvedValueOnce({ ...result, address: 'Ibeku', specificity: 'area', evidence: { ...result.evidence, accuracyMetres: 500 } })
     const { props, upsert } = setup()
@@ -29,9 +40,9 @@ describe('delivery location editor', () => {
     expect(within(card).getByRole('status')).toHaveTextContent('Approximate address. Edit any incorrect details.')
     await user.clear(within(card).getByLabelText('Address'))
     await user.type(within(card).getByLabelText('Address'), '12 Palm Street')
-    await user.click(within(card).getByRole('checkbox'))
+    expect(within(card).queryByRole('checkbox')).not.toBeInTheDocument()
     await user.click(within(card).getByRole('button', { name: 'Save location' }))
-    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({ address: '12 Palm Street' }), expect.anything())
+    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({ address: '12 Palm Street', latitude: null, longitude: null }), expect.anything())
   })
   it('keeps manual entry usable after permission denial and saves no location metadata', async () => {
     vi.mocked(getAddressFromCurrentPosition).mockRejectedValueOnce(new Error('Location permission was denied.'))
