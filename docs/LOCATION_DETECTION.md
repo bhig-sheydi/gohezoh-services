@@ -1,6 +1,6 @@
 # Permission-based delivery address detection
 
-The customer opens **Edit my delivery info**, then chooses **Get address** or manual entry. Opening the dashboard/editor never requests device location. A suggested address must be reviewed before Save location. All returned address fields are filled, including area-only suggestions. Missing provider fields preserve existing input. Customers can correct every field; no map is shown.
+The customer opens **Edit my delivery info**, then chooses **Get address** or manual entry. Opening the dashboard/editor never requests device location. A suggested address must be reviewed before Save location. Missing provider fields preserve existing input. Customers can correct every field and adjust a pin on a map.
 
 ## Architecture and privacy
 
@@ -26,6 +26,12 @@ API-key authentication is documented for these endpoints. IP geolocation, route 
 Sources: [reverse geocoding](https://apidocs.geoapify.com/docs/geocoding/reverse-geocoding/), [address search](https://apidocs.geoapify.com/docs/geocoding/), [raster maps](https://apidocs.geoapify.com/docs/maps/map-tiles/), [pricing](https://www.geoapify.com/pricing/), [credit costs](https://www.geoapify.com/pricing-details/), [W3C Geolocation](https://www.w3.org/TR/geolocation/).
 
 The published free plan provides 3,000 credits/day and up to 5 requests/second for geocoding, with one reverse/search request costing one credit. Raster tiles cost 0.25 credit each. The customer editor makes no search or tile requests. Existing server search/tile capabilities remain unused. Geoapify/OpenStreetMap attribution is displayed. Actual account usage and key restrictions must be checked in the owner's provider dashboard.
+
+## Google Maps evaluation mode
+
+For local testing only, set `VITE_GOOGLE_MAPS_DEMO_KEY` in ignored `.env.local` and restart Vite. The customer address search, reverse lookup, nearby suggestions, and correction map then use Google Maps JavaScript API. `/google-location-test` is a development-only comparison page. The key is loaded in the browser as required by Maps JavaScript API; do not use a demo key for live customer service. Do not configure this key in Vercel production. Google place content is shown with Google Maps attribution and on a Google map. Rider road-matrix planning continues to use Geoapify until its own provider migration is implemented and verified.
+
+The chosen GPS or manual pin stays the authoritative point; a geocoder's nearby building coordinate is only a label and is not substituted for a phone fix. Google Maps can still return an incorrect or distant address, so check the result and confirm the pin. See [Google demo-key restrictions](https://developers.google.com/maps/demo-key), [Maps JavaScript text search](https://developers.google.com/maps/documentation/javascript/place-search), and [Google Places display policies](https://developers.google.com/maps/documentation/places/web-service/policies).
 
 ## Reliability and limits
 

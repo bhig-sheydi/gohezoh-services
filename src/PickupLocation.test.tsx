@@ -1,55 +1,52 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import PickupLocation from './PickupLocation'
+import { suggestAddresses, suggestNearby } from './lib/geoapify-geocoding'
+import { requestAddressPosition } from './lib/proximity'
 
-describe('pickup location selection', () => {
-  it('suggests communities and streets as the customer types and keeps the selected street', async () => {
-    const query = { select: () => query, eq: () => query, order: async () => ({ data: [], error: null }) }
-    const community = { address: 'Eliozu', city: 'Port Harcourt', state: 'Rivers', latitude: 4.83, longitude: 7.02, placeId: '51f07665660fc4024059dc0a96dfac6c',
-      specificity: 'area', resultType: 'suburb', distanceMetres: null, confidence: 0.9 }
-    const street = { ...community, address: 'Orji Woko Close', latitude: 4.831, longitude: 7.021, specificity: 'street', resultType: 'street' }
-    const invoke = vi.fn(async (_name: string, options: { body: { action: string; text?: string } }) => ({
-      data: { suggestions: [options.body.text?.startsWith('Eliozu') ? community : street] }, error: null,
-    }))
-    const supabase = { from: () => query, functions: { invoke } } as unknown as SupabaseClient
-    render(<form><select name="pickup_city" defaultValue="Port Harcourt"><option>Port Harcourt</option></select>
-      <input name="pickup_community" aria-label="Pickup community" />
-      <PickupLocation supabase={supabase} userId="user-1" onCitySelected={vi.fn()} /></form>)
+vi.mock('./PinCorrection', () => ({ default: () => <div aria-label="Map correction" /> }))
+vi.mock('./lib/proximity', () => ({ requestAddressPosition: vi.fn() }))
+vi.mock('./lib/geoapify-geocoding', () => ({ suggestAddresses: vi.fn(), suggestNearby: vi.fn(), searchAddress: vi.fn(), reverseAddress: vi.fn(), identifyCurrentLocation: vi.fn() }))
+const match = { address: 'Eliozu Road', city: 'Port Harcourt', state: 'Rivers', latitude: 4.8661, longitude: 7.0219,
+  specificity: 'street', resultType: 'street', confidence: null, distanceMetres: 50,
+  evidence: { latitude: 4.8661, longitude: 7.0219, accuracyMetres: null, capturedAt: 1000, source: 'search' }, qualityNote: '' }
+const client = (saved: unknown[] = []) => {
+  const query = { select: () => query, eq: () => query, order: async () => ({ data: saved, error: null }) }
+  return { from: () => query } as unknown as SupabaseClient
+}
+beforeEach(() => { vi.clearAllMocks(); vi.mocked(suggestAddresses).mockResolvedValue([match] as never); vi.mocked(suggestNearby).mockResolvedValue([]) })
+
+describe('one-field pickup location', () => {
+  it('shows one place search, then stores the selected mapped point', async () => {
     const user = userEvent.setup()
-    await user.type(screen.getByLabelText('Pickup community'), 'Eliozu')
-    expect(screen.getByText(/Searching communities — please wait/)).toBeInTheDocument()
+    render(<form><select name="pickup_city" defaultValue="Port Harcourt"><option>Port Harcourt</option></select><PickupLocation supabase={client()} userId="user-1" onCitySelected={vi.fn()} /></form>)
+    const input = screen.getByRole('searchbox', { name: 'Pickup place search' })
+    expect(input).toHaveAttribute('placeholder', 'Search the closest known place to you in Port Harcourt')
     expect(screen.queryByRole('textbox', { name: 'Street name' })).toBeNull()
-    await user.click(await screen.findByRole('button', { name: /Eliozu/ }))
-    expect(screen.queryByRole('button', { name: /use GPS/i })).not.toBeInTheDocument()
-    expect(invoke).toHaveBeenCalledWith('location-address', expect.objectContaining({ body: expect.objectContaining({ action: 'suggest', type: 'locality' }) }))
-    expect(screen.getByLabelText('Pickup community')).toHaveValue('Eliozu')
-    expect(document.querySelector('.pickup-location .pin-correction')).toBeInTheDocument()
-    expect(document.querySelectorAll('[name=pickup_address]')).toHaveLength(1)
-    await user.type(screen.getByRole('textbox', { name: 'Street name' }), 'Orji')
-    await user.click(await screen.findByRole('button', { name: /Orji Woko Close/ }))
-    expect(screen.getByRole('textbox', { name: 'Street name' })).toHaveValue('Orji Woko Close')
+    await user.type(input, 'Eliozu')
+    await user.click(await screen.findByRole('button', { name: /Eliozu Road/ }))
+    expect(input).toHaveValue('Eliozu Road')
+    expect(document.querySelector('[name=pickup_latitude]')).toHaveValue('4.8661')
+    expect(document.querySelector('[name=pickup_address]')).toHaveValue('Eliozu Road')
     expect(screen.getByLabelText('This is the pickup location.')).toBeInTheDocument()
-    expect(document.querySelector('[name=pickup_latitude]')).toHaveValue('4.831')
-    expect(document.querySelector('[name=pickup_location_source]')).toHaveValue('search')
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith('location-address', expect.objectContaining({ body: expect.objectContaining({ action: 'nearby_suggest', text: 'Orji' }) })))
-  })
-  it('uses saved coordinates and removes them when the address is edited', async () => {
-    const saved = [{ slot: 1, label: 'Work', address: '12 Market Road', city: 'Lagos', state: 'Lagos',
-      latitude: 6.45, longitude: 3.4, location_source: 'browser', location_accuracy_metres: 18 }]
-    const query = { select: () => query, eq: () => query, order: async () => ({ data: saved, error: null }) }
-    const supabase = { from: () => query } as unknown as SupabaseClient
-    const onCitySelected = vi.fn()
-    render(<form><PickupLocation supabase={supabase} userId="user-1" onCitySelected={onCitySelected} /></form>)
-    const user = userEvent.setup()
-    await user.selectOptions(await screen.findByLabelText('My pickup addresses'), '1')
-    expect(screen.getByRole('textbox', { name: 'Street name' })).toHaveValue('12 Market Road')
-    expect(onCitySelected).toHaveBeenCalledWith('Lagos')
-    expect(screen.getByText(/saved location/)).toBeInTheDocument()
-    expect((document.querySelector('[name=pickup_latitude]') as HTMLInputElement).value).toBe('6.45')
-    await user.clear(screen.getByRole('textbox', { name: 'Street name' }))
-    await user.type(screen.getByRole('textbox', { name: 'Street name' }), 'Other street')
+    await user.clear(input)
     expect(document.querySelector('[name=pickup_latitude]')).toBeNull()
+  })
+  it('uses phone coordinates to narrow Find location, while preserving a saved address option', async () => {
+    const saved = { slot: 1, label: 'Work', address: '12 Market Road', city: 'Port Harcourt', state: 'Rivers', latitude: 4.8, longitude: 7.0, location_source: 'browser', location_accuracy_metres: 18 }
+    const user = userEvent.setup()
+    vi.mocked(requestAddressPosition).mockResolvedValue({ latitude: 4.866, longitude: 7.022, accuracyMetres: 20, capturedAt: 1000, source: 'browser' } as never)
+    vi.mocked(suggestNearby).mockResolvedValue([match] as never)
+    render(<form><select name="pickup_city" defaultValue="Port Harcourt"><option>Port Harcourt</option></select><PickupLocation supabase={client([saved])} userId="user-1" onCitySelected={vi.fn()} /></form>)
+    await user.selectOptions(await screen.findByLabelText('My pickup addresses'), '1')
+    expect(document.querySelector('[name=pickup_latitude]')).toHaveValue('4.8')
+    const input = screen.getByRole('searchbox', { name: 'Pickup place search' })
+    await user.clear(input); await user.type(input, 'Eliozu')
+    await user.click(screen.getByRole('button', { name: 'Find location' }))
+    await waitFor(() => expect(suggestNearby).toHaveBeenCalled())
+    expect(await screen.findByText(/Matched near your phone/)).toBeInTheDocument()
+    expect(document.querySelector('[name=pickup_latitude]')).toHaveValue('4.8661')
   })
 })

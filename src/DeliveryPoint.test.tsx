@@ -3,66 +3,60 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import DeliveryPoint from './DeliveryPoint'
-import { searchAddress, suggestAreas, suggestNearby } from './lib/geoapify-geocoding'
+import { identifyCurrentLocation, searchAddress, suggestAddresses, suggestNearby } from './lib/geoapify-geocoding'
+import { requestAddressPosition } from './lib/proximity'
 
-vi.mock('./lib/geoapify-geocoding', () => ({
-  searchAddress: vi.fn(), suggestAreas: vi.fn(), suggestAddresses: vi.fn(), suggestNearby: vi.fn().mockResolvedValue([]), reverseAddress: vi.fn().mockResolvedValue(null), mapTile: vi.fn().mockResolvedValue(new Blob()),
-}))
+vi.mock('./PinCorrection', () => ({ default: () => <div aria-label="Map correction" /> }))
+vi.mock('./lib/proximity', () => ({ requestAddressPosition: vi.fn() }))
+vi.mock('./lib/geoapify-geocoding', () => ({ suggestAddresses: vi.fn(), suggestNearby: vi.fn(), searchAddress: vi.fn(), reverseAddress: vi.fn(), identifyCurrentLocation: vi.fn() }))
+const result = { address: 'Market Road', city: 'Port Harcourt', state: 'Rivers', latitude: 4.831, longitude: 7.021,
+  specificity: 'street', resultType: 'street', confidence: null, distanceMetres: null,
+  evidence: { latitude: 4.831, longitude: 7.021, accuracyMetres: null, capturedAt: 1000, source: 'search' }, qualityNote: '' }
+const supabase = {} as SupabaseClient
+beforeEach(() => { vi.clearAllMocks(); vi.mocked(suggestAddresses).mockResolvedValue([result] as never); vi.mocked(suggestNearby).mockResolvedValue([]) })
 
-const supabase = { functions: { invoke: vi.fn().mockResolvedValue({ data: { url: '' }, error: null }) } } as unknown as SupabaseClient
-beforeEach(() => { vi.clearAllMocks(); vi.mocked(suggestNearby).mockResolvedValue([]); vi.mocked(suggestAreas).mockResolvedValue([]) })
-
-describe('delivery point', () => {
-  it('selects a street suggestion without opening the map or finding the address', async () => {
-    const destination = { slot: 2, label: 'Home', address: 'Old Road', city: 'Lagos', state: 'Lagos', secondary_phone: null,
-      latitude: 6.45, longitude: 3.4, location_source: 'browser', location_accuracy_metres: 20 }
-    vi.mocked(suggestNearby).mockResolvedValue([{ address: 'Market Road', city: 'Lagos', state: 'Lagos', specificity: 'street', resultType: 'street',
-      latitude: 6.46, longitude: 3.41, confidence: 0.9, distanceMetres: null,
-      evidence: { latitude: 6.46, longitude: 3.41, accuracyMetres: null, capturedAt: Date.now(), source: 'search' }, qualityNote: '' }])
-    render(<form><DeliveryPoint supabase={supabase} destination={destination} /></form>)
-    expect(screen.queryByRole('button', { name: 'Drag or tap map to choose a point' })).toBeNull()
-    const street = screen.getByRole('textbox', { name: 'Street name' })
-    await userEvent.setup().clear(street)
-    await userEvent.setup().type(street, 'Market')
-    expect(await screen.findByText(/Searching streets — wait for a suggestion/)).toBeInTheDocument()
-    await userEvent.setup().click(await screen.findByRole('button', { name: 'Market Road, Lagos' }))
-    expect(document.querySelector('[name=delivery_latitude]')).toHaveValue('6.46')
-    expect(screen.getByLabelText('This is the delivery location.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Adjust pin on map (optional)' })).toBeInTheDocument()
-  })
-  it('starts from a Parcel Pal saved point and invalidates it when the street changes', async () => {
-    const destination = { slot: 2, label: 'Home', address: '12 Market Road', city: 'Lagos', state: 'Lagos', secondary_phone: null,
-      latitude: 6.45, longitude: 3.4, location_source: 'browser', location_accuracy_metres: 20 }
-    render(<form><DeliveryPoint supabase={supabase} destination={destination} /></form>)
-    expect(document.querySelector('[name=delivery_latitude]')).toHaveValue('6.45')
-    const street = screen.getByRole('textbox', { name: 'Street name' })
-    expect(street).toHaveValue('12 Market Road')
-    await userEvent.setup().type(street, ' changed')
+describe('one-field drop-off location', () => {
+  it('keeps a Parcel Pal point until the user edits the single search', async () => {
+    const destination = { slot: 2, label: 'Home', address: '12 Market Road', city: 'Port Harcourt', state: 'Rivers', secondary_phone: null,
+      latitude: 4.83, longitude: 7.02, location_source: 'browser', location_accuracy_metres: 20 }
+    render(<form><select name="delivery_city" defaultValue="Port Harcourt"><option>Port Harcourt</option></select><DeliveryPoint supabase={supabase} destination={destination} /></form>)
+    const input = screen.getByRole('searchbox', { name: 'Drop-off place search' })
+    expect(input).toHaveValue('12 Market Road')
+    expect(document.querySelector('[name=delivery_latitude]')).toHaveValue('4.83')
+    await userEvent.setup().type(input, ' changed')
     expect(document.querySelector('[name=delivery_latitude]')).toBeNull()
-    expect(street).toHaveValue('12 Market Road changed')
   })
-
-  it('suggests a delivery community, then searches its street and requires pin correction for broad results', async () => {
+  it('falls back to city text search when phone location is unavailable', async () => {
     const user = userEvent.setup()
-    vi.mocked(suggestAreas).mockResolvedValue([{ address: 'Eliozu', city: 'Port Harcourt', state: 'Rivers', specificity: 'area', resultType: 'suburb',
-      latitude: 4.83, longitude: 7.02, confidence: null, distanceMetres: null, placeId: 'abcdef1234',
-      evidence: { latitude: 4.83, longitude: 7.02, accuracyMetres: null, capturedAt: Date.now(), source: 'search' }, qualityNote: '' }])
-    vi.mocked(searchAddress).mockResolvedValue({ address: 'Market Road', city: 'Port Harcourt', state: 'Rivers', specificity: 'area', resultType: 'city',
-      latitude: 4.831, longitude: 7.021, confidence: 0.4, distanceMetres: null,
-      evidence: { latitude: 4.831, longitude: 7.021, accuracyMetres: null, capturedAt: Date.now(), source: 'search' }, qualityNote: '' })
-    render(<form><input name="delivery_community" aria-label="Delivery community" /><select name="delivery_city" defaultValue="Port Harcourt"><option>Port Harcourt</option></select>
-      <DeliveryPoint supabase={supabase} /></form>)
-    await user.type(screen.getByLabelText('Delivery community'), 'Eliozu')
-    await user.click(await screen.findByRole('button', { name: /Eliozu/ }))
-    expect(screen.getByLabelText('Delivery community')).toHaveValue('Eliozu')
-    const street = screen.getByRole('textbox', { name: 'Street name' })
-    await user.click(street)
-    expect(street).toHaveFocus()
-    await user.type(street, 'Market Road')
-    await user.click(screen.getByRole('button', { name: 'Find delivery address' }))
-    await screen.findByText(/Only a broad area was found/)
-    expect(document.querySelector('.delivery-location .pin-correction')).toBeInTheDocument()
+    vi.mocked(requestAddressPosition).mockRejectedValue(new Error('Permission denied'))
+    vi.mocked(searchAddress).mockResolvedValue(result as never)
+    render(<form><select name="delivery_city" defaultValue="Port Harcourt"><option>Port Harcourt</option></select><DeliveryPoint supabase={supabase} /></form>)
+    await user.type(screen.getByRole('searchbox', { name: 'Drop-off place search' }), 'Market Road')
+    await user.click(screen.getByRole('button', { name: 'Find location' }))
+    await waitFor(() => expect(searchAddress).toHaveBeenCalledWith(supabase, 'Market Road, Port Harcourt, Nigeria', expect.any(AbortSignal)))
+    expect(document.querySelector('[name=delivery_latitude]')).toHaveValue('4.831')
+    expect(screen.getByLabelText('This is the delivery location.')).toBeInTheDocument()
+  })
+  it('requires a corrected pin for an area-only result', async () => {
+    const user = userEvent.setup()
+    vi.mocked(suggestAddresses).mockResolvedValue([])
+    vi.mocked(requestAddressPosition).mockRejectedValue(new Error('Permission denied'))
+    vi.mocked(searchAddress).mockResolvedValue({ ...result, specificity: 'area' } as never)
+    render(<form><select name="delivery_city" defaultValue="Port Harcourt"><option>Port Harcourt</option></select><DeliveryPoint supabase={supabase} /></form>)
+    await user.type(screen.getByRole('searchbox', { name: 'Drop-off place search' }), 'Market Road')
+    await user.click(screen.getByRole('button', { name: 'Find location' }))
+    expect(await screen.findByText(/Only a broad area was found/)).toBeInTheDocument()
     expect(document.querySelector('[name=delivery_location_confirmed]')).toBeNull()
-    await waitFor(() => expect(searchAddress).toHaveBeenCalledWith(supabase, 'Market Road', expect.any(AbortSignal), 'abcdef1234'))
+  })
+  it('shows a nearby named place with the phone point rather than the place point', async () => {
+    const user = userEvent.setup()
+    vi.mocked(requestAddressPosition).mockResolvedValue({ latitude: 4.882269, longitude: 7.0096482, accuracyMetres: 15, capturedAt: 1000, source: 'browser' } as never)
+    vi.mocked(identifyCurrentLocation).mockResolvedValue({ label: 'Near Divine Benevolent Care Organisation', landmarkDistanceMetres: 29, matchedAddress: null })
+    render(<form><select name="delivery_city" defaultValue="Port Harcourt"><option>Port Harcourt</option></select><DeliveryPoint supabase={supabase} /></form>)
+    await user.click(screen.getByRole('button', { name: /I'm here/ }))
+    expect(await screen.findByRole('searchbox', { name: 'Drop-off place search' })).toHaveValue('Near Divine Benevolent Care Organisation')
+    expect(document.querySelector('[name=delivery_latitude]')).toHaveValue('4.882269')
+    expect(document.querySelector('[name=delivery_longitude]')).toHaveValue('7.0096482')
+    expect(screen.getByText(/Named place 29 m away/)).toBeInTheDocument()
   })
 })

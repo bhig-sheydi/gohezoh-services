@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ParcelDestination } from './ParcelPalsPanel'
 import { getAddressFromCurrentPosition, suggestAddresses, type AddressSuggestion, type LocationEvidence } from './lib/geoapify-geocoding'
 import PinCorrection from './PinCorrection'
+import { googleMapsDemoEnabled } from './lib/google-maps'
 
 type Props = { supabase: SupabaseClient; userId: string; destinations: ParcelDestination[]; onSaved: () => Promise<void>; onClose?: () => void; onError: (message: string) => void; onNotice: (message: string) => void }
 const fieldValue = (form: HTMLFormElement, name: string) => (form.elements.namedItem(name) as HTMLInputElement | null)?.value.trim() ?? ''
@@ -123,7 +124,7 @@ export default function DeliveryLocationsEditor({ supabase, userId, destinations
         {pinSlot === slot && pinInitial && <PinCorrection supabase={supabase} initial={pinInitial} onClose={() => setPinSlot(null)} onChoose={(point, address) => { coordinates.current.set(slot, point); if (address) apply(slot, { ...address, evidence: point }); setPinSlot(null); setSuggestion({ slot, at: point.capturedAt, evidence: point }) }} />}
         {suggestion?.slot === slot && <label className="location-confirm" key={suggestion.at}><input type="checkbox" required />Address is correct.</label>}
         <div className="parcel-pal-actions"><button className="primary-button" disabled={!!busy}>{busy?.slot === slot && busy.kind === 'save' ? 'Saving...' : 'Save location'}</button>{saved && <button className="text-button" type="button" disabled={!!busy} onClick={() => void remove(slot)}>{busy?.slot === slot && busy.kind === 'remove' ? 'Removing...' : 'Remove'}</button>}</div>
-        <small className="location-attribution">Address suggestions by <a href="https://www.geoapify.com/" target="_blank" rel="noreferrer">Geoapify</a> and <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a></small>
+        <small className="location-attribution">{googleMapsDemoEnabled ? 'Address suggestions by Google Maps' : <>Address suggestions by <a href="https://www.geoapify.com/" target="_blank" rel="noreferrer">Geoapify</a> and <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a></>}</small>
       </form>
     })}</div>
   </section>

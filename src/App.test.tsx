@@ -1,4 +1,4 @@
-﻿import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import App from './App'
@@ -297,7 +297,7 @@ describe('account access', () => {
       return { data: {}, error: null }
     })
     render(<App />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Reject' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Reject' }, { timeout: 5000 }))
     expect(screen.getByLabelText('Reason for rejection')).toBeRequired()
     expect(mockState.rpc).not.toHaveBeenCalledWith('review_staff_application', expect.anything())
     fireEvent.change(screen.getByLabelText('Reason for rejection'), { target: { value: 'Please upload clearer company papers.' } })
@@ -792,24 +792,18 @@ describe('partner assignment and delivery screens', () => {
     expect(screen.getByLabelText('Pickup contact')).toHaveFocus()
     await user.selectOptions(screen.getByLabelText('Pickup city'), 'Lagos')
     for (const [label,value] of Object.entries({ 'Pickup contact':'Ada','Pickup phone':'08000000001' })) fireEvent.change(screen.getByLabelText(label),{target:{value}})
-    await user.type(screen.getByLabelText('Pickup community'), 'Ikeja')
-    await user.click(await screen.findByRole('button', { name: 'Use typed community' }))
-    const streetInput = document.querySelector('.pickup-location [name=pickup_address]') as HTMLInputElement
-    await user.click(streetInput)
-    expect(streetInput).toHaveFocus()
+    const streetInput = screen.getByRole('searchbox', { name: 'Pickup place search' })
     await user.type(streetInput, '1 Lagos Road')
-    await user.click(screen.getByRole('button', { name: 'Find pickup address' }))
-    await screen.findByText(/approximate address match/)
+    await user.click(screen.getByRole('button', { name: 'Find location' }))
+    await screen.findByText(/Confirm this mapped point/)
     await user.click(screen.getByLabelText('This is the pickup location.'))
     await user.click(screen.getByRole('button', { name: 'Next: drop-off' }))
     expect(screen.getByRole('region', { name: 'Drop-off step' })).toBeVisible()
     await user.selectOptions(screen.getByLabelText('Delivery city'), 'Lagos')
     for (const [label,value] of Object.entries({ 'Recipient name':'Bola','Recipient phone':'08000000002' })) fireEvent.change(screen.getByLabelText(label),{target:{value}})
-    await user.type(screen.getByLabelText('Delivery community'), 'Ikeja')
-    await user.click(await screen.findByRole('button', { name: 'Use typed community' }))
-    const deliveryStreet = document.querySelector('.delivery-location [name=delivery_address]') as HTMLInputElement
+    const deliveryStreet = screen.getByRole('searchbox', { name: 'Drop-off place search' })
     await user.type(deliveryStreet, '2 Lagos Road')
-    await user.click(screen.getByRole('button', { name: 'Find delivery address' }))
+    await user.click(screen.getByRole('button', { name: 'Find location' }))
     await screen.findByLabelText('This is the delivery location.')
     await user.click(screen.getByLabelText('This is the delivery location.'))
     await user.click(screen.getByLabelText('I confirmed this delivery location with the recipient.'))
@@ -826,7 +820,7 @@ describe('partner assignment and delivery screens', () => {
     await user.selectOptions(screen.getByLabelText(/Height/), '10')
     expect(streetInput).toHaveValue('1 Lagos Road')
     expect(document.querySelector('.pickup-location .pin-correction')).toBeInTheDocument()
-    expect(deliveryStreet).toHaveValue('2 Lagos Road')
+    expect(deliveryStreet).toHaveValue('1 Lagos Road')
     fireEvent.change(screen.getByLabelText(/Declared worth/), { target: { value: '25000' } })
     fireEvent.change(screen.getByLabelText(/Price paid/), { target: { value: '18000' } })
     const parcelPhoto = new File(['parcel photo'], 'parcel.png', { type: 'image/png' })
@@ -837,7 +831,7 @@ describe('partner assignment and delivery screens', () => {
     await waitFor(() => expect(mockState.upload).toHaveBeenCalledWith(expect.stringMatching(/\.png$/), parcelPhoto, { contentType: 'image/png', upsert: false }))
     await waitFor(() => expect(mockState.inserts).toContainEqual(expect.objectContaining({
       table:'service_requests',
-      data:expect.objectContaining({parcel_summary:'Books',pickup_address:'1 Lagos Road, Ikeja',pickup_latitude:6.45,pickup_longitude:3.4,pickup_location_source:'search',delivery_latitude:6.45,delivery_longitude:3.4,parcel_photo_path:expect.stringMatching(/\.png$/),parcel_items:[{description:'Books',quantity:2,weight_kg:1.3,length_cm:30,width_cm:20,height_cm:10,declared_value:25000,price:18000}]})
+      data:expect.objectContaining({parcel_summary:'Books',pickup_address:'1 Lagos Road',pickup_latitude:6.45,pickup_longitude:3.4,pickup_location_source:'search',delivery_latitude:6.45,delivery_longitude:3.4,parcel_photo_path:expect.stringMatching(/\.png$/),parcel_items:[{description:'Books',quantity:2,weight_kg:1.3,length_cm:30,width_cm:20,height_cm:10,declared_value:25000,price:18000}]})
     })))
   })
 

@@ -1,5 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { requestAddressPosition, type PositionFix } from './proximity'
+import { googleMapsDemoEnabled } from './google-maps'
+import { googleClosestLandmark, googleNearby, googleReverse, googleSearch, googleSuggest } from './google-geocoding'
 
 export type LocationPoint = { latitude: number; longitude: number }
 export type LocationEvidence = LocationPoint & { accuracyMetres: number | null; capturedAt: number; source: 'browser' | 'native' | 'map' | 'search' | 'saved' }
@@ -69,7 +71,8 @@ function addressResult(value: unknown): AddressResult {
   return result
 }
 
-export async function closestMappedLandmark(client: SupabaseClient, point: LocationPoint, signal?: AbortSignal): Promise<{ name: string; distanceMetres: number } | null> {
+export async function closestMappedLandmark(client: SupabaseClient, point: LocationPoint, signal?: AbortSignal): Promise<{ name: string; address?: string; distanceMetres: number } | null> {
+  if (googleMapsDemoEnabled) { signal?.throwIfAborted(); return googleClosestLandmark(point) }
   const payload = await invoke(client, { action: 'closest_landmark', ...point }, signal)
   if (!payload || typeof payload !== 'object' || !('landmark' in payload)) throw new AddressLookupError('Nearby landmarks are unavailable.')
   const landmark = payload.landmark
@@ -95,23 +98,49 @@ function suggestion(result: AddressResult, evidence: LocationEvidence): AddressS
 }
 
 export async function reverseAddress(client: SupabaseClient, evidence: LocationEvidence, signal?: AbortSignal): Promise<AddressSuggestion> {
+  if (googleMapsDemoEnabled) { signal?.throwIfAborted(); return googleReverse(evidence) }
   const result = addressResult(await invoke(client, { action: 'reverse', latitude: evidence.latitude, longitude: evidence.longitude }, signal))
   return suggestion(result, evidence)
 }
 
+/** Describes a phone fix without replacing its coordinates with a nearby map feature. */
+export async function identifyCurrentLocation(client: SupabaseClient, fix: LocationEvidence, signal?: AbortSignal): Promise<{
+  label: string; landmarkDistanceMetres: number | null; matchedAddress: AddressSuggestion | null
+}> {
+  const [addressResult, landmarkResult] = await Promise.allSettled([
+    reverseAddress(client, fix, signal), closestMappedLandmark(client, { latitude: fix.latitude, longitude: fix.longitude }, signal),
+  ])
+  signal?.throwIfAborted()
+  const address = addressResult.status === 'fulfilled' ? addressResult.value : null
+  const landmark = landmarkResult.status === 'fulfilled' ? landmarkResult.value : null
+  const addressUseful = address?.specificity === 'building' && !/^[A-Z0-9]{4}\+[A-Z0-9]{2}/i.test(address.address)
+  const addressDistance = address?.distanceMetres ?? Number.POSITIVE_INFINITY
+  if (landmark && landmark.distanceMetres <= 150 && (!addressUseful || landmark.distanceMetres + 20 < addressDistance)) {
+    const detail = landmark.address && !landmark.address.toLowerCase().includes(landmark.name.toLowerCase())
+      ? `, ${landmark.address}` : ''
+    return { label: `Near ${landmark.name}${detail}`, landmarkDistanceMetres: landmark.distanceMetres, matchedAddress: address }
+  }
+  if (address) return { label: address.address, landmarkDistanceMetres: null, matchedAddress: address }
+  if (landmark) return { label: `Near ${landmark.name}`, landmarkDistanceMetres: landmark.distanceMetres, matchedAddress: null }
+  throw new AddressLookupError('No nearby address or named place was found. Type a known place instead.')
+}
+
 /** Explicit address lookup; geocoder coordinates are not a GPS accuracy measurement. */
 export async function searchAddress(client: SupabaseClient, text: string, signal?: AbortSignal, placeId?: string): Promise<AddressSuggestion> {
+  if (googleMapsDemoEnabled) { signal?.throwIfAborted(); return googleSearch(text, placeId) }
   const result = addressResult(await invoke(client, { action: 'search', text, ...(placeId ? { placeId } : {}) }, signal))
   return suggestion(result, { latitude: result.latitude, longitude: result.longitude, accuracyMetres: null, capturedAt: Date.now(), source: 'search' })
 }
 
 export async function suggestAddresses(client: SupabaseClient, text: string, signal?: AbortSignal, placeId?: string, type?: 'locality'): Promise<AddressSuggestion[]> {
+  if (googleMapsDemoEnabled) { signal?.throwIfAborted(); return googleSuggest(text, type) }
   const payload = await invoke(client, { action: 'suggest', text, ...(placeId ? { placeId } : {}), ...(type ? { type } : {}) }, signal)
   return suggestionPayload(payload, 5)
 }
 
 /** Communities, neighbourhoods and locally named road axes can all be an area choice. */
 export async function suggestAreas(client: SupabaseClient, area: string, signal?: AbortSignal): Promise<AddressSuggestion[]> {
+  if (googleMapsDemoEnabled) return googleSuggest(area, 'locality')
   // Adding the city to a Nigerian locality query can make Geoapify return only that city.
   // The server already restricts autocomplete results to Nigeria.
   const query = area.trim()
@@ -153,6 +182,7 @@ function suggestionPayload(payload: unknown, maximum: number): AddressSuggestion
 }
 
 export async function suggestNearby(client: SupabaseClient, text: string, kind: 'street' | 'amenity', point: LocationPoint, signal?: AbortSignal, street?: string, radiusMetres?: number): Promise<AddressSuggestion[]> {
+  if (googleMapsDemoEnabled) { signal?.throwIfAborted(); return googleNearby(text, point, kind, radiusMetres ?? 10000) }
   async function search(query: string): Promise<AddressSuggestion[]> {
     try { return suggestionPayload(await invoke(client, { action: 'nearby_suggest', text: query, kind, ...point, ...(street ? { street } : {}), ...(radiusMetres ? { radiusMetres } : {}) }, signal), 8) }
     catch (error) { if (error instanceof AddressLookupError && error.status === 404) return []; throw error }
@@ -165,6 +195,7 @@ export async function suggestNearby(client: SupabaseClient, text: string, kind: 
 }
 
 export async function nearbyPlaces(client: SupabaseClient, point: LocationPoint, street: string, signal?: AbortSignal): Promise<AddressSuggestion[]> {
+  if (googleMapsDemoEnabled) { signal?.throwIfAborted(); return googleNearby(street, point, 'amenity', 1000) }
   return suggestionPayload(await invoke(client, { action: 'nearby_places', ...point, street }, signal), 12)
 }
 
@@ -200,5 +231,12 @@ export async function getAddressFromCurrentPosition(client: SupabaseClient, opti
   const fix = await requestAddressPosition({ signal: options.signal })
   options.signal?.throwIfAborted()
   options.onPosition?.(fix)
-  return reverseAddress(client, fix, options.signal)
+  const identified = await identifyCurrentLocation(client, fix, options.signal)
+  const mapped = identified.matchedAddress
+  return { address: identified.label, city: mapped?.city ?? '', state: mapped?.state ?? '',
+    latitude: fix.latitude, longitude: fix.longitude, specificity: mapped?.specificity ?? 'area', resultType: mapped?.resultType ?? 'amenity',
+    distanceMetres: identified.landmarkDistanceMetres ?? mapped?.distanceMetres ?? null, confidence: mapped?.confidence ?? null,
+    evidence: fix, qualityNote: identified.landmarkDistanceMetres === null
+      ? mapped?.qualityNote ?? 'Check the address before saving.'
+      : `Named place ${identified.landmarkDistanceMetres} m from your phone. Confirm the actual entrance before saving.` }
 }

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getAddressFromCurrentPosition, mapTile, reverseAddress, staticPinMap, suggestNearby, type AddressResult } from './geoapify-geocoding'
+import { getAddressFromCurrentPosition, identifyCurrentLocation, mapTile, reverseAddress, staticPinMap, suggestNearby, type AddressResult } from './geoapify-geocoding'
 import { requestAddressPosition } from './proximity'
 
 vi.mock('./proximity', () => ({ requestAddressPosition: vi.fn() }))
@@ -20,6 +20,7 @@ describe('authenticated location lookup', () => {
     expect(result.evidence).toEqual(fix)
     expect(result.qualityNote).toContain('Device-reported accuracy: about 18 m')
     expect(invoke).toHaveBeenCalledWith('location-address', expect.objectContaining({ body: { action: 'reverse', latitude: 6.45, longitude: 3.4 }, timeout: 20_000 }))
+    expect(invoke).toHaveBeenCalledWith('location-address', expect.objectContaining({ body: { action: 'closest_landmark', latitude: 6.45, longitude: 3.4 }, timeout: 20_000 }))
     expect(JSON.stringify(invoke.mock.calls)).not.toContain('apiKey')
   })
   it('returns the best available address even with a coarse device fix', async () => {
@@ -28,7 +29,7 @@ describe('authenticated location lookup', () => {
     const onPosition = vi.fn()
     await expect(getAddressFromCurrentPosition(client, { onPosition })).resolves.toMatchObject({ address: '10 Palm Street', evidence: expect.objectContaining({ accuracyMetres: 500 }) })
     expect(onPosition).toHaveBeenCalledOnce()
-    expect(invoke).toHaveBeenCalledOnce()
+    expect(invoke).toHaveBeenCalledTimes(2)
   })
   it('never reverse geocodes after denied device permission', async () => {
     vi.mocked(requestAddressPosition).mockRejectedValueOnce(new Error('Location permission was denied.'))
@@ -107,6 +108,24 @@ describe('authenticated location lookup', () => {
     const { client, invoke } = setup({ suggestions: [address] })
     await expect(suggestNearby(client, 'school gate', 'amenity', fix)).resolves.toHaveLength(1)
     expect(invoke).toHaveBeenCalledTimes(1)
+  })
+  it('prefers a nearby named place over a distant reverse-geocoded building', async () => {
+    const invoke = vi.fn(async (_name: string, options: { body: { action: string } }) => ({
+      data: options.body.action === 'reverse' ? { ...address, address: '2 Waga Ave', distanceMetres: 150 }
+        : { landmark: { name: 'Divine Benevolent Care Organisation', distanceMetres: 29 } }, error: null,
+    }))
+    const client = { functions: { invoke } } as unknown as SupabaseClient
+    const result = await identifyCurrentLocation(client, fix)
+    expect(result).toMatchObject({ label: 'Near Divine Benevolent Care Organisation', landmarkDistanceMetres: 29 })
+    expect(invoke).toHaveBeenCalledTimes(2)
+  })
+  it('keeps a close building address when the landmark is farther away', async () => {
+    const invoke = vi.fn(async (_name: string, options: { body: { action: string } }) => ({
+      data: options.body.action === 'reverse' ? { ...address, distanceMetres: 5 }
+        : { landmark: { name: 'Nearby School', distanceMetres: 80 } }, error: null,
+    }))
+    const client = { functions: { invoke } } as unknown as SupabaseClient
+    await expect(identifyCurrentLocation(client, fix)).resolves.toMatchObject({ label: '10 Palm Street', landmarkDistanceMetres: null })
   })
   it('does not retry a rate-limited landmark search with a simpler word', async () => {
     const { client, invoke } = setup(null, { context: new Response('{}', { status: 429 }) })
