@@ -8,7 +8,7 @@ import PinCorrection from './PinCorrection'
 type Point = { latitude: number; longitude: number }
 type Kind = 'pickup' | 'delivery'
 const savedFix = (address?: ParcelDestination | null): LocationEvidence | null =>
-  address?.latitude != null && address.longitude != null
+  typeof address?.latitude === 'number' && Number.isFinite(address.latitude) && typeof address.longitude === 'number' && Number.isFinite(address.longitude)
     ? { latitude: address.latitude, longitude: address.longitude, accuracyMetres: null, capturedAt: Date.now(), source: 'saved' }
     : null
 
@@ -87,7 +87,9 @@ export default function UnifiedLocationPicker({ kind, supabase, userId, destinat
     const evidence = savedFix(selected)
     setQuery(selected.address); setAddress(selected.address); setFix(evidence); setPoint(evidence)
     setPinVersion((version) => version + 1); setCity(selected.city)
-    setNote('Saved pickup location'); setNeedsPin(false); onCitySelected?.(selected.city)
+    setNote(evidence ? 'Saved pickup location' : '')
+    if (!evidence) setError('This saved address has no map point. Select a search result or update it in Edit my delivery info.')
+    setNeedsPin(false); onCitySelected?.(selected.city)
   }
 
   async function find() {

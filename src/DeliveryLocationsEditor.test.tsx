@@ -26,7 +26,7 @@ describe('delivery location editor', () => {
     await waitFor(() => expect(suggestAddresses).toHaveBeenCalledWith(expect.anything(), 'HQ, Nigeria', expect.anything()))
     expect(await within(card).findByRole('group', { name: /address suggestions/ })).toHaveTextContent('10 Palm Street')
   })
-  it('fills area-only results, allows corrections and offers no map', async () => {
+  it('blocks a corrected area label until it has a selected map point', async () => {
     vi.mocked(getAddressFromCurrentPosition).mockResolvedValueOnce({ ...result, address: 'Ibeku', specificity: 'area', evidence: { ...result.evidence, accuracyMetres: 500 } })
     const { props, upsert } = setup()
     render(<DeliveryLocationsEditor {...props} />)
@@ -42,9 +42,10 @@ describe('delivery location editor', () => {
     await user.type(within(card).getByLabelText('Address'), '12 Palm Street')
     expect(within(card).queryByRole('checkbox')).not.toBeInTheDocument()
     await user.click(within(card).getByRole('button', { name: 'Save location' }))
-    expect(upsert).toHaveBeenCalledWith(expect.objectContaining({ address: '12 Palm Street', latitude: null, longitude: null }), expect.anything())
+    expect(upsert).not.toHaveBeenCalled()
+    expect(within(card).getByRole('alert')).toHaveTextContent('Select an address suggestion')
   })
-  it('keeps manual entry usable after permission denial and saves no location metadata', async () => {
+  it('keeps manual search usable after permission denial but blocks unpinned text', async () => {
     vi.mocked(getAddressFromCurrentPosition).mockRejectedValueOnce(new Error('Location permission was denied.'))
     const { props, upsert } = setup()
     render(<DeliveryLocationsEditor {...props} />)
@@ -58,8 +59,21 @@ describe('delivery location editor', () => {
     expect(await within(card).findByRole('alert')).toHaveTextContent('permission was denied')
     expect(within(card).getByLabelText('Address')).toHaveValue('20 Market Road')
     await user.click(within(card).getByRole('button', { name: 'Save location' }))
-    await waitFor(() => expect(upsert).toHaveBeenCalledWith({ user_id: 'user-1', slot: 1, label: 'Work', address: '20 Market Road', city: 'Umuahia', state: 'Abia', secondary_phone: null,
-      latitude: null, longitude: null, location_source: null, location_accuracy_metres: null }, { onConflict: 'user_id,slot' }))
+    expect(upsert).not.toHaveBeenCalled()
+    expect(within(card).getByRole('alert')).toHaveTextContent('Select an address suggestion')
+  })
+  it('saves coordinates after a typed address is selected from mapped suggestions', async () => {
+    vi.mocked(suggestAddresses).mockResolvedValueOnce([result])
+    const { props, upsert } = setup()
+    render(<DeliveryLocationsEditor {...props} />)
+    const card = screen.getByText('Work').closest('form')!
+    const user = userEvent.setup()
+    await user.type(within(card).getByLabelText('Address'), 'Palm Street')
+    await user.click(within(card).getByRole('button', { name: 'Find options' }))
+    await user.click(await within(card).findByRole('button', { name: /10 Palm Street/ }))
+    await user.click(within(card).getByRole('checkbox'))
+    await user.click(within(card).getByRole('button', { name: 'Save location' }))
+    await waitFor(() => expect(upsert).toHaveBeenCalledWith(expect.objectContaining({ address: '10 Palm Street', latitude: 5.5, longitude: 7.5 }), { onConflict: 'user_id,slot' }))
   })
   it('deduplicates clicks and prevents input edits while a result is pending', async () => {
     let resolve!: (value: AddressSuggestion) => void

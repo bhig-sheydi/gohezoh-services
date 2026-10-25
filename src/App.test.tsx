@@ -766,7 +766,8 @@ describe('partner assignment and delivery screens', () => {
         : rpc(name, args))
     render(<App />)
 
-    expect(await screen.findByRole('heading', { name: 'You have 1 interested company' })).toBeInTheDocument()
+    await screen.findByRole('region', { name: 'Latest delivery update' }, { timeout: 5000 })
+    expect(await screen.findByRole('heading', { name: 'You have 1 interested company' }, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Latest delivery update' })).toHaveTextContent('sam logistics')
     expect(screen.getByRole('button', { name: 'Choose this company' })).toBeInTheDocument()
   })

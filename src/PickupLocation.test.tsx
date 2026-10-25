@@ -49,4 +49,10 @@ describe('one-field pickup location', () => {
     expect(await screen.findByText(/Matched near your phone/)).toBeInTheDocument()
     expect(document.querySelector('[name=pickup_latitude]')).toHaveValue('4.8661')
   })
+  it('does not treat a legacy saved address without coordinates as a selected pickup point', async () => {
+    render(<form><select name="pickup_city" defaultValue="Port Harcourt"><option>Port Harcourt</option></select><PickupLocation supabase={client([{ slot: 1, label: 'Work', address: 'Old address', city: 'Port Harcourt', state: 'Rivers', latitude: null, longitude: null }])} userId="user-1" onCitySelected={vi.fn()} /></form>)
+    await userEvent.setup().selectOptions(await screen.findByLabelText('My pickup addresses'), '1')
+    expect(screen.getByRole('alert')).toHaveTextContent('no map point')
+    expect(document.querySelector('[name=pickup_latitude]')).toBeNull()
+  })
 })

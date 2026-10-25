@@ -269,10 +269,10 @@ function App() {
     if (!session || !customer) return
     const formElement = event.currentTarget
     const form = new FormData(formElement)
-    if (['SRV-0001', 'SRV-0002'].includes(services.find((service) => service.id === form.get('service_id'))?.code ?? '') && (!form.has('pickup_latitude') || !form.get('pickup_location_confirmed'))) {
+    if (!form.has('pickup_latitude') || !form.has('pickup_longitude') || !form.get('pickup_location_confirmed')) {
       setError('Choose or find your pickup location and confirm it on the map.'); return
     }
-    if (!form.has('delivery_latitude') || !form.get('delivery_location_confirmed')) {
+    if (!form.has('delivery_latitude') || !form.has('delivery_longitude') || !form.get('delivery_location_confirmed')) {
       setError('Choose or find the delivery location and confirm it on the map.'); return
     }
     if (!form.get('recipient_location_confirmed')) { setError('Confirm the recipient has agreed to this delivery location before you submit.'); return }
@@ -1132,7 +1132,7 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
       setDeliveryStepError('This drop-off city is not available for the selected pickup route. Choose a listed destination.'); return
     }
     const location = deliveryStep === 0 ? 'pickup' : 'delivery'
-    if (!values.has(`${location}_latitude`) || !values.has(`${location}_location_confirmed`)) {
+    if (!values.has(`${location}_latitude`) || !values.has(`${location}_longitude`) || !values.has(`${location}_location_confirmed`)) {
       setDeliveryStepError(`Select a ${location} street suggestion or map pin, then confirm the location.`); return
     }
     setDeliveryStepError(''); setDeliveryStep((step) => Math.min(step + 1, 2))
@@ -1168,7 +1168,7 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
         <div className="form-divider">PICKUP</div>
         <div className="field-row"><Field label="Pickup contact" name="sender_name" required /><Field label="Pickup phone" name="sender_phone" type="tel" required /></div>
         <div className="field-row"><label className="field"><span>Pickup city</span><select name="pickup_city" required value={originId ? coverageLocations.find((location) => location.id === originId)?.name ?? '' : ''} onChange={(event) => { setOriginId(coverageLocations.find((location) => location.name === event.target.value)?.id ?? ''); setDestinationId('') }}><option value="">Select city</option>{origins.map((location) => <option key={location.id} value={location.name}>{location.name}</option>)}</select></label><input type="hidden" name="pickup_state" value={coverageLocations.find((location) => location.id === originId)?.state ?? ''} /><Field label="Pickup time" name="preferred_pickup_at" type="datetime-local" min={new Date().toISOString().slice(0, 16)} /></div>
-        {['SRV-0001', 'SRV-0002'].includes(serviceCode ?? '') && <PickupLocation supabase={supabase} userId={userId} onCitySelected={(city) => { setOriginId(coverageLocations.find((location) => location.name.toLowerCase() === city.toLowerCase())?.id ?? ''); setDestinationId('') }} />}
+        <PickupLocation supabase={supabase} userId={userId} onCitySelected={(city) => { setOriginId(coverageLocations.find((location) => location.name.toLowerCase() === city.toLowerCase())?.id ?? ''); setDestinationId('') }} />
         {deliveryStepError && deliveryStep === 0 && <p className="delivery-step-error" role="alert">{deliveryStepError}</p>}
         <div className="delivery-wizard-actions"><button className="primary-button" type="button" onClick={advanceDeliveryStep}>Next: drop-off</button></div>
         </section>

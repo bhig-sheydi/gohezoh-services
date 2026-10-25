@@ -26,6 +26,8 @@ begin
   insert into public.customers(id,company_name,customer_type,contact_person,email,phone,address,city,state,created_by)
     values(v_customer,'Protected Customer','individual','Protected Name','protected-customer@example.test','08012345678','12 Private Road','Lagos','Lagos',v_second);
   insert into public.customer_users(customer_id,user_id) values(v_customer,v_second);
+  insert into public.customer_parcel_destinations(user_id,slot,label,address,city,state,latitude,longitude,location_source)
+    values(v_first,1,'Work','Mapped work entrance','Lagos','Lagos',6.45,3.4,'search');
 
   perform set_config('request.jwt.claim.sub',v_first::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_first,'role','authenticated')::text,true);
@@ -47,6 +49,11 @@ begin
   if public.respond_to_parcel_pal_request(v_first_code,true)<>'accepted' then raise exception 'Recipient could not accept the request'; end if;
   v_contacts:=public.list_my_parcel_pals();
   if not exists(select 1 from jsonb_array_elements(v_contacts) c where c->>'code'=v_first_code) then raise exception 'Accepted Parcel Pal was not listed'; end if;
+  if not exists(select 1 from jsonb_array_elements(v_contacts) c,
+    lateral jsonb_array_elements(c->'destinations') d
+    where c->>'code'=v_first_code and (d->>'latitude')::double precision=6.45
+      and (d->>'longitude')::double precision=3.4) then
+    raise exception 'Accepted Parcel Pal destination omitted its mapped coordinates'; end if;
 
   -- A customer account that gains a partner role must lose the customer-only Parcel Pal ID and photo path.
   insert into public.user_roles(user_id,role) values(v_second,'partner') on conflict do nothing;

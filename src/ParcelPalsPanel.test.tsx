@@ -112,7 +112,7 @@ describe('Parcel Pals privacy and requests', () => {
     const rpc = vi.fn(async (name: string) => {
       if (name === 'get_my_parcel_pal_code') return { data: '123456', error: null }
       if (name === 'list_parcel_pal_requests') return { data: [], error: null }
-      if (name === 'list_my_parcel_pals') return { data: [{ code: '654321', full_name: 'Ada Pal', phone: '08011112222', avatar_path: null, address: null, city: null, state: null, destinations: [{ slot: 2, label: 'Home', address: '4 Palm Street', city: 'Umuahia', state: 'Abia', secondary_phone: '08033334444' }] }], error: null }
+      if (name === 'list_my_parcel_pals') return { data: [{ code: '654321', full_name: 'Ada Pal', phone: '08011112222', avatar_path: null, address: null, city: null, state: null, destinations: [{ slot: 2, label: 'Home', address: '4 Palm Street', city: 'Umuahia', state: 'Abia', secondary_phone: '08033334444', latitude: 5.5, longitude: 7.5 }] }], error: null }
       return { data: null, error: null }
     })
     const { supabase } = makeClient(rpc)

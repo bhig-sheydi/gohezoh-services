@@ -60,7 +60,7 @@ export default function DeliveryLocationsEditor({ supabase, userId, destinations
       const result = await getAddressFromCurrentPosition(supabase, { signal: controller.signal })
       if (!controller.signal.aborted) apply(slot, result)
     } catch (error) {
-      if (!controller.signal.aborted) setFeedback({ slot, message: error instanceof Error ? error.message : 'Location could not be detected. Enter the address manually.', error: true })
+      if (!controller.signal.aborted) setFeedback({ slot, message: error instanceof Error ? error.message : 'Location could not be detected. Search for the address and select its map point.', error: true })
     } finally {
       if (operation.current === controller) { operation.current = null; if (!controller.signal.aborted) setBusy(null) }
     }
@@ -72,11 +72,18 @@ export default function DeliveryLocationsEditor({ supabase, userId, destinations
     const point = coordinates.current.get(slot)
     const saved = destinations.find((destination) => destination.slot === slot)
     const unchanged = saved && ['address', 'city', 'state'].every((key) => fieldValue(form, key) === saved[key as 'address' | 'city' | 'state'])
+    const existingPoint = unchanged && typeof saved.latitude === 'number' && Number.isFinite(saved.latitude)
+      && typeof saved.longitude === 'number' && Number.isFinite(saved.longitude) && !!saved.location_source
+    if (point && point.accuracyMetres !== null && point.accuracyMetres > 100) {
+      setFeedback({ slot, message: 'This phone reading is too broad. Adjust the pin or select a mapped place before saving.', error: true }); return
+    }
+    if (!point && !existingPoint) {
+      setFeedback({ slot, message: 'Select an address suggestion, use your phone location, or choose a map pin before saving.', error: true }); return
+    }
     const payload = { user_id: userId, slot, label: slot === 1 ? 'Work' : slot === 2 ? 'Home' : 'Other', address: fieldValue(form, 'address'), city: fieldValue(form, 'city'), state: fieldValue(form, 'state'), secondary_phone: fieldValue(form, 'secondary_phone') || null,
-      latitude: point && (point.accuracyMetres === null || point.accuracyMetres <= 100) ? point.latitude : unchanged ? saved.latitude ?? null : null,
-      longitude: point && (point.accuracyMetres === null || point.accuracyMetres <= 100) ? point.longitude : unchanged ? saved.longitude ?? null : null,
-      location_source: point && (point.accuracyMetres === null || point.accuracyMetres <= 100) ? point.source : unchanged ? saved.location_source ?? null : null,
-      location_accuracy_metres: point && (point.accuracyMetres === null || point.accuracyMetres <= 100) ? point.accuracyMetres : unchanged ? saved.location_accuracy_metres ?? null : null,
+      latitude: point?.latitude ?? saved!.latitude!, longitude: point?.longitude ?? saved!.longitude!,
+      location_source: point?.source ?? saved!.location_source!,
+      location_accuracy_metres: point ? point.accuracyMetres : saved!.location_accuracy_metres ?? null,
     }
     const controller = new AbortController(); operation.current = controller
     setBusy({ slot, kind: 'save' }); onError(''); onNotice('')
