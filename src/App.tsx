@@ -121,6 +121,8 @@ function App() {
   const [error, setError] = useState('')
   const [notice, setNotice] = useState('')
   const [requests, setRequests] = useState<DeliveryRequest[]>([])
+  const [customerHistoryLimit, setCustomerHistoryLimit] = useState(20)
+  const [hasOlderCustomerRequests, setHasOlderCustomerRequests] = useState(false)
   const [notifications, setNotifications] = useState<CustomerNotification[]>([])
   const [services, setServices] = useState<Service[]>([])
   const [coverageLocations, setCoverageLocations] = useState<CoverageLocation[]>([])
@@ -141,6 +143,8 @@ function App() {
         setRecovery(false)
         setCustomer(null)
         setRequests([])
+        setCustomerHistoryLimit(20)
+        setHasOlderCustomerRequests(false)
         setNotifications([])
         setRoles([])
         setRolesForUserId('')
@@ -192,7 +196,7 @@ function App() {
     }
     const [{ data: customerData, error: customerError }, { data: requestData, error: requestError }, { data: serviceData }, { data: notificationData, error: notificationError }, { data: locationData, error: locationError }, { data: corridorData, error: corridorError }] = await Promise.all([
       supabase.from('customers').select('id, company_name, status').eq('id', membership.customer_id).single(),
-      supabase.from('service_requests').select('id, request_number, status, dispatch_match_status, pickup_address, pickup_city, delivery_address, delivery_city, recipient_name, created_at').eq('customer_id', membership.customer_id).order('created_at', { ascending: false }).limit(20),
+      supabase.from('service_requests').select('id, request_number, status, dispatch_match_status, pickup_address, pickup_city, delivery_address, delivery_city, recipient_name, created_at').eq('customer_id', membership.customer_id).order('created_at', { ascending: false }).limit(customerHistoryLimit + 1),
       supabase.from('services').select('id, code, name, description').eq('is_active', true).in('code', ['SRV-0001', 'SRV-0002']).order('name'),
       supabase.from('notifications').select('id, job_id, event_type, title, body, created_at, read_at, payload').eq('user_id', session.user.id).order('created_at', { ascending: false }).limit(30),
       supabase.from('coverage_locations').select('id, name, state, is_enabled').eq('is_enabled', true).order('name'),
@@ -202,7 +206,8 @@ function App() {
     else setCustomer(customerData)
     if (requestError) setError(requestError.message)
     else {
-      const requestRows = requestData ?? []
+      setHasOlderCustomerRequests((requestData ?? []).length > customerHistoryLimit)
+      const requestRows = (requestData ?? []).slice(0, customerHistoryLimit)
       const { data: orders, error: ordersError } = requestRows.length
         ? await supabase.from('orders').select('service_request_id, order_number, customer_price, currency, jobs(id, job_number, status, job_status_history(new_status, changed_at), job_parcels(tracking_code, parcel_number, description, quantity))').in('service_request_id', requestRows.map((request) => request.id))
         : { data: [], error: null }
@@ -237,7 +242,7 @@ function App() {
     if (locationError || corridorError) setError((locationError ?? corridorError)?.message ?? 'Could not load service coverage.')
     else { setCoverageLocations((locationData ?? []) as CoverageLocation[]); setCoverageCorridors((corridorData ?? []) as CoverageCorridor[]) }
     setLoadingProfile(false)
-  }, [roles, session, supabase])
+  }, [customerHistoryLimit, roles, session, supabase])
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void loadCustomer() }, 0)
@@ -295,6 +300,9 @@ function App() {
       return
     }
     const preferred = String(form.get('preferred_pickup_at') || '')
+    if (preferred && (!Number.isFinite(Date.parse(preferred)) || Date.parse(preferred) < Date.now() - 60_000)) {
+      setError('Choose a pickup time from now onward.'); setBusy(false); return
+    }
     const parcelItem: Record<string, string | number | null> = {
       description: String(form.get('parcel_description')).trim(),
       quantity: Number(form.get('parcel_quantity')),
@@ -410,7 +418,7 @@ function App() {
       </header>
 
       {session && rolesForUserId === session.user.id && roles.some((role) => ['operations', 'management', 'admin'].includes(role)) && <InternalExceptionInbox supabase={supabase} userId={session.user.id} onError={setError} />}
-      {!authReady ? <div className="loading">Preparing your secure workspace...</div> : !session ? <AuthPanel supabase={supabase} onError={setError} onNotice={setNotice} busy={busy} setBusy={setBusy} /> : rolesForUserId !== session.user.id ? <div className="loading">Checking your account access...</div> : session.user.user_metadata?.account_kind === 'company_operator' ? <CompanyStaffDashboard supabase={supabase} userId={session.user.id} onError={setError} onNotice={setNotice} /> : roles.includes('rider') ? <section className="form-card narrow"><h1>Rider workspace</h1><a className="primary-button" href="/rider">Open my deliveries</a></section> : recovery ? <section className="form-card narrow"><p className="eyebrow">ACCOUNT SECURITY</p><h1>Choose a new password</h1><form className="form-grid" onSubmit={updatePassword}><Field label="New password" name="password" type="password" minLength={8} required /><Field label="Confirm password" name="confirm_password" type="password" minLength={8} required /><button className="primary-button" disabled={busy}>{busy ? 'Saving...' : 'Update password'}</button></form></section> : adminScreen ? <AdminConsole supabase={supabase} onError={setError} onNotice={setNotice} /> : workspace === 'staff' ? <StaffAccessPanel supabase={supabase} userId={session.user.id} onError={setError} onNotice={setNotice} /> : marketerScreen ? <MarketerPortal supabase={supabase} onError={setError} /> : warehouseScreen ? <WarehouseConsole supabase={supabase} isCustomer={roles.includes('customer')&&!roles.some((role)=>['warehouse','operations','admin','management'].includes(role))} canReceive={warehouseAccess} canPick={roles.some((role)=>['warehouse','management','admin'].includes(role))} canRelease={operationsAccess} canManage={roles.some((role)=>['admin','management'].includes(role))} onError={setError} onNotice={setNotice}/> : bdoScreen ? <BusinessDevelopmentConsole supabase={supabase} userId={session.user.id} canManage={roles.some((role) => ['management','admin'].includes(role))} isBdo={roles.includes('bdo')} onError={setError} onNotice={setNotice} /> : financeScreen ? <FinanceConsole supabase={supabase} userId={session.user.id} canRecord={financeAccess} canApprove={roles.some((role) => ['management','admin'].includes(role))} canPay={financeAccess} onError={setError} onNotice={setNotice} /> : operationsScreen ? <OperationsConsole supabase={supabase} onError={setError} onNotice={setNotice} canUpdateJobs={operationsAccess} /> : partnerScreen ? <PartnerPortal supabase={supabase} userId={session.user.id} canRespond={partnerAccess} onError={setError} onNotice={setNotice} /> : !customerScreen ? <StaffAccessPanel supabase={supabase} userId={session.user.id} onError={setError} onNotice={setNotice} /> : loadingProfile && !customer ? <div className="loading">Loading your customer workspace...</div> : !customer ? <section className="form-card narrow"><p className="eyebrow">CUSTOMER SETUP</p><h1>Finish account setup.</h1><p className="section-intro">Your name and email come from signup. Add the phone number needed for delivery coordination; you can enter pickup and delivery addresses with each request.</p><form className="form-grid" onSubmit={submitProfile}><Field label="Phone number" name="phone" type="tel" defaultValue={session.user.user_metadata?.phone || ""} required /><Field label="Business name (optional)" name="company_name" defaultValue={session.user.user_metadata?.company_name || ""} /><button className="primary-button" disabled={busy}>{busy ? 'Saving profile...' : 'Finish setup'}</button></form></section> : <Dashboard supabase={supabase} userId={session.user.id} onError={setError} onNotice={setNotice} customer={customer} services={services} coverageLocations={coverageLocations} coverageCorridors={coverageCorridors} requests={requests} notifications={notifications} busy={busy} onSubmit={submitRequest} onMarkRead={markNotificationRead} onRefresh={loadCustomer} />}
+      {!authReady ? <div className="loading">Preparing your secure workspace...</div> : !session ? <AuthPanel supabase={supabase} onError={setError} onNotice={setNotice} busy={busy} setBusy={setBusy} /> : rolesForUserId !== session.user.id ? <div className="loading">Checking your account access...</div> : session.user.user_metadata?.account_kind === 'company_operator' ? <CompanyStaffDashboard supabase={supabase} userId={session.user.id} onError={setError} onNotice={setNotice} /> : roles.includes('rider') ? <section className="form-card narrow"><h1>Rider workspace</h1><a className="primary-button" href="/rider">Open my deliveries</a></section> : recovery ? <section className="form-card narrow"><p className="eyebrow">ACCOUNT SECURITY</p><h1>Choose a new password</h1><form className="form-grid" onSubmit={updatePassword}><Field label="New password" name="password" type="password" minLength={8} required /><Field label="Confirm password" name="confirm_password" type="password" minLength={8} required /><button className="primary-button" disabled={busy}>{busy ? 'Saving...' : 'Update password'}</button></form></section> : adminScreen ? <AdminConsole supabase={supabase} onError={setError} onNotice={setNotice} /> : workspace === 'staff' ? <StaffAccessPanel supabase={supabase} userId={session.user.id} onError={setError} onNotice={setNotice} /> : marketerScreen ? <MarketerPortal supabase={supabase} onError={setError} /> : warehouseScreen ? <WarehouseConsole supabase={supabase} isCustomer={roles.includes('customer')&&!roles.some((role)=>['warehouse','operations','admin','management'].includes(role))} canReceive={warehouseAccess} canPick={roles.some((role)=>['warehouse','management','admin'].includes(role))} canRelease={operationsAccess} canManage={roles.some((role)=>['admin','management'].includes(role))} onError={setError} onNotice={setNotice}/> : bdoScreen ? <BusinessDevelopmentConsole supabase={supabase} userId={session.user.id} canManage={roles.some((role) => ['management','admin'].includes(role))} isBdo={roles.includes('bdo')} onError={setError} onNotice={setNotice} /> : financeScreen ? <FinanceConsole supabase={supabase} userId={session.user.id} canRecord={financeAccess} canApprove={roles.some((role) => ['management','admin'].includes(role))} canPay={financeAccess} onError={setError} onNotice={setNotice} /> : operationsScreen ? <OperationsConsole supabase={supabase} onError={setError} onNotice={setNotice} canUpdateJobs={operationsAccess} /> : partnerScreen ? <PartnerPortal supabase={supabase} userId={session.user.id} canRespond={partnerAccess} onError={setError} onNotice={setNotice} /> : !customerScreen ? <StaffAccessPanel supabase={supabase} userId={session.user.id} onError={setError} onNotice={setNotice} /> : loadingProfile && !customer ? <div className="loading">Loading your customer workspace...</div> : !customer ? <section className="form-card narrow"><p className="eyebrow">CUSTOMER SETUP</p><h1>Finish account setup.</h1><p className="section-intro">Your name and email come from signup. Add the phone number needed for delivery coordination; you can enter pickup and delivery addresses with each request.</p><form className="form-grid" onSubmit={submitProfile}><Field label="Phone number" name="phone" type="tel" defaultValue={session.user.user_metadata?.phone || ""} required /><Field label="Business name (optional)" name="company_name" defaultValue={session.user.user_metadata?.company_name || ""} /><button className="primary-button" disabled={busy}>{busy ? 'Saving profile...' : 'Finish setup'}</button></form></section> : <Dashboard supabase={supabase} userId={session.user.id} onError={setError} onNotice={setNotice} customer={customer} services={services} coverageLocations={coverageLocations} coverageCorridors={coverageCorridors} requests={requests} notifications={notifications} busy={busy} onSubmit={submitRequest} onMarkRead={markNotificationRead} onRefresh={loadCustomer} hasOlderRequests={hasOlderCustomerRequests} onLoadOlder={() => setCustomerHistoryLimit((limit) => limit + 20)} />}
       {session && !superAdmin && <PartnerInvitationClaim supabase={supabase} onError={setError} onNotice={setNotice} onApplicationRequired={() => setWorkspace('staff')} />}
       {(error || notice) && <div className={`toast ${error ? 'toast-error' : 'toast-success'} ${emailNotice ? 'toast-email' : ''}`} role={error ? 'alert' : 'status'}>{emailNotice && <span className="toast-email-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m4 7 8 6 8-6"/></svg></span>}<div className="toast-copy">{emailNotice && <strong>Check your email</strong>}<span>{error || notice}</span></div><button type="button" onClick={() => { setError(''); setNotice('') }} aria-label="Dismiss message"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M5 5 19 19M19 5 5 19"/></svg></button></div>}
       <footer className="page-footer"><span>KWIK-PARSEL IS A PRODUCT OF GOHEZO INTEGRATED SERVICES LTD.</span><span>LOGISTICS  |  FULFILLMENT  |  PARTNERSHIP</span></footer>
@@ -798,6 +806,10 @@ function PartnerPortal({ supabase, userId, canRespond, onError, onNotice }: {
   const [otpSentFor, setOtpSentFor] = useState<string[]>([])
   const [otpCodes, setOtpCodes] = useState<Record<string, string>>({})
   const [parcelLookup, setParcelLookup] = useState('')
+  const [searchedAssignment, setSearchedAssignment] = useState<PartnerPortalAssignment | null>(null)
+  const [parcelSearchBusy, setParcelSearchBusy] = useState(false)
+  const [completedLimit, setCompletedLimit] = useState(25)
+  const [hasOlderCompleted, setHasOlderCompleted] = useState(false)
 
   const loadAssignments = useCallback(async () => {
     setLoading(true)
@@ -817,13 +829,15 @@ function PartnerPortal({ supabase, userId, canRespond, onError, onNotice }: {
       setLoading(false)
       return
     }
-    const [{ data: partners }, { data: assignmentRows, error: assignmentsError }] = await Promise.all([
+    const [{ data: partners }, activeResult, completedResult] = await Promise.all([
       supabase.from('logistics_partners').select('partner_name').in('id', partnerIds),
-      supabase.from('partner_assignments').select('id, partner_id, job_id, status, assigned_at').in('partner_id', partnerIds).in('status', ['assigned', 'accepted', 'completed']).order('assigned_at', { ascending: false }).limit(50),
+      supabase.from('partner_assignments').select('id, partner_id, job_id, status, assigned_at').in('partner_id', partnerIds).in('status', ['assigned', 'accepted']).order('assigned_at', { ascending: false }),
+      supabase.from('partner_assignments').select('id, partner_id, job_id, status, assigned_at').in('partner_id', partnerIds).eq('status', 'completed').order('assigned_at', { ascending: false }).limit(completedLimit + 1),
     ])
-    if (assignmentsError) onError(assignmentsError.message)
+    if (activeResult.error || completedResult.error) onError((activeResult.error ?? completedResult.error)?.message ?? 'Could not load deliveries.')
     setPartnerName((partners ?? []).map((partner) => partner.partner_name).join(', '))
-    const rows = assignmentRows ?? []
+    setHasOlderCompleted((completedResult.data ?? []).length > completedLimit)
+    const rows = [...(activeResult.data ?? []), ...(completedResult.data ?? []).slice(0, completedLimit)]
     const jobIds = [...new Set(rows.map((row) => row.job_id))]
     const { data: jobs, error: jobsError } = jobIds.length
       ? await supabase.from('jobs').select('id, job_number, status, pickup_address, pickup_city, delivery_address, delivery_city, delivery_latitude, delivery_longitude, recipient_name, recipient_phone, recipient_phone_secondary, job_parcels(tracking_code, parcel_number, description, quantity)').in('id', jobIds)
@@ -835,7 +849,7 @@ function PartnerPortal({ supabase, userId, canRespond, onError, onNotice }: {
       return job ? [{ id: row.id, status: row.status, assigned_at: row.assigned_at, job: job as PartnerPortalAssignment['job'] }] : []
     }))
     setLoading(false)
-  }, [onError, supabase, userId])
+  }, [completedLimit, onError, supabase, userId])
 
   useEffect(() => {
     const timer = window.setTimeout(() => { void loadAssignments() }, 0)
@@ -891,7 +905,31 @@ function PartnerPortal({ supabase, userId, canRespond, onError, onNotice }: {
     setBusy(false)
   }
 
-  const visibleAssignments=assignments.filter(({job})=>!parcelLookup.trim()||job.job_parcels?.some((parcel)=>parcel.tracking_code.toUpperCase()===parcelLookup.trim().toUpperCase()))
+  useEffect(() => {
+    const code = parcelLookup.trim().toUpperCase()
+    if (code.length < 8 || !partnerIds.length || assignments.some(({ job }) => job.job_parcels?.some((parcel) => parcel.tracking_code.toUpperCase() === code))) return
+    let active = true
+    const timer = window.setTimeout(async () => {
+      setParcelSearchBusy(true)
+      const { data: parcel, error: parcelError } = await supabase.from('job_parcels').select('job_id').eq('tracking_code', code).maybeSingle()
+      if (parcelError) { if (active) onError(parcelError.message); setParcelSearchBusy(false); return }
+      if (!parcel?.job_id) { if (active) setParcelSearchBusy(false); return }
+      const { data: assignment, error: assignmentError } = await supabase.from('partner_assignments')
+        .select('id, partner_id, job_id, status, assigned_at').eq('job_id', parcel.job_id).in('partner_id', partnerIds).maybeSingle()
+      if (assignmentError) { if (active) onError(assignmentError.message); setParcelSearchBusy(false); return }
+      if (!assignment || !active) { if (active) setParcelSearchBusy(false); return }
+      const { data: job, error: jobError } = await supabase.from('jobs').select('id, job_number, status, pickup_address, pickup_city, delivery_address, delivery_city, delivery_latitude, delivery_longitude, recipient_name, recipient_phone, recipient_phone_secondary, job_parcels(tracking_code, parcel_number, description, quantity)').eq('id', parcel.job_id).maybeSingle()
+      if (active) {
+        if (jobError) onError(jobError.message)
+        else if (job) setSearchedAssignment({ ...assignment, job: job as PartnerPortalAssignment['job'] })
+        setParcelSearchBusy(false)
+      }
+    }, 350)
+    return () => { active = false; window.clearTimeout(timer) }
+  }, [assignments, onError, parcelLookup, partnerIds, supabase])
+  const visibleAssignments = parcelLookup.trim()
+    ? [...assignments, ...(searchedAssignment ? [searchedAssignment] : [])].filter(({ job }) => job.job_parcels?.some((parcel) => parcel.tracking_code.toUpperCase() === parcelLookup.trim().toUpperCase()))
+    : assignments
   return <main className="partner-page">
     {canRespond && <PartnerCompanyWelcome supabase={supabase} onError={onError} onNotice={onNotice} />}
     {canRespond && managerPartnerIds.map((partnerId) => <CompanyDispatchHours key={partnerId} supabase={supabase} partnerId={partnerId} onError={onError} onNotice={onNotice} />)}
@@ -901,8 +939,8 @@ function PartnerPortal({ supabase, userId, canRespond, onError, onNotice }: {
     {canRespond && <ProximityPanel supabase={supabase} canConfigure={false} onError={onError} onNotice={onNotice} />}
     <div className="dashboard-heading"><div><p className="eyebrow">LOGISTICS PARTNER</p><h1>Assigned deliveries</h1><p className="section-intro">{partnerName || 'Jobs assigned to your partner account appear here.'}</p></div><button className="secondary-button" onClick={() => void loadAssignments()} disabled={loading}>Refresh deliveries</button></div>
     {!canRespond && <div className="role-preview-banner">Preview only: partner responses and delivery updates require a linked Partner account.</div>}
-    <label className="field parcel-lookup"><span>Find parcel by ID or scan its barcode</span><input value={parcelLookup} onChange={(event)=>setParcelLookup(event.target.value)} placeholder="KWP-P-00000001" autoComplete="off" /></label>
-    {loading ? <div className="loading queue-loading">Loading assigned deliveries...</div> : assignments.length === 0 ? <section className="form-card queue-empty"><h2>No assigned deliveries</h2><p>New jobs assigned by Kwik-Parsel Operations will appear here.</p></section> : visibleAssignments.length===0 ? <section className="form-card queue-empty"><h2>No parcel found</h2><p>Check the parcel code and try again.</p></section> : <div className="partner-assignment-list">{visibleAssignments.map((assignment) => {
+    <label className="field parcel-lookup"><span>Find parcel by ID or scan its barcode</span><input value={parcelLookup} onChange={(event)=>{ setSearchedAssignment(null); setParcelLookup(event.target.value) }} placeholder="KWP-P-00000001" autoComplete="off" /></label>
+    {loading || parcelSearchBusy ? <div className="loading queue-loading">{parcelSearchBusy ? 'Finding parcel...' : 'Loading assigned deliveries...'}</div> : assignments.length === 0 && !searchedAssignment ? <section className="form-card queue-empty"><h2>No assigned deliveries</h2><p>Deliveries you win through bidding will appear here.</p></section> : visibleAssignments.length===0 ? <section className="form-card queue-empty"><h2>No parcel found</h2><p>Check the parcel code and try again.</p></section> : <div className="partner-assignment-list">{visibleAssignments.map((assignment) => {
       const { job } = assignment
       const partnerStatuses: Record<string, string[]> = { partner_assigned: ['exception'], pickup_scheduled: ['exception'], picked_up: ['exception'], in_transit: ['exception'], out_for_delivery: ['exception'], exception: ['pickup_scheduled', 'in_transit'] }
       return <article className="form-card partner-job-card" key={assignment.id}>
@@ -921,6 +959,7 @@ function PartnerPortal({ supabase, userId, canRespond, onError, onNotice }: {
         </>}
       </article>
     })}</div>}
+    {hasOlderCompleted && <button className="secondary-button" type="button" disabled={loading} onClick={() => setCompletedLimit((limit) => limit + 25)}>Load older completed deliveries</button>}
   </main>
 }
 
@@ -1055,11 +1094,12 @@ function CustomerDeliveryCard({ request, confirmationStatus, expanded, onToggle,
   </article>
 }
 
-function Dashboard({ supabase, userId, onError, onNotice, customer, services, coverageLocations, coverageCorridors, requests, notifications, busy, onSubmit, onMarkRead, onRefresh }: { supabase: ReturnType<typeof getSupabaseClient>; userId: string; onError: (message: string) => void; onNotice: (message: string) => void; customer: Customer; services: Service[]; coverageLocations: CoverageLocation[]; coverageCorridors: CoverageCorridor[]; requests: DeliveryRequest[]; notifications: CustomerNotification[]; busy: boolean; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onMarkRead: (notification: CustomerNotification) => void; onRefresh: () => void }) {
+function Dashboard({ supabase, userId, onError, onNotice, customer, services, coverageLocations, coverageCorridors, requests, notifications, busy, onSubmit, onMarkRead, onRefresh, hasOlderRequests, onLoadOlder }: { supabase: ReturnType<typeof getSupabaseClient>; userId: string; onError: (message: string) => void; onNotice: (message: string) => void; customer: Customer; services: Service[]; coverageLocations: CoverageLocation[]; coverageCorridors: CoverageCorridor[]; requests: DeliveryRequest[]; notifications: CustomerNotification[]; busy: boolean; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onMarkRead: (notification: CustomerNotification) => void; onRefresh: () => void; hasOlderRequests: boolean; onLoadOlder: () => void }) {
   const [serviceId, setServiceId] = useState('')
   const [originId, setOriginId] = useState('')
   const [destinationId, setDestinationId] = useState('')
   const [activeFrame, setActiveFrame] = useState<'home'|'send'|'updates'|'tracking'>('home')
+  const [pickupTimeMin, setPickupTimeMin] = useState(() => new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 16))
   const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null)
   const [confirmationStatuses, setConfirmationStatuses] = useState<Record<string, string>>({})
   useEffect(() => {
@@ -1094,7 +1134,7 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
   const enabledCorridors = coverageCorridors.filter((corridor) => corridor.service_code === serviceCode && coverageLocations.some((location) => location.id === corridor.origin_id) && coverageLocations.some((location) => location.id === corridor.destination_id))
   const origins = coverageLocations.filter((location) => enabledCorridors.some((corridor) => corridor.origin_id === location.id))
   const destinations = coverageLocations.filter((location) => enabledCorridors.some((corridor) => corridor.origin_id === originId && corridor.destination_id === location.id))
-  const openFrame = (frame: 'send'|'updates'|'tracking') => { if (frame === 'send') { setDeliveryStep(0); setDeliveryStepError('') } setActiveFrame(frame) }
+  const openFrame = (frame: 'send'|'updates'|'tracking') => { if (frame === 'send') { setPickupTimeMin(new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 16)); setDeliveryStep(0); setDeliveryStepError('') } setActiveFrame(frame) }
   const returnHome = () => setActiveFrame('home')
   function openDeliveryInfo() {
     setShowDeliveryInfoEditor(true)
@@ -1152,7 +1192,7 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
         <button className="customer-launch-card" type="button" onClick={() => openFrame('send')}><span className="customer-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5v-9Z"/><path d="m3.5 7.7 8.5 4.4 8.5-4.4M12 12v9M7.5 5.2l9 4.6"/></svg></span><strong>Send items</strong><small>Book a pickup and delivery</small></button>
         <button className="customer-launch-card" type="button" onClick={openDeliveryInfo}><span className="customer-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></svg></span><strong>Edit my delivery info</strong><small>Work, home and other addresses</small></button>
         <button className="customer-launch-card" type="button" onClick={() => openFrame('updates')}><span className="customer-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9m-8 12h4"/></svg></span><strong>Updates</strong><small>{notifications.filter((item) => !item.read_at).length ? `${notifications.filter((item) => !item.read_at).length} new` : 'Messages about your parcels'}</small></button>
-        <button className="customer-launch-card" type="button" onClick={() => openFrame('tracking')}><span className="customer-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M4 19V5m0 14h16"/><path d="m7 15 4-4 3 2 5-6"/><path d="M15 7h4v4"/></svg></span><strong>Tracking</strong><small>{requests.length ? `${requests.length} deliveries` : 'Your deliveries'}</small></button>
+        <button className="customer-launch-card" type="button" onClick={() => openFrame('tracking')}><span className="customer-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M4 19V5m0 14h16"/><path d="m7 15 4-4 3 2 5-6"/><path d="M15 7h4v4"/></svg></span><strong>Tracking</strong><small>{requests.length ? hasOlderRequests ? "Recent deliveries" : `${requests.length} deliveries` : 'Your deliveries'}</small></button>
       </nav>
       <CustomerSavedParcels supabase={supabase} userId={userId} onError={onError} onNotice={onNotice} onUse={(parcel) => { setSelectedParcel(parcel); setCapacityWarning(null); setDeliveryStep(0); setDeliveryStepError(''); setActiveFrame('send') }} />
     </>}
@@ -1167,7 +1207,7 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
         <label className="field"><span>Service</span><select name="service_id" required value={serviceId} onChange={(event) => { setServiceId(event.target.value); setOriginId(''); setDestinationId('') }}><option value="" disabled>Select service</option>{services.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}</select></label>
         <div className="form-divider">PICKUP</div>
         <div className="field-row"><Field label="Pickup contact" name="sender_name" required /><Field label="Pickup phone" name="sender_phone" type="tel" required /></div>
-        <div className="field-row"><label className="field"><span>Pickup city</span><select name="pickup_city" required value={originId ? coverageLocations.find((location) => location.id === originId)?.name ?? '' : ''} onChange={(event) => { setOriginId(coverageLocations.find((location) => location.name === event.target.value)?.id ?? ''); setDestinationId('') }}><option value="">Select city</option>{origins.map((location) => <option key={location.id} value={location.name}>{location.name}</option>)}</select></label><input type="hidden" name="pickup_state" value={coverageLocations.find((location) => location.id === originId)?.state ?? ''} /><Field label="Pickup time" name="preferred_pickup_at" type="datetime-local" min={new Date().toISOString().slice(0, 16)} /></div>
+        <div className="field-row"><label className="field"><span>Pickup city</span><select name="pickup_city" required value={originId ? coverageLocations.find((location) => location.id === originId)?.name ?? '' : ''} onChange={(event) => { setOriginId(coverageLocations.find((location) => location.name === event.target.value)?.id ?? ''); setDestinationId('') }}><option value="">Select city</option>{origins.map((location) => <option key={location.id} value={location.name}>{location.name}</option>)}</select></label><input type="hidden" name="pickup_state" value={coverageLocations.find((location) => location.id === originId)?.state ?? ''} /><Field label="Pickup time" name="preferred_pickup_at" type="datetime-local" min={pickupTimeMin} /></div>
         <PickupLocation supabase={supabase} userId={userId} onCitySelected={(city) => { setOriginId(coverageLocations.find((location) => location.name.toLowerCase() === city.toLowerCase())?.id ?? ''); setDestinationId('') }} />
         {deliveryStepError && deliveryStep === 0 && <p className="delivery-step-error" role="alert">{deliveryStepError}</p>}
         <div className="delivery-wizard-actions"><button className="primary-button" type="button" onClick={advanceDeliveryStep}>Next: drop-off</button></div>
@@ -1210,6 +1250,7 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
         }, new Map<string, DeliveryRequest[]>())).map(([date, group]) => <section className="customer-delivery-group" key={date} aria-label={`Deliveries on ${date}`}>
           <h3>{date}</h3><div className="customer-delivery-grid">{group.map((request) => <CustomerDeliveryCard key={request.id} request={request} confirmationStatus={request.job_id ? confirmationStatuses[request.job_id] ?? request.sender_confirmation_status : undefined} expanded={expandedRequestId === request.id} onToggle={() => setExpandedRequestId(expandedRequestId === request.id ? null : request.id)} supabase={supabase} onError={onError} onRefresh={onRefresh} />)}</div>
         </section>)}</div>
+        {hasOlderRequests && <button className="secondary-button" type="button" onClick={onLoadOlder}>Load older deliveries</button>}
       </>}
     </section>}
   </main>

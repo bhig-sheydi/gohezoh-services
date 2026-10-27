@@ -8,6 +8,7 @@ function client(rows: Record<string, Array<Record<string, unknown>>>) {
     ? { data: rows.eligible ?? [], error: null }
     : name === 'list_partner_bid_route_addresses' ? { data: rows.routes ?? [], error: null }
     : name === 'list_customer_bid_offers' ? { data: rows.offers ?? [], error: null }
+    : name === 'list_customer_bid_state' ? { data: { windows: rows.delivery_quote_windows ?? [], quotes: rows.customer_delivery_quotes ?? [], holds: rows.holds ?? [] }, error: null }
     : name === 'list_my_flutterwave_holds' ? { data: rows.holds ?? [], error: null }
     : { data: null, error: null })
   const functions = { invoke: vi.fn(async () => ({ data: { status: 'pending' }, error: null })) }
@@ -69,6 +70,8 @@ describe('customer delivery quotes', () => {
     expect(await screen.findByText('1234567890')).toBeInTheDocument()
     expect(screen.getByText(/Pay ₦2,500.00/)).toBeInTheDocument()
     expect(screen.getByText(/Your rider waits until payment is confirmed/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Copy account' }))
+    expect(await screen.findByText(/Press and hold the account number/)).toBeInTheDocument()
   })
 
   it('hides old paid and expired notices but keeps recent payment and review notices', async () => {

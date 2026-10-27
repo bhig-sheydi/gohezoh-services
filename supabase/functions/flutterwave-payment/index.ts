@@ -98,19 +98,29 @@ Deno.serve(async (request) => {
     if ((body.action !== 'check' && hold.status === 'expired') || hold.status === 'review' || hold.status === 'paid') return json(hold)
 
     if ((body.action === 'start' || body.action === 'status') && hold.status === 'initializing') {
-      const account = await createDynamicAccount({ email: user.email, amountNgn: Number(hold.amount_ngn),
-        reference: String(hold.reference), secretKey: secret })
-      const { error: activationError } = await admin.rpc('activate_flutterwave_hold', { p_request_id: requestId,
-        p_reference: hold.reference, p_account_number: account.accountNumber, p_bank_name: account.bankName })
-      if (activationError) throw activationError
+      const { data: claimed, error: claimError } = await admin.rpc('claim_flutterwave_account_creation', {
+        p_request_id: requestId, p_reference: hold.reference })
+      if (claimError) throw claimError
+      if (claimed) {
+        const account = await createDynamicAccount({ email: user.email, amountNgn: Number(hold.amount_ngn),
+          reference: String(hold.reference), secretKey: secret })
+        const { error: activationError } = await admin.rpc('activate_flutterwave_hold', { p_request_id: requestId,
+          p_reference: hold.reference, p_account_number: account.accountNumber, p_bank_name: account.bankName })
+        if (activationError) throw activationError
+      }
     }
     if (body.action === 'check' && ['pending', 'expired'].includes(hold.status)) {
-      const tx = await verifyFlutterwaveReference(String(hold.reference), secret)
-      if (tx && verifiedBankTransfer(tx, String(hold.reference), Number(hold.amount_ngn))) {
-        const { error: settlementError } = await admin.rpc('settle_flutterwave_hold', {
-          p_reference: hold.reference, p_transaction_id: Number(tx.id),
-          p_amount_ngn: Number(tx.amount), p_currency: 'NGN' })
-        if (settlementError) throw settlementError
+      const { data: claimed, error: claimError } = await admin.rpc('claim_flutterwave_provider_check', {
+        p_request_id: requestId, p_reference: hold.reference })
+      if (claimError) throw claimError
+      if (claimed) {
+        const tx = await verifyFlutterwaveReference(String(hold.reference), secret)
+        if (tx && verifiedBankTransfer(tx, String(hold.reference), Number(hold.amount_ngn))) {
+          const { error: settlementError } = await admin.rpc('settle_flutterwave_hold', {
+            p_reference: hold.reference, p_transaction_id: Number(tx.id),
+            p_amount_ngn: Number(tx.amount), p_currency: 'NGN' })
+          if (settlementError) throw settlementError
+        }
       }
     }
     const { data: latest, error: latestError } = await userClient.rpc('get_my_flutterwave_hold', { p_request_id: requestId })

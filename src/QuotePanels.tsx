@@ -7,6 +7,7 @@ type QuoteWindow = { request_id: string; deadline_at: string; status: string }
 type CustomerQuote = { request_id: string; customer_price_ngn: number | null; expires_at: string | null; status: string }
 type PaymentHold = { request_id: string; status: string; amount_ngn: number; account_number: string | null;
   bank_name: string | null; expires_at: string; reference: string }
+type CustomerBidState = { windows: QuoteWindow[]; quotes: CustomerQuote[]; holds: PaymentHold[] }
 const TERMINAL_NOTICE_MS = 10 * 60 * 1000
 function terminalNoticeDeadline(hold: PaymentHold, paymentReceivedAt?: string) {
   const timestamp = Date.parse(hold.status === 'paid' && paymentReceivedAt ? paymentReceivedAt : hold.expires_at)
@@ -31,24 +32,30 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
   const [offers, setOffers] = useState<Record<string, CustomerBid[]>>({})
   const [now, setNow] = useState(0)
   const [busy, setBusy] = useState('')
+  const [copyMessage, setCopyMessage] = useState('')
   const activeHoldKey = Object.values(holds).filter((hold) => ['initializing', 'pending'].includes(hold.status)).map((hold) => `${hold.request_id}:${hold.status}`).join(',')
   const pendingHoldKey = Object.values(holds).filter((hold) => hold.status === 'pending').map((hold) => hold.request_id).join(',')
   const photoCache = useRef(new Map<string, { url: string; expires: number }>())
+  const loadingRef = useRef(false)
+  const paymentCheckingRef = useRef(false)
   const load = useCallback(async () => {
+    if (loadingRef.current) return
+    loadingRef.current = true
+    try {
     const ids = requestIdKey ? requestIdKey.split(',') : []
     if (!ids.length) { setWindows([]); setQuotes([]); setOffers({}); setHolds({}); return }
-    const [windowResult, quoteResult, holdResult] = await Promise.all([
-      supabase.from('delivery_quote_windows').select('request_id, deadline_at, status').in('request_id', ids),
-      supabase.from('customer_delivery_quotes').select('request_id, customer_price_ngn, expires_at, status').in('request_id', ids),
-      supabase.rpc('list_my_flutterwave_holds'),
-    ])
-    if (windowResult.error || quoteResult.error || holdResult.error) { onError((windowResult.error ?? quoteResult.error ?? holdResult.error)?.message ?? 'Could not load quotes.'); return }
-    const nextWindows = (windowResult.data ?? []) as QuoteWindow[]
-    const nextQuotes = (quoteResult.data ?? []) as CustomerQuote[]
+    const { data, error } = await supabase.rpc('list_customer_bid_state', { p_request_ids: ids })
+    if (error) { onError(error.message); return }
+    const state = data && typeof data === 'object' && !Array.isArray(data) ? data as CustomerBidState : null
+    if (!state || !Array.isArray(state.windows) || !Array.isArray(state.quotes) || !Array.isArray(state.holds)) {
+      onError('Could not read delivery bidding. Refresh to try again.'); return
+    }
+    const nextWindows = state.windows
+    const nextQuotes = state.quotes
     setNow(Date.now())
     setWindows(nextWindows)
     setQuotes(nextQuotes)
-    setHolds(Object.fromEntries(((holdResult.data ?? []) as PaymentHold[]).filter((hold) => ids.includes(hold.request_id)).map((hold) => [hold.request_id, hold])))
+    setHolds(Object.fromEntries(state.holds.filter((hold) => ids.includes(hold.request_id)).map((hold) => [hold.request_id, hold])))
     const ready = nextWindows.filter((row) => new Date(row.deadline_at).getTime() <= Date.now()
       && ['matching', 'open', 'awaiting_customer_selection'].includes(row.status)
       && !nextQuotes.some((quote) => quote.request_id === row.request_id))
@@ -66,6 +73,7 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
       return [row.request_id, bids] as const
     }))
     setOffers(Object.fromEntries(results))
+    } finally { loadingRef.current = false }
   }, [supabase, requestIdKey, onError])
   useEffect(() => { const timer = window.setTimeout(() => { void load() }, 0); return () => clearTimeout(timer) }, [load])
   useEffect(() => {
@@ -96,10 +104,11 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
   useEffect(() => {
     const active = Object.values(holdsRef.current).filter((hold) => hold.status === 'pending' && new Date(hold.expires_at).getTime() > Date.now())
     if (!active.length) return
-    const timer = window.setInterval(() => { if (!document.hidden) void Promise.all(active.map(async (hold) => {
-      await supabase.functions.invoke('flutterwave-payment', { body: { action: 'check', requestId: hold.request_id } })
-      await load()
-    })) }, 15000)
+    const timer = window.setInterval(() => { if (!document.hidden && !paymentCheckingRef.current) {
+      paymentCheckingRef.current = true
+      void Promise.all(active.map((hold) => supabase.functions.invoke('flutterwave-payment', { body: { action: 'check', requestId: hold.request_id } })))
+        .then(() => load()).finally(() => { paymentCheckingRef.current = false })
+    } }, 15000)
     return () => clearInterval(timer)
   }, [pendingHoldKey, supabase, load])
   async function choose(requestId: string, bidId: string) {
@@ -108,6 +117,14 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
     if (error) onError(error.message)
     else { onNotice(data?.status === 'management' ? 'Company selected. Your final delivery price is being prepared.' : 'Company selected. Pay within two minutes to confirm the rider.'); await load(); onRefresh() }
     setBusy('')
+  }
+  async function copyAccount(accountNumber: string) {
+    try {
+      await navigator.clipboard.writeText(accountNumber)
+      setCopyMessage('Account number copied')
+    } catch {
+      setCopyMessage('Copy unavailable. Press and hold the account number to select it.')
+    }
   }
   async function accept(requestId: string) {
     setBusy(requestId)
@@ -136,7 +153,7 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
         <div className="customer-payment-heading"><img src="/favicon.svg" alt="Kwik-Parsel logo" /><p className="eyebrow">KWIK-PARSEL · DELIVERY PAYMENT</p></div>
         <h3>{hold.status === 'paid' ? 'Payment confirmed' : active ? `Pay ${money(Number(hold.amount_ngn))}` : hold.status === 'review' ? 'Payment needs review' : 'Booking expired'}</h3>
         {active && <><strong className="customer-payment-timer">{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')} left</strong>
-          {hold.account_number && hold.bank_name ? <div className="customer-payment-account"><span>{hold.bank_name}</span><strong>{hold.account_number}</strong><button type="button" onClick={() => void navigator.clipboard.writeText(hold.account_number!)}>Copy account</button></div> : <><p>Preparing your temporary bank account…</p><button type="button" disabled={busy === requestId} onClick={() => void retryAccount(requestId)}>Retry account</button></>}
+          {hold.account_number && hold.bank_name ? <div className="customer-payment-account"><span>{hold.bank_name}</span><strong>{hold.account_number}</strong><button type="button" onClick={() => void copyAccount(hold.account_number!)}>Copy account</button>{copyMessage && <small role="status">{copyMessage}</small>}</div> : <><p>Preparing your temporary bank account…</p><button type="button" disabled={busy === requestId} onClick={() => void retryAccount(requestId)}>Check account status</button></>}
           <p>Transfer the exact amount now. Your rider waits until payment is confirmed.</p></>}
         {hold.status === 'paid' && <p>Payment confirmed. Keep your phone nearby while your company rider is confirmed.</p>}
         {hold.status === 'review' && <p>A payment arrived after the booking window or needs review. Please contact support; do not pay again yet.</p>}

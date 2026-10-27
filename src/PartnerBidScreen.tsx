@@ -10,6 +10,7 @@ type Pickup = { request_id: string; pickup_address: string; sender_name: string;
 type DeliveryPin = { request_id: string; latitude: number; longitude: number }
 type BidRoute = { request_id: string; pickup_address: string | null; delivery_address: string | null }
 type RiderLoad = { request_id: string; rider_name: string; load_state: 'available' | 'almost_full' | 'full' }
+type BidDisplay = { jobs: BidJob[]; pickups: Pickup[]; deliveries: DeliveryPin[]; routes: BidRoute[]; loads: RiderLoad[] }
 const money = (value: number) => new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' }).format(value)
 
 export default function PartnerBidScreen({ supabase, partnerIds, onError, onNotice }: Props) {
@@ -31,17 +32,17 @@ export default function PartnerBidScreen({ supabase, partnerIds, onError, onNoti
     if (loading.current) return
     loading.current = true
     try {
-    const [{ data, error }, locations, deliveries, routeAddresses, loads] = await Promise.all([supabase.rpc('list_partner_bid_screen'), supabase.rpc('list_company_bid_pickups'), supabase.rpc('list_company_bid_delivery_locations'), supabase.rpc('list_partner_bid_route_addresses'), supabase.rpc('list_company_bid_rider_loads')])
+    const { data, error } = await supabase.rpc('list_company_bid_display')
     if (error) { onError(error.message); return }
-    if (locations.error) { onError(locations.error.message); setPickups([]) }
-    else setPickups(Array.isArray(locations.data) ? locations.data as Pickup[] : [])
-    if (deliveries.error) onError(deliveries.error.message)
-    else setDeliveryPins(Array.isArray(deliveries.data) ? deliveries.data as DeliveryPin[] : [])
-    if (routeAddresses.error) onError(routeAddresses.error.message)
-    else setRoutes(Array.isArray(routeAddresses.data) ? routeAddresses.data as BidRoute[] : [])
-    if (loads.error) onError(loads.error.message)
-    else setRiderLoads(Array.isArray(loads.data) ? loads.data as RiderLoad[] : [])
-    const rows = (data ?? []) as BidJob[]
+    const snapshot = data && typeof data === 'object' && !Array.isArray(data) ? data as BidDisplay : null
+    if (!snapshot || !Array.isArray(snapshot.jobs) || !Array.isArray(snapshot.pickups) || !Array.isArray(snapshot.deliveries) || !Array.isArray(snapshot.routes) || !Array.isArray(snapshot.loads)) {
+      onError('Could not read the company bidding screen. Refresh to try again.'); return
+    }
+    setPickups(snapshot.pickups)
+    setDeliveryPins(snapshot.deliveries)
+    setRoutes(snapshot.routes)
+    setRiderLoads(snapshot.loads)
+    const rows = snapshot.jobs
     const withPhotos = await Promise.all(rows.map(async (job) => {
       if (!job.photo_path) return { ...job, photo_url: null }
       const cached = photos.current.get(job.photo_path)
@@ -58,24 +59,25 @@ export default function PartnerBidScreen({ supabase, partnerIds, onError, onNoti
 
   useEffect(() => {
     const initial = window.setTimeout(() => { setNow(new Date().getTime()); void load() }, 0)
-    const refresh = window.setInterval(() => { if (!document.hidden) void load() }, 10_000)
+    const refresh = window.setInterval(() => { if (!document.hidden) void load() }, 15_000)
     const clock = window.setInterval(() => { if (!document.hidden) setNow(new Date().getTime()) }, 1000)
     const onFocus = () => { setNow(new Date().getTime()); void load() }
     const onVisibility = () => { if (!document.hidden) onFocus() }
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onVisibility)
-    const channel = supabase.channel('partner-open-bid-windows')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'delivery_quote_windows' }, () => { void load() })
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'company_bid_invitations' }, () => { if (!document.hidden) void load() })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'company_bid_invitations' }, () => { if (!document.hidden) void load() })
-      .subscribe((status) => { if (status === 'SUBSCRIBED') void load() })
+    let debounce: number | undefined
+    const refreshSoon = () => { if (!document.hidden) { window.clearTimeout(debounce); debounce = window.setTimeout(() => void load(), 250) } }
+    const channels = partnerIdKey.split(',').filter(Boolean).map((partnerId) => supabase.channel(`partner-open-bid-windows-${partnerId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'company_bid_invitations', filter: `partner_id=eq.${partnerId}` }, refreshSoon)
+      .subscribe((status) => { if (status === 'SUBSCRIBED') void load() }))
     return () => {
       window.clearTimeout(initial); window.clearInterval(refresh); window.clearInterval(clock)
+      window.clearTimeout(debounce)
       window.removeEventListener('focus', onFocus)
       document.removeEventListener('visibilitychange', onVisibility)
-      void supabase.removeChannel(channel)
+      channels.forEach((channel) => { void supabase.removeChannel(channel) })
     }
-  }, [load, supabase])
+  }, [load, partnerIdKey, supabase])
 
   async function submit(event: FormEvent<HTMLFormElement>, job: BidJob) {
     event.preventDefault()

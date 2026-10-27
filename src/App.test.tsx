@@ -427,10 +427,12 @@ beforeEach(() => {
     }
     if (table === 'logistics_partners') return { data: mockState.partners, error: null }
     if (table === 'partner_users') return { data: [{ partner_id: partner.id }], error: null }
-    if (table === 'partner_assignments') return { data: mockState.assignmentStatus === 'rejected' ? [] : [{ id: 'assignment-1', partner_id: partner.id, job_id: 'job-1', status: mockState.assignmentStatus, assigned_at: '2026-09-30T10:00:00Z' }], error: null }
+    if (table === 'partner_assignments') return { data: mockState.assignmentStatus === 'rejected' || (Array.isArray(filters.status) && !filters.status.includes(mockState.assignmentStatus)) || (typeof filters.status === 'string' && filters.status !== mockState.assignmentStatus) ? [] : [{ id: 'assignment-1', partner_id: partner.id, job_id: 'job-1', status: mockState.assignmentStatus, assigned_at: '2026-09-30T10:00:00Z' }], error: null }
     return { data: [], error: null }
   })
   mockState.rpc.mockImplementation(async (name: string, args: Record<string, unknown>) => {
+    if (name === 'list_company_bid_display') return { data: { jobs: [], pickups: [], deliveries: [], routes: [], loads: [] }, error: null }
+    if (name === 'list_customer_bid_state') return { data: { windows: [], quotes: [], holds: [] }, error: null }
     if (name === 'create_logistics_partner') {
       mockState.partners = [{ ...partner, partner_name: String(args.p_partner_name) }]
       return { data: { partner_id: partner.id, partner_number: partner.partner_number, partner_name: String(args.p_partner_name) }, error: null }
@@ -694,6 +696,8 @@ describe('partner assignment and delivery screens', () => {
     render(<App />)
 
     await user.click(await screen.findByRole('button', { name: 'Accept job' }))
+    expect(mockState.query).toHaveBeenCalledWith('partner_assignments', expect.objectContaining({ status: ['assigned', 'accepted'] }), false, undefined)
+    expect(mockState.query).toHaveBeenCalledWith('partner_assignments', expect.objectContaining({ status: 'completed' }), false, undefined)
     await waitFor(() => expect(mockState.rpc).toHaveBeenCalledWith('respond_to_partner_assignment', {
       p_assignment_id: 'assignment-1', p_accept: true, p_response_note: null,
     }))
@@ -761,7 +765,9 @@ describe('partner assignment and delivery screens', () => {
         : query(table, filters, single, insert))
     const rpc = mockState.rpc.getMockImplementation() as (name: string, args: Record<string, unknown>) => unknown
     mockState.rpc.mockImplementation((name: string, args: Record<string, unknown>) =>
-      name === 'list_customer_bid_offers'
+      name === 'list_customer_bid_state'
+        ? { data: { windows: [{ request_id: 'request-1', deadline_at: '2020-01-01T00:00:00Z', status: 'awaiting_customer_selection' }], quotes: [], holds: [] }, error: null }
+        : name === 'list_customer_bid_offers'
         ? { data: [{ bid_id: 'bid-1', partner_name: 'sam logistics', partner_phone: null, rider_name: 'Sam', rider_phone: null, rider_photo_path: null, bid_amount_ngn: 1000, eta_hours: 1 }], error: null }
         : rpc(name, args))
     render(<App />)
@@ -770,6 +776,21 @@ describe('partner assignment and delivery screens', () => {
     expect(await screen.findByRole('heading', { name: 'You have 1 interested company' }, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Latest delivery update' })).toHaveTextContent('sam logistics')
     expect(screen.getByRole('button', { name: 'Choose this company' })).toBeInTheDocument()
+  })
+
+  it('lets a customer load deliveries older than the first twenty', async () => {
+    mockState.roles = ['customer']
+    mockState.customerRequests = Array.from({ length: 21 }, (_, index) => ({
+      id: `request-${index}`, request_number: `REQ-${String(index).padStart(4, '0')}`,
+      status: 'converted', pickup_city: 'Lagos', delivery_city: 'Lagos', recipient_name: 'Ada',
+      created_at: new Date(Date.now() - index * 60_000).toISOString(),
+    }))
+    render(<App />)
+    fireEvent.click(await screen.findByRole('button', { name: /Tracking/ }))
+    expect(await screen.findByRole('button', { name: 'Load older deliveries' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Load older deliveries' }))
+    expect(await screen.findByText('REQ-0020')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Load older deliveries' })).not.toBeInTheDocument()
   })
 
   it('submits structured parcel details with a customer delivery request', async () => {

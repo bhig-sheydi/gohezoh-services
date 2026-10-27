@@ -142,6 +142,8 @@ begin
   perform set_config('request.jwt.claim.sub',v_manager::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_manager,'role','authenticated')::text,true);
   if (select count(*) from public.list_partner_bid_screen() where request_id=v_request)<>1 then raise exception 'Near company did not see its bid'; end if;
+  if pg_catalog.jsonb_array_length(public.list_company_bid_display()->'jobs')<>1 then
+    raise exception 'Company bidding snapshot omitted the eligible job'; end if;
   if not exists(select 1 from public.list_partner_bid_route_addresses()
     where request_id=v_request and pickup_address='1 Lagos Road' and delivery_address='2 Lagos Road') then
     raise exception 'Invited company cannot see the saved route labels'; end if;
@@ -227,6 +229,12 @@ begin
     raise exception 'Selected local bid did not become the exact payment amount'; end if;
   if (select status from public.customer_payment_holds where request_id=v_request)<>'initializing' then
     raise exception 'Local payment hold was not created'; end if;
+  if pg_catalog.jsonb_array_length(public.list_customer_bid_state(array[v_request])->'holds')<>1 then
+    raise exception 'Customer bidding snapshot omitted the payment hold'; end if;
+  perform set_config('request.jwt.claims','{"role":"service_role"}',true);
+  if not public.claim_flutterwave_account_creation(v_request,(select reference from public.customer_payment_holds where request_id=v_request))
+    or public.claim_flutterwave_account_creation(v_request,(select reference from public.customer_payment_holds where request_id=v_request)) then
+    raise exception 'Concurrent account creation was not restricted to one caller'; end if;
   perform set_config('request.jwt.claim.sub',v_rider::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_rider,'role','authenticated','session_id',v_session)::text,true);
   if (select count(*) from public.list_my_selected_pickups() where request_id=v_request)<>1 then
@@ -241,6 +249,9 @@ begin
     account_number='1234567890',bank_name='Test Bank' where request_id=v_request;
   perform set_config('request.jwt.claim.sub','',true);
   perform set_config('request.jwt.claims','{"role":"service_role"}',true);
+  if not public.claim_flutterwave_provider_check(v_request,(select reference from public.customer_payment_holds where request_id=v_request))
+    or public.claim_flutterwave_provider_check(v_request,(select reference from public.customer_payment_holds where request_id=v_request)) then
+    raise exception 'Repeated provider checks bypassed the cooldown'; end if;
   if (public.settle_flutterwave_hold((select reference from public.customer_payment_holds where request_id=v_request),987654321,2000,'NGN')->>'status')<>'paid' then
     raise exception 'Verified local payment did not confirm the job'; end if;
   if not exists(select 1 from public.orders o join public.jobs j on j.order_id=o.id

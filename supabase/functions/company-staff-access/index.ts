@@ -5,7 +5,7 @@ const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers
 const reply = (value: Record<string, unknown>, status = 200) => Response.json(value, { status, headers: cors })
 const uuid = (value: unknown): value is string => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
 type Staff = { id: string; partner_id: string; user_id: string | null; full_name: string; password_salt: string; password_hash: string;
-  auth_secret_seed: string; failed_attempts: number; device_mismatch_attempts: number; revoked_at: string | null; password_revoked_at: string | null }
+  auth_secret_seed: string; failed_attempts: number; device_mismatch_attempts: number; revoked_at: string | null; password_revoked_at: string | null; password_retry_after: string | null }
 
 async function revokeSessions(admin: ReturnType<typeof createClient>, anonKey: string, url: string, secret: string, staff: Staff) {
   if (!staff.user_id) return
@@ -85,7 +85,7 @@ Deno.serve(async (request) => {
       if (existing.revoked_at) return reply({ error: 'Removed staff cannot be reset' }, 409)
       await revokeSessions(admin, anonKey, url, secret, existing as Staff)
       const { error } = await admin.from('company_operations_staff').update({ password_salt: salt, password_hash: passwordHash,
-        password_fingerprint: fingerprint, password_revoked_at: null, failed_attempts: 0, device_mismatch_attempts: 0,
+        password_fingerprint: fingerprint, password_revoked_at: null, password_retry_after: null, failed_attempts: 0, device_mismatch_attempts: 0,
         session_not_before: new Date().toISOString(),
         updated_at: new Date().toISOString() }).eq('id', staffId).eq('partner_id', partnerId)
       if (error?.code === '23505') return reply({ error: 'This password is already used by another staff member' }, 409)
@@ -124,14 +124,17 @@ Deno.serve(async (request) => {
   if (!kind) return reply({ error: 'Use a phone or laptop browser' }, 400)
   const { data: staff } = await admin.from('company_operations_staff').select('*').eq('id', staffId).maybeSingle()
   if (!staff || staff.revoked_at || staff.password_revoked_at) return reply({ error: 'Staff access is unavailable. Contact the company owner.' }, 403)
+  if (staff.password_retry_after && new Date(staff.password_retry_after).getTime() > Date.now())
+    return reply({ error: 'Too many password attempts. Try again in 15 minutes, or ask the company owner to reset your password.' }, 429)
   const fail = async (deviceMismatch = false) => {
     const { data, error } = await admin.rpc('record_company_staff_auth_failure', { p_staff_id: staffId, p_device_mismatch: deviceMismatch })
     if (error) return reply({ error: 'Could not check staff access. Try again.' }, 503)
     const count = Number(data)
-    const revoked = count > 3
+    const revoked = deviceMismatch && count > 3
     if (revoked) {
       await revokeSessions(admin, anonKey, url, secret, staff as Staff)
     }
+    if (count < 0) return reply({ error: 'Too many password attempts. Try again in 15 minutes, or ask the company owner to reset your password.' }, 429)
     return reply({ error: revoked ? 'Staff password revoked after repeated attempts. Contact your company owner.' :
       deviceMismatch ? 'This device is not registered. Contact your company owner.' : 'Incorrect staff password' }, revoked ? 403 : 401)
   }
@@ -160,7 +163,7 @@ Deno.serve(async (request) => {
       .eq('staff_id', staffId).eq('kind', kind).eq('challenge', device.challenge).select('staff_id').maybeSingle()
     if (!consumed) return reply({ error: 'Sign-in challenge expired. Try again.' }, 401)
   }
-  await admin.from('company_operations_staff').update({ failed_attempts: 0, device_mismatch_attempts: 0 }).eq('id', staffId)
+  await admin.from('company_operations_staff').update({ failed_attempts: 0, device_mismatch_attempts: 0, password_retry_after: null }).eq('id', staffId)
   const { data: identity } = await admin.auth.admin.getUserById(staff.user_id)
   if (!identity.user?.email) return reply({ error: 'Staff sign-in is unavailable' }, 503)
   const auth = createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } })

@@ -59,12 +59,22 @@ begin
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_staff,'role','service_role')::text,true);
   if not public.company_staff_actor_permission(v_partner,v_staff,'bid') or public.company_staff_actor_permission(v_partner,v_staff,'withdraw') then
     raise exception 'Service-side staff permission check is incorrect'; end if;
-  for v_count in 1..4 loop
+  for v_count in 1..3 loop
     if public.record_company_staff_auth_failure(v_staff_id,false)<>v_count then
       raise exception 'Wrong failed-attempt count'; end if;
   end loop;
+  if public.record_company_staff_auth_failure(v_staff_id,false)<>-1 then
+    raise exception 'Fourth wrong password must start a temporary cooldown'; end if;
+  if not exists(select 1 from public.company_operations_staff where id=v_staff_id
+    and password_retry_after>now() and password_revoked_at is null) then
+    raise exception 'Wrong passwords permanently revoked staff access'; end if;
+  update public.company_operations_staff set password_retry_after=null,failed_attempts=0 where id=v_staff_id;
+  for v_count in 1..4 loop
+    if public.record_company_staff_auth_failure(v_staff_id,true)<>v_count then
+      raise exception 'Wrong device-attempt count'; end if;
+  end loop;
   if not exists(select 1 from public.company_operations_staff where id=v_staff_id and password_revoked_at is not null) then
-    raise exception 'Fourth failed attempt did not revoke password'; end if;
+    raise exception 'Fourth unauthorized device attempt did not revoke password'; end if;
   select count(*) into v_alerts from public.company_operations_staff_alerts where staff_id=v_staff_id;
   if v_alerts<>1 then raise exception 'Owner alert must be recorded once'; end if;
   if public.company_staff_actor_permission(v_partner,v_staff,'bid') then
