@@ -44,7 +44,12 @@ Deno.serve(async (request) => {
   if (error) return Response.json({ error: error.message }, { status: 400, headers: corsHeaders })
   try {
     await sendDeliveryCode({
-      provider: Deno.env.get('DELIVERY_SMS_PROVIDER') ?? '',
+      provider: Deno.env.get('DELIVERY_MESSAGE_PROVIDER') ?? Deno.env.get('DELIVERY_SMS_PROVIDER') ?? '',
+      whatsappAccessToken: Deno.env.get('WHATSAPP_ACCESS_TOKEN') ?? undefined,
+      whatsappPhoneNumberId: Deno.env.get('WHATSAPP_PHONE_NUMBER_ID') ?? undefined,
+      whatsappTemplateName: Deno.env.get('WHATSAPP_TEMPLATE_NAME') ?? undefined,
+      whatsappTemplateLanguage: Deno.env.get('WHATSAPP_TEMPLATE_LANGUAGE') ?? undefined,
+      whatsappGraphVersion: Deno.env.get('WHATSAPP_GRAPH_VERSION') ?? undefined,
       messagingNgPublicKey: Deno.env.get('MESSAGING_NG_PUBLIC_KEY') ?? undefined,
       messagingNgSecretKey: Deno.env.get('MESSAGING_NG_SECRET_KEY') ?? undefined,
       messagingNgSenderId: Deno.env.get('MESSAGING_NG_SENDER_ID') ?? undefined,
@@ -56,8 +61,8 @@ Deno.serve(async (request) => {
     }, data.recipient_phone, data.job_number, data.code)
   } catch (sendError) {
     await admin.rpc('discard_delivery_otp', { p_job_id: jobId })
-    console.error('Delivery OTP SMS failed', sendError)
-    return Response.json({ error: 'Could not send the delivery code. Check SMS configuration and try again.' }, { status: 502, headers: corsHeaders })
+    console.error('Delivery code message failed', sendError)
+    return Response.json({ error: 'Could not send the delivery code. Check messaging configuration and try again.' }, { status: 502, headers: corsHeaders })
   }
   return Response.json({ sent: true }, { headers: corsHeaders })
 })

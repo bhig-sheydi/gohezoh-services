@@ -887,7 +887,7 @@ function PartnerPortal({ supabase, userId, canRespond, onError, onNotice }: {
     if (error) onError(error.message)
     else {
       setOtpSentFor((current) => current.includes(assignment.job.id) ? current : [...current, assignment.job.id])
-      onNotice(`A delivery code was sent to the recipient for ${assignment.job.job_number}.`)
+      onNotice(`A delivery code was sent to the recipient on WhatsApp for ${assignment.job.job_number}.`)
     }
     setBusy(false)
   }
@@ -949,7 +949,7 @@ function PartnerPortal({ supabase, userId, canRespond, onError, onNotice }: {
         {assignment.status === 'assigned' ? <div className="partner-response-actions"><button className="secondary-button" disabled={!canRespond || busy} onClick={() => void respond(assignment, false)}>Decline job</button><button className="primary-button" disabled={!canRespond || busy} onClick={() => void respond(assignment, true)}>{busy ? 'Saving...' : 'Accept job'}</button></div> : <>
           <label className="field partner-progress-control"><span>Update delivery progress</span><select value="" disabled={!canRespond || busy || !partnerStatuses[job.status]?.length} onChange={(event) => { if (event.target.value) void updateProgress(assignment, event.target.value) }}><option value="">{busy ? 'Saving...' : 'Choose next status'}</option>{(partnerStatuses[job.status] ?? []).map((status) => <option key={status} value={status}>{formatStatus(status)}</option>)}</select></label>
           {['in_transit','picked_up','out_for_delivery'].includes(job.status) && <section className="delivery-otp-panel" aria-label={`Recipient confirmation for ${job.job_number}`}>
-            {!otpSentFor.includes(job.id) ? <><p className="section-intro">Confirm delivery with a code sent directly to the recipient's phone.</p><button className="secondary-button" disabled={!canRespond || busy} onClick={() => void sendDeliveryCode(assignment)}>{busy ? 'Sending code...' : 'Send recipient delivery code'}</button></> : <>
+            {!otpSentFor.includes(job.id) ? <><p className="section-intro">Send a delivery code to the recipient on WhatsApp.</p><button className="secondary-button" disabled={!canRespond || busy} onClick={() => void sendDeliveryCode(assignment)}>{busy ? 'Sending code...' : 'Send recipient delivery code'}</button></> : <>
               <p className="section-intro">Ask the recipient to read their six-digit code to you. Delivery completes after the code is verified.</p>
               <label className="field"><span>Recipient delivery code</span><input value={otpCodes[job.id] ?? ''} onChange={(event) => setOtpCodes((current) => ({ ...current, [job.id]: event.target.value.replace(/\D/g, '').slice(0, 6) }))} inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} placeholder="000000" /></label>
               <button className="primary-button" disabled={!canRespond || busy || (otpCodes[job.id] ?? '').length !== 6} onClick={() => void verifyDeliveryCode(assignment)}>{busy ? 'Verifying...' : 'Verify code and confirm delivery'}</button>

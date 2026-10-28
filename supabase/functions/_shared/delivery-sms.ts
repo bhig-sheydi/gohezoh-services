@@ -8,6 +8,11 @@ export type SmsConfig = {
   twilioAccountSid?: string
   twilioAuthToken?: string
   twilioFrom?: string
+  whatsappAccessToken?: string
+  whatsappPhoneNumberId?: string
+  whatsappTemplateName?: string
+  whatsappTemplateLanguage?: string
+  whatsappGraphVersion?: string
 }
 
 function termiiPhone(phone: string) {
@@ -32,6 +37,27 @@ export async function sendDeliveryCode(
   fetcher: typeof fetch = fetch,
 ) {
   const message = `Kwik-Parsel delivery ${jobNumber}: your delivery code is ${code}. Give it to the rider only when you receive your parcel. Expires in 10 minutes.`
+  if (config.provider === 'whatsapp_cloud') {
+    if (!config.whatsappAccessToken || !config.whatsappPhoneNumberId || !config.whatsappTemplateName || !config.whatsappTemplateLanguage || !config.whatsappGraphVersion) {
+      throw new Error('WhatsApp delivery messaging is not configured')
+    }
+    if (!/^v\d+\.\d+$/.test(config.whatsappGraphVersion) || !/^\d+$/.test(config.whatsappPhoneNumberId)) {
+      throw new Error('WhatsApp delivery messaging configuration is invalid')
+    }
+    const response = await fetcher(`https://graph.facebook.com/${config.whatsappGraphVersion}/${config.whatsappPhoneNumberId}/messages`, {
+      method: 'POST',
+      signal: AbortSignal.timeout(10_000),
+      headers: { authorization: `Bearer ${config.whatsappAccessToken}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: termiiPhone(phone), type: 'template',
+        template: { name: config.whatsappTemplateName, language: { code: config.whatsappTemplateLanguage }, components: [
+          { type: 'body', parameters: [{ type: 'text', text: jobNumber }, { type: 'text', text: code }] },
+        ] } }),
+    })
+    if (!response.ok) throw new Error(`WhatsApp provider rejected the message (${response.status})`)
+    const result = await response.json() as { messages?: { id?: string }[] }
+    if (!result.messages?.[0]?.id) throw new Error('WhatsApp provider did not accept the message')
+    return
+  }
   if (config.provider === 'messaging_ng') {
     if (!config.messagingNgPublicKey || !config.messagingNgSecretKey || !config.messagingNgSenderId) throw new Error('Messaging.ng SMS is not configured')
     const response = await fetcher('https://messaging.ng/api/v1/messages/send', {
@@ -71,5 +97,5 @@ export async function sendDeliveryCode(
     if (!response.ok) throw new Error(`SMS provider rejected the message (${response.status})`)
     return
   }
-  throw new Error('SMS provider must be set to messaging_ng, termii or twilio')
+  throw new Error('Delivery message provider must be configured')
 }

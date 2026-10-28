@@ -2,6 +2,29 @@ import { describe, expect, it, vi } from 'vitest'
 import { sendDeliveryCode } from './delivery-sms'
 
 describe('delivery SMS adapter', () => {
+  it('sends a delivery code with an approved WhatsApp template', async () => {
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('{"messages":[{"id":"wamid.123"}]}', { status: 200 }))
+    await sendDeliveryCode({ provider: 'whatsapp_cloud', whatsappAccessToken: 'server-token', whatsappPhoneNumberId: '123456',
+      whatsappTemplateName: 'kwik_parsel_delivery_code', whatsappTemplateLanguage: 'en', whatsappGraphVersion: 'v24.0' },
+      '08012345678', 'JOB-3', '004219', fetcher)
+    const [url, init] = fetcher.mock.calls[0]
+    expect(String(url)).toBe('https://graph.facebook.com/v24.0/123456/messages')
+    expect(init?.headers).toMatchObject({ authorization: 'Bearer server-token' })
+    expect(JSON.parse(String(init?.body))).toMatchObject({ messaging_product: 'whatsapp', to: '2348012345678', type: 'template',
+      template: { name: 'kwik_parsel_delivery_code', components: [{ type: 'body', parameters: [
+        { type: 'text', text: 'JOB-3' }, { type: 'text', text: '004219' },
+      ] }] } })
+  })
+
+  it('rejects WhatsApp sends that are not accepted', async () => {
+    const config = { provider: 'whatsapp_cloud', whatsappAccessToken: 'server-token', whatsappPhoneNumberId: '123456',
+      whatsappTemplateName: 'kwik_parsel_delivery_code', whatsappTemplateLanguage: 'en', whatsappGraphVersion: 'v24.0' }
+    const rejected = vi.fn(async () => new Response('{"error":{"message":"template missing"}}', { status: 400 }))
+    await expect(sendDeliveryCode(config, '08012345678', 'JOB-3', '004219', rejected)).rejects.toThrow('400')
+    const empty = vi.fn(async () => new Response('{"messages":[]}', { status: 200 }))
+    await expect(sendDeliveryCode(config, '08012345678', 'JOB-3', '004219', empty)).rejects.toThrow('did not accept')
+    await expect(sendDeliveryCode({ provider: 'whatsapp_cloud' }, '08012345678', 'JOB-3', '004219')).rejects.toThrow('not configured')
+  })
   it('sends a delivery code through Messaging.ng transactional SMS', async () => {
     const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response('{"accepted":[{"id":"msg-1"}],"failures":[]}', { status: 200 }))
     await expect(sendDeliveryCode({ provider: 'messaging_ng', messagingNgPublicKey: 'public', messagingNgSecretKey: 'secret', messagingNgSenderId: 'KWIKPARSEL' }, '08012345678', 'JOB-3', '004219', fetcher)).resolves.toBeUndefined()
