@@ -4,6 +4,7 @@ import { getSupabaseClient } from './lib/supabase'
 import { riderDeviceProof } from './lib/rider-device'
 import PartnerCompanyWelcome from './PartnerCompanyWelcome'
 import PartnerBidScreen from './PartnerBidScreen'
+import BikeFuelPanel from './BikeFuelPanel'
 import { PartnerRidersPanel } from './PartnerOrganizationPanel'
 import './App.css'
 import './dark.css'
@@ -79,6 +80,7 @@ export function CompanyStaffDashboard({ supabase, userId, onError, onNotice }: {
     {access.can_bid || access.can_manage_riders || access.can_withdraw ? <PartnerCompanyWelcome supabase={supabase} onError={onError} onNotice={onNotice} showPayout={access.can_withdraw} canEditLogo={false} /> : locked('Company overview')}
     {access.can_bid ? <PartnerBidScreen supabase={supabase} partnerIds={[access.partner_id]} onError={onError} onNotice={onNotice} /> : locked('Bidding')}
     {access.can_manage_riders ? <PartnerRidersPanel supabase={supabase} userId={userId} staffPartnerId={access.partner_id} onError={onError} onNotice={onNotice} /> : locked('Rider management')}
+    {access.can_manage_riders && <BikeFuelPanel supabase={supabase} onError={onError} onNotice={onNotice} />}
     {!access.can_withdraw && locked('Withdrawals')}
     {locked('Rider proximity')}
     {locked('Assigned deliveries')}

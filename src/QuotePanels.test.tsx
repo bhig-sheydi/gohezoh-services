@@ -43,7 +43,7 @@ describe('customer delivery quotes', () => {
   it('shows matching progress while the one-minute window is open', async () => {
     const { supabase } = client({ delivery_quote_windows: [{ request_id: 'request-1', deadline_at: new Date(Date.now() + 45_000).toISOString(), status: 'open' }] })
     render(<CustomerQuotePanel supabase={supabase} requestIds={['request-1']} pendingRequestIds={['request-1']} onError={vi.fn()} onNotice={vi.fn()} onRefresh={vi.fn()} />)
-    expect(await screen.findByRole('progressbar', { name: 'Bidding window' })).toBeInTheDocument()
+    expect(await screen.findByRole('progressbar', { name: 'Company response window' })).toBeInTheDocument()
     expect(screen.getByText('Finding interested riders')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Choose this company' })).not.toBeInTheDocument()
   })

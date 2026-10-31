@@ -3,9 +3,10 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import PartnerBidScreen from './PartnerBidScreen'
 
-function setup(jobs: Record<string, unknown>[], routes: Record<string, unknown>[] = [], loads: Record<string, unknown>[] = []) {
+function setup(jobs: Record<string, unknown>[], routes: Record<string, unknown>[] = [], loads: Record<string, unknown>[] = [], bikePrices: Record<string, unknown>[] = []) {
   const rpc = vi.fn(async (name: string) => name === 'list_company_bid_display'
-    ? { data: { jobs, pickups: [], deliveries: [], routes, loads }, error: null } : { data: 'bid-1', error: null })
+    ? { data: { jobs, pickups: [], deliveries: [], routes, loads }, error: null }
+    : name === 'list_company_bike_prices' ? { data: bikePrices, error: null } : { data: 'bid-1', error: null })
   const createSignedUrl = vi.fn(async () => ({ data: { signedUrl: 'https://example.test/parcel' }, error: null }))
   let onWindowChange = () => {}
   const channel = { on: vi.fn((_type, _filter, callback: () => void) => { onWindowChange = callback; return channel }), subscribe: vi.fn(() => channel) }
@@ -15,6 +16,19 @@ function setup(jobs: Record<string, unknown>[], routes: Record<string, unknown>[
 }
 
 describe('company bidding screen', () => {
+  it('accepts a fixed motorcycle offer without entering a bid', async () => {
+    const { supabase, rpc } = setup([{
+      request_id: 'request-bike', request_number: 'REQ-BIKE', pickup_city: 'Port Harcourt', delivery_city: 'Port Harcourt',
+      parcel_summary: 'Box', parcel_items: [], photo_path: null,
+      deadline_at: new Date(Date.now() + 60_000).toISOString(), own_bid_amount_ngn: null,
+    }], [], [], [{ request_id: 'request-bike', customer_price_ngn: 4000, company_share_ngn: 3000,
+      distance_metres: 13019, duration_seconds: 1288, estimated_fuel_litres: 0.325 }])
+    render(<PartnerBidScreen supabase={supabase} partnerIds={['partner-1']} onError={vi.fn()} onNotice={vi.fn()} />)
+    expect(await screen.findByText(/Customer price ₦4,000/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Bid' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Accept job' }))
+    await waitFor(() => expect(rpc).toHaveBeenCalledWith('accept_bike_price', { p_request_id: 'request-bike' }))
+  })
   it('shows an empty screen when no eligible job exists', async () => {
     const { supabase } = setup([])
     render(<PartnerBidScreen supabase={supabase} partnerIds={['partner-1']} onError={vi.fn()} onNotice={vi.fn()} />)
@@ -84,7 +98,7 @@ describe('company bidding screen', () => {
     await waitFor(() => expect(rpc).toHaveBeenCalledWith('list_company_bid_display'))
     rpc.mockImplementation(async (name: string) => name === 'list_company_bid_display'
       ? { data: { jobs: [{ request_id: 'new-job', request_number: 'REQ-NEW', pickup_city: 'Lagos', delivery_city: 'Lagos', parcel_summary: 'Test parcel', parcel_items: [], photo_path: null, deadline_at: new Date(Date.now() + 60_000).toISOString(), own_bid_amount_ngn: null }], pickups: [], deliveries: [], routes: [], loads: [] }, error: null }
-      : { data: 'bid-1', error: null })
+      : name === 'list_company_bike_prices' ? { data: [], error: null } : { data: 'bid-1', error: null })
     broadcastWindowChange()
     expect(await screen.findByText('REQ-NEW')).toBeInTheDocument()
   })

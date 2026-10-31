@@ -1,0 +1,11 @@
+.bike-fuel-panel{padding:1.4rem;border:1px solid var(--line,#d4dce8);border-radius:20px;background:var(--surface,#fff);color:var(--ink,inherit);margin-block:1.2rem}
+.bike-fuel-panel header{display:flex;align-items:center;justify-content:space-between;gap:1rem}
+.bike-fuel-panel h2,.bike-fuel-panel h3{margin:.2rem 0 .7rem}
+.bike-fuel-caution{max-width:72ch;color:var(--muted,#697789);line-height:1.5}
+.bike-fuel-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:.8rem;margin-block:1rem}
+.bike-fuel-card{display:grid;gap:.4rem;padding:1rem;border:1px solid var(--line,#d4dce8);border-radius:14px;background:var(--surface,transparent)}
+.bike-fuel-card small{color:var(--muted,#697789)}
+.bike-fuel-readout{display:flex;justify-content:space-between;gap:.5rem;align-items:center}
+.bike-fuel-card meter{width:100%;height:1.2rem}
+.bike-fuel-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));align-items:end;gap:.8rem;margin-top:1rem}
+.bike-fuel-form h3{grid-column:1/-1}

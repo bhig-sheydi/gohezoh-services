@@ -14,6 +14,7 @@ import { BDOMarketersPanel } from './BDOMarketersPanel'
 import { MarketerPortal } from './MarketerPortal'
 import { CustomerQuotePanel } from './QuotePanels'
 import PartnerBidScreen from './PartnerBidScreen'
+import BikeFuelPanel from './BikeFuelPanel'
 import CompanyDispatchHours from './CompanyDispatchHours'
 import ProximityPanel from './ProximityPanel'
 import { requestPosition, type PositionFix } from './lib/proximity'
@@ -327,7 +328,7 @@ function App() {
       const upload = await supabase.storage.from('customer-saved-parcels').upload(parcelPhotoPath, parcelPhoto, { contentType: parcelPhoto.type, upsert: false })
       if (upload.error) { setError(upload.error.message); setBusy(false); return }
     }
-    const { error: requestError } = await supabase.from('service_requests').insert({
+    const { data: createdRequest, error: requestError } = await supabase.from('service_requests').insert({
       customer_id: customer.id,
       service_id: String(form.get('service_id')),
       created_by: session.user.id,
@@ -358,12 +359,19 @@ function App() {
       parcel_items: [parcelItem],
       parcel_photo_path: parcelPhotoPath,
       special_instructions: String(form.get('special_instructions') || '') || null,
-    })
+    }).select('id,pickup_city,delivery_city').single()
     if (requestError) {
       if (parcelPhoto?.size && parcelPhotoPath) await supabase.storage.from('customer-saved-parcels').remove([parcelPhotoPath])
       setError(requestError.message)
     }
-    else { setNotice('Delivery request submitted. Your item is saved in Items to send.'); formElement.reset(); await loadCustomer(); window.dispatchEvent(new Event('customer-request-submitted')) }
+    else {
+      if (createdRequest?.id && createdRequest.pickup_city === createdRequest.delivery_city) {
+        const priced = await supabase.functions.invoke('bike-route-price', { body: { requestId: createdRequest.id } })
+        if (priced.error) setNotice('Delivery request saved. Road price is still being calculated; refresh shortly.')
+        else setNotice(`Delivery request saved. Estimated bike price: ₦${Number(priced.data?.customer_price_ngn).toLocaleString('en-NG')}. A company must accept before payment.`)
+      } else setNotice('Delivery request submitted. Your item is saved in Items to send.')
+      formElement.reset(); await loadCustomer(); window.dispatchEvent(new Event('customer-request-submitted'))
+    }
     setBusy(false)
   }
 
@@ -932,6 +940,7 @@ function PartnerPortal({ supabase, userId, canRespond, onError, onNotice }: {
     : assignments
   return <main className="partner-page">
     {canRespond && <PartnerCompanyWelcome supabase={supabase} onError={onError} onNotice={onNotice} />}
+    {canRespond && <BikeFuelPanel supabase={supabase} onError={onError} onNotice={onNotice} />}
     {canRespond && managerPartnerIds.map((partnerId) => <CompanyDispatchHours key={partnerId} supabase={supabase} partnerId={partnerId} onError={onError} onNotice={onNotice} />)}
     {canRespond && <PartnerBidScreen supabase={supabase} partnerIds={partnerIds} onError={onError} onNotice={onNotice} />}
     {canRespond && <PartnerRidersPanel supabase={supabase} userId={userId} onError={onError} onNotice={onNotice} />}
@@ -1187,7 +1196,7 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
       <strong>Confirm parcel arrival</strong><span>{pendingConfirmation.request_number}: your rider has asked you to verify delivery.</span><span>Review this parcel</span>
     </button>}
     {activeFrame === 'home' && <>
-      {requests[0] && ['submitted', 'under_review'].includes(requests[0].status) && <section className="customer-app-frame" aria-label="Latest delivery update"><p className="eyebrow">LATEST DELIVERY · {requests[0].request_number}</p><CustomerQuotePanel supabase={supabase} requestIds={[requests[0].id]} pendingRequestIds={['waiting', 'bidding'].includes(requests[0].dispatch_match_status ?? '') ? [requests[0].id] : []} paymentReceivedAtByRequest={paymentReceivedAtByRequest} onError={onError} onNotice={onNotice} onRefresh={onRefresh} /></section>}
+      {requests[0] && ['submitted', 'under_review'].includes(requests[0].status) && <section className="customer-app-frame" aria-label="Latest delivery update"><p className="eyebrow">LATEST DELIVERY · {requests[0].request_number}</p><CustomerQuotePanel supabase={supabase} requestIds={[requests[0].id]} pendingRequestIds={['waiting', 'bidding'].includes(requests[0].dispatch_match_status ?? '') ? [requests[0].id] : []} localRequestIds={requests[0].pickup_city === requests[0].delivery_city ? [requests[0].id] : []} paymentReceivedAtByRequest={paymentReceivedAtByRequest} onError={onError} onNotice={onNotice} onRefresh={onRefresh} /></section>}
       <nav className="customer-launch-grid" aria-label="Customer navigation">
         <button className="customer-launch-card" type="button" onClick={() => openFrame('send')}><span className="customer-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5v-9Z"/><path d="m3.5 7.7 8.5 4.4 8.5-4.4M12 12v9M7.5 5.2l9 4.6"/></svg></span><strong>Send items</strong><small>Book a pickup and delivery</small></button>
         <button className="customer-launch-card" type="button" onClick={openDeliveryInfo}><span className="customer-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></svg></span><strong>Edit my delivery info</strong><small>Work, home and other addresses</small></button>
@@ -1240,7 +1249,7 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
     {activeFrame === 'tracking' && <section className="history-panel customer-history customer-app-frame">
       <div className="history-heading"><div><p className="eyebrow">TRACKING</p><h2>Your deliveries</h2></div><span className="request-count">{requests.length}</span><button className="text-button" type="button" onClick={onRefresh}>Refresh</button></div>
       {requests.length === 0 ? <div className="empty-state"><span className="empty-icon" aria-hidden="true">?</span><h3>No deliveries yet</h3></div> : <>
-        <CustomerQuotePanel supabase={supabase} requestIds={requests.map((request) => request.id)} pendingRequestIds={requests.filter((request) => ['waiting', 'bidding'].includes(request.dispatch_match_status ?? '')).map((request) => request.id)} paymentReceivedAtByRequest={paymentReceivedAtByRequest} onError={onError} onNotice={onNotice} onRefresh={onRefresh} />
+        <CustomerQuotePanel supabase={supabase} requestIds={requests.map((request) => request.id)} pendingRequestIds={requests.filter((request) => ['waiting', 'bidding'].includes(request.dispatch_match_status ?? '')).map((request) => request.id)} localRequestIds={requests.filter((request) => request.pickup_city === request.delivery_city).map((request) => request.id)} paymentReceivedAtByRequest={paymentReceivedAtByRequest} onError={onError} onNotice={onNotice} onRefresh={onRefresh} />
         <div className="customer-delivery-groups">{Array.from(requests.reduce((groups, request) => {
           const date = new Intl.DateTimeFormat('en-NG', { dateStyle: 'long' }).format(new Date(request.created_at))
           const group = groups.get(date) ?? []

@@ -8,6 +8,8 @@ type CustomerQuote = { request_id: string; customer_price_ngn: number | null; ex
 type PaymentHold = { request_id: string; status: string; amount_ngn: number; account_number: string | null;
   bank_name: string | null; expires_at: string; reference: string }
 type CustomerBidState = { windows: QuoteWindow[]; quotes: CustomerQuote[]; holds: PaymentHold[] }
+type BikePrice = { request_id: string; customer_price_ngn: number; distance_metres: number;
+  duration_seconds: number; estimated_fuel_litres: number }
 const TERMINAL_NOTICE_MS = 10 * 60 * 1000
 function terminalNoticeDeadline(hold: PaymentHold, paymentReceivedAt?: string) {
   const timestamp = Date.parse(hold.status === 'paid' && paymentReceivedAt ? paymentReceivedAt : hold.expires_at)
@@ -20,7 +22,7 @@ type OpenRequest = { request_id: string; request_number: string; pickup_city: st
 const money = (value: number) => new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' }).format(value)
 const date = (value: string) => new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 
-export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [], paymentReceivedAtByRequest = {}, onError, onNotice, onRefresh }: { supabase: SupabaseClient; requestIds: string[]; pendingRequestIds?: string[]; paymentReceivedAtByRequest?: Record<string, string>; onError: (message: string) => void; onNotice: (message: string) => void; onRefresh: () => void }) {
+export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [], localRequestIds = [], paymentReceivedAtByRequest = {}, onError, onNotice, onRefresh }: { supabase: SupabaseClient; requestIds: string[]; pendingRequestIds?: string[]; localRequestIds?: string[]; paymentReceivedAtByRequest?: Record<string, string>; onError: (message: string) => void; onNotice: (message: string) => void; onRefresh: () => void }) {
   const requestIdKey = requestIds.join(',')
   const pendingIdKey = pendingRequestIds.join(',')
   const pendingIds = new Set(pendingRequestIds)
@@ -30,6 +32,7 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
   const holdsRef = useRef(holds)
   useEffect(() => { holdsRef.current = holds }, [holds])
   const [offers, setOffers] = useState<Record<string, CustomerBid[]>>({})
+  const [bikePrices, setBikePrices] = useState<Record<string, BikePrice>>({})
   const [now, setNow] = useState(0)
   const [busy, setBusy] = useState('')
   const [copyMessage, setCopyMessage] = useState('')
@@ -44,8 +47,14 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
     try {
     const ids = requestIdKey ? requestIdKey.split(',') : []
     if (!ids.length) { setWindows([]); setQuotes([]); setOffers({}); setHolds({}); return }
-    const { data, error } = await supabase.rpc('list_customer_bid_state', { p_request_ids: ids })
+    const [{ data, error }, pricesResult] = await Promise.all([
+      supabase.rpc('list_customer_bid_state', { p_request_ids: ids }),
+      supabase.from('bike_route_prices').select('request_id,customer_price_ngn,distance_metres,duration_seconds,estimated_fuel_litres').in('request_id', ids),
+    ])
     if (error) { onError(error.message); return }
+    if (pricesResult.error) { onError(pricesResult.error.message); return }
+    const priceMap = Object.fromEntries(((pricesResult.data ?? []) as BikePrice[]).map((price) => [price.request_id, price]))
+    setBikePrices(priceMap)
     const state = data && typeof data === 'object' && !Array.isArray(data) ? data as CustomerBidState : null
     if (!state || !Array.isArray(state.windows) || !Array.isArray(state.quotes) || !Array.isArray(state.holds)) {
       onError('Could not read delivery bidding. Refresh to try again.'); return
@@ -56,7 +65,7 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
     setWindows(nextWindows)
     setQuotes(nextQuotes)
     setHolds(Object.fromEntries(state.holds.filter((hold) => ids.includes(hold.request_id)).map((hold) => [hold.request_id, hold])))
-    const ready = nextWindows.filter((row) => new Date(row.deadline_at).getTime() <= Date.now()
+    const ready = nextWindows.filter((row) => (new Date(row.deadline_at).getTime() <= Date.now() || !!priceMap[row.request_id])
       && ['matching', 'open', 'awaiting_customer_selection'].includes(row.status)
       && !nextQuotes.some((quote) => quote.request_id === row.request_id))
     const results = await Promise.all(ready.map(async (row) => {
@@ -118,6 +127,13 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
     else { onNotice(data?.status === 'management' ? 'Company selected. Your final delivery price is being prepared.' : 'Company selected. Pay within two minutes to confirm the rider.'); await load(); onRefresh() }
     setBusy('')
   }
+  async function retryBikePrice(requestId: string) {
+    setBusy(requestId)
+    const { data, error } = await supabase.functions.invoke('bike-route-price', { body: { requestId } })
+    if (error) onError('Road pricing is unavailable. Please try again shortly.')
+    else { onNotice(`Bike price ready: ${money(Number(data.customer_price_ngn))}.`); await load() }
+    setBusy('')
+  }
   async function copyAccount(accountNumber: string) {
     try {
       await navigator.clipboard.writeText(accountNumber)
@@ -144,6 +160,8 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
     const quote = quotes.find((row) => row.request_id === requestId)
     const bidWindow = windows.find((row) => row.request_id === requestId)
     const hold = holds[requestId]
+    const bikePrice = bikePrices[requestId]
+    const priceRetry = localRequestIds.includes(requestId) && !bikePrice && !hold && !quote
     if (hold) {
       const seconds = Math.max(0, Math.ceil((new Date(hold.expires_at).getTime() - now) / 1000))
       const active = ['initializing', 'pending'].includes(hold.status) && seconds > 0
@@ -161,24 +179,26 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
       </section>
     }
     if (quote) return <div className="customer-quote-card" key={requestId}><strong>{quote.customer_price_ngn == null ? 'Quote under review' : `Delivery quote: ${money(Number(quote.customer_price_ngn))}`}</strong><small>{quote.expires_at ? `Accept by ${date(quote.expires_at)} · ` : ''}{quote.status.replaceAll('_', ' ')}</small>{quote.status === 'sent' && quote.customer_price_ngn != null && <button className="primary-button" disabled={busy === requestId} onClick={() => void accept(requestId)}>{busy === requestId ? 'Accepting...' : 'Accept quote'}</button>}</div>
-    if (bidWindow?.status === 'no_bids' && pendingIds.has(requestId)) return <section className="customer-bid-panel" key={requestId} role="status"><div className="customer-bid-wait"><div className="customer-bid-radar" aria-hidden="true"><span /><span /><span /><i /></div><div className="customer-bid-wait-copy"><h3>Searching for a rider</h3><p>We will keep checking for a rider whose route fits your delivery.</p><div className="customer-bid-progress customer-bid-progress-search" aria-label="Searching for a matching rider"><span /></div><small>Searching automatically</small></div></div></section>
+    if (bidWindow?.status === 'no_bids' && pendingIds.has(requestId)) return <section className="customer-bid-panel" key={requestId} role="status">{bikePrice && <p><strong>Bike delivery price: {money(bikePrice.customer_price_ngn)}</strong> · {(bikePrice.distance_metres / 1000).toFixed(1)} km · about {Math.ceil(bikePrice.duration_seconds / 60)} min on a direct trip</p>}<div className="customer-bid-wait"><div className="customer-bid-radar" aria-hidden="true"><span /><span /><span /><i /></div><div className="customer-bid-wait-copy"><h3>Searching for a rider</h3><p>We will keep checking for a rider whose route fits your delivery.</p><div className="customer-bid-progress customer-bid-progress-search" aria-label="Searching for a matching rider"><span /></div><small>Searching automatically</small></div></div></section>
     if (bidWindow?.status === 'no_bids') return <p className="customer-bid-empty" key={requestId}>No companies bid this time. Try matching again.</p>
-    if (bidWindow?.status === 'matching') return <section className="customer-bid-panel" key={requestId} role="status"><div className="customer-bid-wait"><div className="customer-bid-radar" aria-hidden="true"><span /><span /><span /><i /></div><div className="customer-bid-wait-copy"><h3>Finding interested riders</h3><p>Checking riders near your pickup and those already heading your way.</p><div className="customer-bid-progress customer-bid-progress-search" aria-label="Matching riders"><span /></div></div></div></section>
+    if (bidWindow?.status === 'matching') return <section className="customer-bid-panel" key={requestId} role="status">{priceRetry && <button type="button" className="secondary-button" disabled={busy === requestId} onClick={() => void retryBikePrice(requestId)}>Get bike price</button>}<div className="customer-bid-wait"><div className="customer-bid-radar" aria-hidden="true"><span /><span /><span /><i /></div><div className="customer-bid-wait-copy"><h3>Finding interested riders</h3><p>Checking riders near your pickup and those already heading your way.</p><div className="customer-bid-progress customer-bid-progress-search" aria-label="Matching riders"><span /></div></div></div></section>
     if (bidWindow) {
       const remaining = Math.max(0, Math.ceil((new Date(bidWindow.deadline_at).getTime() - now) / 1000))
-      const waiting = remaining > 0
+      const waiting = remaining > 0 && !(bikePrice && (offers[requestId]?.length ?? 0) > 0)
       const bids = offers[requestId] ?? []
       return <section className="customer-bid-panel" key={requestId} aria-label="Interested companies">
+        {bikePrice && <p><strong>Bike delivery price: {money(bikePrice.customer_price_ngn)}</strong> · {(bikePrice.distance_metres / 1000).toFixed(1)} km · about {Math.ceil(bikePrice.duration_seconds / 60)} min without detours. Company acceptance is needed before payment.</p>}
+        {priceRetry && <button type="button" className="secondary-button" disabled={busy === requestId} onClick={() => void retryBikePrice(requestId)}>Get bike price</button>}
         {waiting ? <div className="customer-bid-wait" role="status">
           <div className="customer-bid-radar" aria-hidden="true"><span /><span /><span /><i /></div>
           <div className="customer-bid-wait-copy"><p className="eyebrow">MATCHING YOUR DELIVERY</p><h3>Finding interested riders</h3>
-            {remaining > 60 ? <><p>Companies are taking turns to bid on your delivery.</p><div className="customer-bid-progress customer-bid-progress-search" aria-label="Company bids queued"><span /></div><small>Last company window closes in about {Math.ceil(remaining / 60)} minutes</small></>
-              : <><p>Companies have {remaining} seconds left to bid.</p><div className="customer-bid-progress" role="progressbar" aria-label="Bidding window" aria-valuemin={0} aria-valuemax={60} aria-valuenow={Math.max(0, 60 - remaining)}><span style={{ width: `${Math.min(100, Math.max(0, (60 - remaining) / 60 * 100))}%` }} /></div><small>{remaining}s left in the bidding window</small></>}</div>
+            {remaining > 60 ? <><p>{bikePrice ? 'Companies are reviewing your fixed-price motorcycle offer.' : 'Companies are taking turns to bid on your delivery.'}</p><div className="customer-bid-progress customer-bid-progress-search" aria-label="Company offers queued"><span /></div><small>Last company window closes in about {Math.ceil(remaining / 60)} minutes</small></>
+              : <><p>Companies have {remaining} seconds to respond.</p><div className="customer-bid-progress" role="progressbar" aria-label="Company response window" aria-valuemin={0} aria-valuemax={60} aria-valuenow={Math.max(0, 60 - remaining)}><span style={{ width: `${Math.min(100, Math.max(0, (60 - remaining) / 60 * 100))}%` }} /></div><small>{remaining}s left in this response window</small></>}</div>
         </div> : bids.length ? <><header className="customer-bid-heading"><p className="eyebrow">YOUR DELIVERY OPTIONS</p><h3>You have {bids.length} interested {bids.length === 1 ? 'company' : 'companies'}</h3></header>
           <div className="customer-bid-grid">{bids.map((bid) => <article className="customer-bid-offer" key={bid.bid_id}>
             <div className="customer-bid-rider">{bid.rider_photo_url ? <img src={bid.rider_photo_url} alt={`${bid.rider_name ?? 'Rider'} profile`} /> : <div className="customer-bid-no-photo" aria-label="No rider photo">Photo unavailable</div>}
               <div><strong>{bid.partner_name}</strong><span>{bid.rider_name ?? 'Rider to be assigned'}</span></div></div>
-            <strong className="customer-bid-price">{money(Number(bid.bid_amount_ngn))}</strong><small>Company bid. For local delivery, this is your final price; interstate pricing follows approval.</small>
+            <strong className="customer-bid-price">{money(Number(bid.bid_amount_ngn))}</strong><small>{bikePrice ? 'Fixed motorcycle price. Pay once you choose this company.' : 'Company bid. For local delivery, this is your final price; interstate pricing follows approval.'}</small>
             <div className="customer-bid-contacts"><span>Rider: {bid.rider_phone ?? 'Number not supplied'}</span><span>Company: {bid.partner_phone ?? 'Number not supplied'}</span></div>
             <button type="button" className="primary-button" disabled={busy === requestId} onClick={() => void choose(requestId, bid.bid_id)}>{busy === requestId ? 'Selecting...' : 'Choose this company'}</button>
           </article>)}</div>

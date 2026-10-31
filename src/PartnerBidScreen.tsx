@@ -11,6 +11,8 @@ type DeliveryPin = { request_id: string; latitude: number; longitude: number }
 type BidRoute = { request_id: string; pickup_address: string | null; delivery_address: string | null }
 type RiderLoad = { request_id: string; rider_name: string; load_state: 'available' | 'almost_full' | 'full' }
 type BidDisplay = { jobs: BidJob[]; pickups: Pickup[]; deliveries: DeliveryPin[]; routes: BidRoute[]; loads: RiderLoad[] }
+type BikePrice = { request_id: string; customer_price_ngn: number; company_share_ngn: number;
+  distance_metres: number; duration_seconds: number; estimated_fuel_litres: number; declined: boolean }
 const money = (value: number) => new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' }).format(value)
 
 export default function PartnerBidScreen({ supabase, partnerIds, onError, onNotice }: Props) {
@@ -24,6 +26,7 @@ export default function PartnerBidScreen({ supabase, partnerIds, onError, onNoti
   const [deliveryPins, setDeliveryPins] = useState<DeliveryPin[]>([])
   const [routes, setRoutes] = useState<BidRoute[]>([])
   const [riderLoads, setRiderLoads] = useState<RiderLoad[]>([])
+  const [bikePrices, setBikePrices] = useState<BikePrice[]>([])
   const loading = useRef(false)
   const photos = useRef(new Map<string, { url: string; expires: number }>())
 
@@ -32,8 +35,12 @@ export default function PartnerBidScreen({ supabase, partnerIds, onError, onNoti
     if (loading.current) return
     loading.current = true
     try {
-    const { data, error } = await supabase.rpc('list_company_bid_display')
+    const [{ data, error }, bikeResult] = await Promise.all([
+      supabase.rpc('list_company_bid_display'), supabase.rpc('list_company_bike_prices'),
+    ])
     if (error) { onError(error.message); return }
+    if (bikeResult.error) { onError(bikeResult.error.message); return }
+    setBikePrices(Array.isArray(bikeResult.data) ? bikeResult.data as BikePrice[] : [])
     const snapshot = data && typeof data === 'object' && !Array.isArray(data) ? data as BidDisplay : null
     if (!snapshot || !Array.isArray(snapshot.jobs) || !Array.isArray(snapshot.pickups) || !Array.isArray(snapshot.deliveries) || !Array.isArray(snapshot.routes) || !Array.isArray(snapshot.loads)) {
       onError('Could not read the company bidding screen. Refresh to try again.'); return
@@ -99,6 +106,24 @@ export default function PartnerBidScreen({ supabase, partnerIds, onError, onNoti
     setBusy(null)
   }
 
+  async function acceptBike(job: BidJob) {
+    if (busy) return
+    setBusy(job.request_id)
+    const { error } = await supabase.rpc('accept_bike_price', { p_request_id: job.request_id })
+    if (error) onError(error.message)
+    else { onNotice('Motorcycle job accepted at the displayed fixed price.'); await load() }
+    setBusy(null)
+  }
+
+  async function declineBike(job: BidJob) {
+    if (busy) return
+    setBusy(job.request_id)
+    const { error } = await supabase.rpc('decline_bike_price', { p_request_id: job.request_id })
+    if (error) onError(error.message)
+    else { onNotice('Motorcycle job declined.'); await load() }
+    setBusy(null)
+  }
+
   return <section className="partner-bid-screen" aria-label="Bidding screen">
     <header className="partner-bid-screen-header"><div><p className="eyebrow">LIVE BIDDING</p><h2>Jobs to bid on</h2><small>Jobs appear one at a time for each company. Each gets a full minute.</small></div><button className="secondary-button" onClick={() => void load()}>Refresh</button></header>
     <div className="partner-bid-screen-display">
@@ -109,6 +134,7 @@ export default function PartnerBidScreen({ supabase, partnerIds, onError, onNoti
         const deliveryPin = deliveryPins.find((item) => item.request_id === job.request_id)
         const route = routes.find((item) => item.request_id === job.request_id)
         const riderLoad = riderLoads.find((item) => item.request_id === job.request_id)
+        const bikePrice = bikePrices.find((item) => item.request_id === job.request_id)
         return <article className="partner-bid-job" key={job.request_id}>
           <div className="partner-bid-photo">{job.photo_url ? <img src={job.photo_url} alt={`Goods for ${job.request_number}`} /> : <span>No parcel photo supplied</span>}</div>
           <div className="partner-bid-details"><small>{job.request_number}</small><h3>{job.parcel_summary || parcel?.description || 'Parcel delivery'}</h3>
@@ -121,8 +147,9 @@ export default function PartnerBidScreen({ supabase, partnerIds, onError, onNoti
               <p><a href={`https://www.google.com/maps/search/?api=1&query=${pickup.latitude},${pickup.longitude}`} target="_blank" rel="noreferrer">Open pickup directions</a>{pickup.location_source === 'search' && <small> Approximate address match</small>}</p>
             </div>}
             {deliveryPin && <p><a href={`https://www.google.com/maps/search/?api=1&query=${deliveryPin.latitude},${deliveryPin.longitude}`} target="_blank" rel="noreferrer">Open delivery pin</a></p>}
-            <div className="partner-bid-actions"><strong className="partner-bid-timer" aria-label={`${remaining} seconds remaining`}>{String(Math.floor(remaining / 60)).padStart(2, '0')}:{String(remaining % 60).padStart(2, '0')}</strong>{job.own_bid_amount_ngn != null ? <span>Your bid: {money(Number(job.own_bid_amount_ngn))}</span> : <button className="partner-bid-button" type="button" onClick={() => setOpenBid(openBid === job.request_id ? null : job.request_id)}>Bid</button>}</div>
-            {openBid === job.request_id && job.own_bid_amount_ngn == null && <form className="partner-bid-form" onSubmit={(event) => void submit(event, job)}><div className="field-row"><label className="field"><span>Total price (NGN)</span><input name="amount" type="number" min="1000" step="0.01" required onChange={(event) => setBidAmounts((current) => ({ ...current, [job.request_id]: Number(event.target.value) }))} /></label><label className="field"><span>Delivery estimate (hours)</span><input name="eta_hours" type="number" min="1" required /></label></div>{job.pickup_city === job.delivery_city && <p className="partner-bid-split">Local delivery: Kwik-Parsel retains 25%; your company receives 75% after confirmed delivery{bidAmounts[job.request_id] >= 1000 ? ` (${money(Math.round(bidAmounts[job.request_id] * 0.75 * 100) / 100)})` : ""}.</p>}<details><summary>Bid terms</summary><label className="field"><span>Inclusions</span><textarea name="inclusions" required rows={2} defaultValue="Pickup and delivery" /></label><label className="field"><span>Exclusions</span><textarea name="exclusions" required rows={2} defaultValue="None" /></label><label className="field"><span>Surcharge conditions (write None if none)</span><textarea name="surcharge_conditions" required rows={2} defaultValue="None" /></label></details><label className="partner-bid-confirm"><input type="checkbox" name="availability_confirmed" required /> I confirm this parcel fits the rider's box and the rider is available for this route and timing</label><button className="partner-bid-button" disabled={busy === job.request_id}>{busy === job.request_id ? 'Submitting...' : 'Submit bid'}</button></form>}
+            {bikePrice && <p className="partner-bid-split">Customer price {money(bikePrice.customer_price_ngn)} · Kwik-Parsel 25% · Your company {money(bikePrice.company_share_ngn)} (75%) after delivery. Pickup to drop-off: {(bikePrice.distance_metres / 1000).toFixed(1)} km · about {Math.ceil(bikePrice.duration_seconds / 60)} minutes · modeled {Number(bikePrice.estimated_fuel_litres).toFixed(2)} L under normal bike conditions without detours. Rider travel to pickup is additional. Actual fuel and time can vary.</p>}
+            <div className="partner-bid-actions"><strong className="partner-bid-timer" aria-label={`${remaining} seconds remaining`}>{String(Math.floor(remaining / 60)).padStart(2, '0')}:{String(remaining % 60).padStart(2, '0')}</strong>{job.own_bid_amount_ngn != null ? <span>{bikePrice ? 'Accepted price' : 'Your bid'}: {money(Number(job.own_bid_amount_ngn))}</span> : bikePrice?.declined ? <span>Declined</span> : bikePrice ? <><button className="partner-bid-button" type="button" disabled={busy === job.request_id} onClick={() => void acceptBike(job)}>{busy === job.request_id ? 'Accepting…' : 'Accept job'}</button><button className="secondary-button" type="button" disabled={busy === job.request_id} onClick={() => void declineBike(job)}>Decline</button></> : <button className="partner-bid-button" type="button" onClick={() => setOpenBid(openBid === job.request_id ? null : job.request_id)}>Bid</button>}</div>
+            {openBid === job.request_id && !bikePrice && job.own_bid_amount_ngn == null && <form className="partner-bid-form" onSubmit={(event) => void submit(event, job)}><div className="field-row"><label className="field"><span>Total price (NGN)</span><input name="amount" type="number" min="1000" step="0.01" required onChange={(event) => setBidAmounts((current) => ({ ...current, [job.request_id]: Number(event.target.value) }))} /></label><label className="field"><span>Delivery estimate (hours)</span><input name="eta_hours" type="number" min="1" required /></label></div>{job.pickup_city === job.delivery_city && <p className="partner-bid-split">Local delivery: Kwik-Parsel retains 25%; your company receives 75% after confirmed delivery{bidAmounts[job.request_id] >= 1000 ? ` (${money(Math.round(bidAmounts[job.request_id] * 0.75 * 100) / 100)})` : ""}.</p>}<details><summary>Bid terms</summary><label className="field"><span>Inclusions</span><textarea name="inclusions" required rows={2} defaultValue="Pickup and delivery" /></label><label className="field"><span>Exclusions</span><textarea name="exclusions" required rows={2} defaultValue="None" /></label><label className="field"><span>Surcharge conditions (write None if none)</span><textarea name="surcharge_conditions" required rows={2} defaultValue="None" /></label></details><label className="partner-bid-confirm"><input type="checkbox" name="availability_confirmed" required /> I confirm this parcel fits the rider's box and the rider is available for this route and timing</label><button className="partner-bid-button" disabled={busy === job.request_id}>{busy === job.request_id ? 'Submitting...' : 'Submit bid'}</button></form>}
           </div>
         </article>
       })}

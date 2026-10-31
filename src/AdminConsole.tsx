@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import AdminQuotePricingPanel from './AdminQuotePricingPanel'
+import AdminBikePricePanel from './AdminBikePricePanel'
 import CoverageAdminPanel from './CoverageAdminPanel'
 import PartnerVehicleRegistration from './PartnerVehicleRegistration'
 import DocumentPreview, { type PreviewDocument } from './DocumentPreview'
@@ -81,6 +82,7 @@ export default function AdminConsole({ supabase, onError, onNotice }: {
   return <main className="dashboard admin-page">
     <div className="dashboard-heading"><div><p className="eyebrow">KWIK-PARSEL SUPER ADMIN</p><h1>Access control</h1><p className="section-intro">Approve verified staff and partners, link partners to their company, and revoke access when needed.</p></div><button className="secondary-button" onClick={() => void load()} disabled={loading}>Refresh</button></div>
     <AdminQuotePricingPanel supabase={supabase} onError={onError} onNotice={onNotice} />
+    <AdminBikePricePanel supabase={supabase} onError={onError} onNotice={onNotice} />
     <CoverageAdminPanel supabase={supabase} onError={onError} onNotice={onNotice} />
     <section className="form-card"><h2>Riders awaiting approval</h2>{riderReviews.length === 0 ? <p>No rider submissions need review.</p> : <div className="admin-list">{riderReviews.map((rider) => <article className="admin-row" key={rider.id}><div><strong>{rider.full_name}</strong><p>{rider.logistics_partners?.partner_name} · NIN ending {rider.nin.slice(-4)}</p><div className="company-review-actions">{rider.nin_document_path && <button type="button" className="secondary-button" onClick={() => setPreview({ bucket: 'rider-evidence', path: rider.nin_document_path!, title: `${rider.full_name} NIN document` })}>View NIN</button>}<button type="button" className="secondary-button" onClick={() => setPreview({ bucket: 'rider-evidence', path: rider.licence_document_path, title: `${rider.full_name} licence` })}>View licence</button></div></div><div className="company-review-actions"><button type="button" className="primary-button" disabled={busy === rider.id} onClick={() => void reviewRider(rider, true)}>Approve</button><button type="button" className="secondary-button" disabled={busy === rider.id} onClick={() => void reviewRider(rider, false)}>Reject</button></div></article>)}</div>}</section>
     <section className="form-card"><h2>Access requests</h2>{loading ? <p>Loading requests...</p> : applications.length === 0 ? <p>No requests yet.</p> : <div className="admin-list">{applications.map((application) => <article className="company-review-card" key={application.id} aria-label={application.organization_name || application.full_name || application.email}>
