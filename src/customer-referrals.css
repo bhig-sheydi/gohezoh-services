@@ -1,0 +1,20 @@
+.customer-referral-panel{margin-block:1.25rem;padding:clamp(1rem,3vw,1.6rem);border:1px solid var(--line,#cbd5ce);border-radius:18px;background:var(--surface,#fff);color:var(--ink,inherit)}
+.customer-referral-panel header{display:flex;flex-wrap:wrap;align-items:start;justify-content:space-between;gap:1rem}
+.customer-referral-panel h2,.customer-referral-panel h3{margin:.25rem 0 .8rem}
+.customer-referral-panel p{max-width:72ch;line-height:1.5}
+.customer-referral-prize{padding:.55rem .8rem;border-radius:999px;background:#163c2c;color:#fff;font-weight:800}
+.customer-referral-rule,.customer-referral-panel small{color:var(--muted,#617267)}
+.customer-referral-join,.customer-referral-links{display:flex;flex-wrap:wrap;align-items:end;gap:.8rem;margin-block:1rem}
+.customer-referral-join .field,.customer-referral-links .field{flex:1 1 230px}
+.customer-referral-join small{flex-basis:100%}
+.customer-referral-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:.7rem;margin-block:1rem}
+.customer-referral-stats>div{display:grid;gap:.3rem;padding:.8rem;border:1px solid var(--line,#cbd5ce);border-radius:12px}
+.customer-referral-stats strong{font-size:1.25rem}
+.customer-referral-progress{display:grid;gap:.4rem;max-width:460px;margin-block:1rem}
+.customer-referral-progress progress{width:100%;height:1rem}
+.customer-referral-leaderboard ol{list-style:none;padding:0;display:grid;gap:.4rem}
+.customer-referral-leaderboard li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.2rem .8rem;padding:.65rem .8rem;border:1px solid var(--line,#cbd5ce);border-radius:10px}
+.customer-referral-leaderboard li small{grid-column:1/-1}
+:root[data-theme='dark'] .customer-referral-panel{background:#172624;border-color:#38534d;color:#ecf5f1}
+:root[data-theme='dark'] .customer-referral-stats>div,:root[data-theme='dark'] .customer-referral-leaderboard li{border-color:#38534d}
+:root[data-theme='dark'] .customer-referral-rule,:root[data-theme='dark'] .customer-referral-panel small{color:#b9cbc2}

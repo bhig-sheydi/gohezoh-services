@@ -195,6 +195,25 @@ describe('account access', () => {
     expect(await screen.findByText(/Referral link applied/i)).toBeInTheDocument()
   })
 
+  it('accepts a manually entered customer-program code for a logistics partner signup', async () => {
+    mockState.session = null
+    render(<App />)
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: 'Create account' }))
+    await user.selectOptions(screen.getByLabelText('Sign up as'), 'staff')
+    await user.selectOptions(screen.getByLabelText('Requested category'), 'partner')
+    await user.type(screen.getByLabelText('Your full name'), 'Ada Logistics')
+    await user.type(screen.getByLabelText('Referral code (optional)'), 'kp1234567890')
+    await user.type(screen.getByLabelText('Email address'), 'logistics@example.test')
+    await user.type(screen.getByLabelText('Password'), 'strong-password-123')
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+    await waitFor(() => expect((mockState.client.auth as { signUp: ReturnType<typeof vi.fn> }).signUp).toHaveBeenCalledWith(expect.objectContaining({
+      options: expect.objectContaining({ data: expect.objectContaining({
+        account_kind: 'staff', requested_role: 'partner', referral_code: 'KP1234567890',
+      }) }),
+    })))
+  })
+
   it('creates a customer profile automatically from signup details', async () => {
     mockState.roles = ['customer']
     mockState.noCustomerMembership = true
