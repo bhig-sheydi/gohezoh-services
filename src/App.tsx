@@ -976,7 +976,10 @@ function PartnerPortal({ supabase, userId, canRespond, onError, onNotice }: {
 function AuthPanel({ supabase, onError, onNotice, busy, setBusy }: {
   supabase: ReturnType<typeof getSupabaseClient>; onError: (message: string) => void; onNotice: (message: string) => void; busy: boolean; setBusy: (value: boolean) => void
 }) {
-  const [mode, setMode] = useState<'signin' | 'signup' | 'forgot' | 'otp'>('signin')
+  const [mode, setMode] = useState<'signin' | 'signup' | 'forgot' | 'otp'>(() => {
+    const code = new URLSearchParams(window.location.search).get('ref')?.trim() ?? ''
+    return /^[a-z0-9]{8,16}$/i.test(code) ? 'signup' : 'signin'
+  })
   const marketerInvite = new URLSearchParams(window.location.search).get('marketer_invite')?.trim() ?? ''
   const partnerInvite = new URLSearchParams(window.location.hash.replace(/^#/, '')).get('partner_invite')?.trim()
     ?? new URLSearchParams(window.location.search).get('partner_invite')?.trim() ?? ''
