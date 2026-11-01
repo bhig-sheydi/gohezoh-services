@@ -9,3 +9,7 @@
 .bike-fuel-card meter{width:100%;height:1.2rem}
 .bike-fuel-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));align-items:end;gap:.8rem;margin-top:1rem}
 .bike-fuel-form h3{grid-column:1/-1}
+:root[data-theme='dark'] .bike-fuel-panel{background:#172624;border-color:#3b5248;color:#e9f2ea}
+:root[data-theme='dark'] .bike-fuel-card{background:#20352c;border-color:#3b5248}
+:root[data-theme='dark'] .bike-fuel-caution,:root[data-theme='dark'] .bike-fuel-card small{color:#b2c3b7}
+:root[data-theme='dark'] .bike-fuel-card meter{color-scheme:dark}

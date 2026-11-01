@@ -18,3 +18,5 @@
 :root[data-theme='dark'] .customer-referral-panel{background:#172624;border-color:#38534d;color:#ecf5f1}
 :root[data-theme='dark'] .customer-referral-stats>div,:root[data-theme='dark'] .customer-referral-leaderboard li{border-color:#38534d}
 :root[data-theme='dark'] .customer-referral-rule,:root[data-theme='dark'] .customer-referral-panel small{color:#b9cbc2}
+:root[data-theme='dark'] .customer-referral-panel .field input{background:#20352c;border-color:#4d6659;color:#e9f2ea}
+:root[data-theme='dark'] .customer-referral-panel progress{color-scheme:dark}

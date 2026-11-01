@@ -1205,8 +1205,8 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
         <button className="customer-launch-card" type="button" onClick={() => openFrame('updates')}><span className="customer-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9m-8 12h4"/></svg></span><strong>Updates</strong><small>{notifications.filter((item) => !item.read_at).length ? `${notifications.filter((item) => !item.read_at).length} new` : 'Messages about your parcels'}</small></button>
         <button className="customer-launch-card" type="button" onClick={() => openFrame('tracking')}><span className="customer-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M4 19V5m0 14h16"/><path d="m7 15 4-4 3 2 5-6"/><path d="M15 7h4v4"/></svg></span><strong>Tracking</strong><small>{requests.length ? hasOlderRequests ? "Recent deliveries" : `${requests.length} deliveries` : 'Your deliveries'}</small></button>
       </nav>
-      <CustomerReferralPanel supabase={supabase} onError={onError} onNotice={onNotice} />
       <CustomerSavedParcels supabase={supabase} userId={userId} onError={onError} onNotice={onNotice} onUse={(parcel) => { setSelectedParcel(parcel); setCapacityWarning(null); setDeliveryStep(0); setDeliveryStepError(''); setActiveFrame('send') }} />
+      <CustomerReferralPanel supabase={supabase} onError={onError} onNotice={onNotice} />
     </>}
     {activeFrame !== 'home' && <button className="text-button customer-back-button" type="button" onClick={returnHome}>â† Back to customer home</button>}
     {activeFrame === 'send' && <section className="form-card request-card customer-app-frame" aria-labelledby="delivery-details-heading">

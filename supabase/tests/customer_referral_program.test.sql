@@ -7,6 +7,16 @@ begin
     or has_function_privilege('authenticated','public.refresh_customer_referral_earnings(uuid)','EXECUTE') then
     raise exception 'Referral ledger or mutation RPC is directly accessible to clients';
   end if;
+  if exists(select 1 from information_schema.columns where table_schema='public'
+      and table_name='customer_referral_earnings' and column_name='platform_share_ngn')
+    or not exists(select 1 from information_schema.columns where table_schema='public'
+      and table_name='customer_referral_earnings' and column_name='commission_base_ngn') then
+    raise exception 'Referral commission still uses the platform share';
+  end if;
+  if pg_get_functiondef('public.refresh_customer_referral_earnings(uuid)'::regprocedure) not like '%f.partner_cost%'
+    or pg_get_functiondef('public.refresh_customer_referral_earnings(uuid)'::regprocedure) not like '%v_base*0.025%' then
+    raise exception 'Referral commission does not use customer or company earnings at 2.5 percent';
+  end if;
   if not has_function_privilege('authenticated','public.join_customer_referral_program(text)','EXECUTE')
     or not has_function_privilege('authenticated','public.my_customer_referral_dashboard()','EXECUTE') then
     raise exception 'Customer referral RPCs are unavailable';

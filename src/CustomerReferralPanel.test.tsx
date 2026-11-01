@@ -18,6 +18,8 @@ describe('customer referral program', () => {
     render(<CustomerReferralPanel supabase={supabase} onError={vi.fn()} onNotice={vi.fn()} />)
     const user = userEvent.setup()
     expect(await screen.findByRole('button', { name: 'Join referral program' })).toBeInTheDocument()
+    expect(screen.getByText(/2.5% of what your referred customer pays/)).toBeInTheDocument()
+    expect(screen.queryByText(/Kwik-Parsel.s 25% share/)).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Your customer referral code')).not.toBeInTheDocument()
     await user.type(screen.getByLabelText('Public leaderboard name'), 'Ada')
     await user.click(screen.getByRole('button', { name: 'Join referral program' }))

@@ -38,7 +38,7 @@ export default function CustomerReferralPanel({ supabase, onError, onNotice }: {
   const customerLink = member ? `${publicOrigin}/?ref=${encodeURIComponent(member.code)}` : ''
   return <section className="customer-referral-panel" aria-label="Customer referral program">
     <header><div><p className="eyebrow">REFER & EARN</p><h2>Kwik-Parsel marketer program</h2></div><span className="customer-referral-prize">₦1 million year-end prize</span></header>
-    <p>Refer a customer or a new logistics company. For each completed, paid job they bring, you earn 2.5% of Kwik-Parsel’s 25% share from that side. If you refer both sides of one job, both eligible shares count.</p>
+    <p>Refer a customer or a new logistics company. Earn 2.5% of what your referred customer pays, or 2.5% of what your referred company earns, on completed paid deliveries. If you refer both sides of one delivery, both rewards count.</p>
     <p className="customer-referral-rule">The highest completed referred-job value in {dashboard?.year ?? new Date().getFullYear()} wins the ₦1 million prize, provided it reaches at least ₦500,000. Results are provisional until year-end checks.</p>
     {!dashboard ? <p>Loading referral program…</p> : !member ? <form className="customer-referral-join" onSubmit={(event) => void join(event)}>
       <label className="field"><span>Public leaderboard name</span><input name="display_name" minLength={3} maxLength={40} placeholder="Optional · a private alias is generated" /></label>
