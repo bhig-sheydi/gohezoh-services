@@ -111,7 +111,7 @@ export default function RiderAvailability({ supabase }: { supabase: SupabaseClie
     setStatus(enabled ? 'Offline' : 'Getting your location…')
     setEnabled(!enabled)
   }
-  const heading = nativeTracking && enabled && !nativeOnDuty ? 'Off duty · location shared'
+  const heading = nativeTracking && enabled && !nativeOnDuty ? 'Off duty · location on request'
     : enabled && serverOnline === true ? 'On duty'
     : enabled && serverOnline === false ? 'Location paused'
     : enabled || nativeBusy ? 'Connecting' : 'Off duty'
@@ -127,7 +127,7 @@ export default function RiderAvailability({ supabase }: { supabase: SupabaseClie
     {nativeTracking && <button type="button" className="secondary-button" onClick={openRiderBackgroundSettings}>Allow location after reboot</button>}
     {showConsent && <div role="dialog" aria-modal="true" aria-labelledby="rider-location-consent-title" className="form-card rider-location-consent">
       <h3 id="rider-location-consent-title">Allow rider location sharing</h3>
-      <p>Your company can see your phone location while you are on or off duty. Customers can check it twice per hour while you carry their paid, undelivered parcels. With Android background-location permission, sharing may resume after a reboot. A visible Android notification shows while tracking runs.</p>
+      <p>While on duty, your phone reports location automatically. While off duty, it checks for authorized requests about every five minutes and sends a fresh position only when requested. Your company can request it; customers with a paid, active delivery can request it at most twice per hour. With Android background-location permission, the service may resume after a reboot. A visible Android notification shows while it runs.</p>
       <p><a href="/rider-location-terms.html" target="_blank" rel="noreferrer">Read rider location terms</a></p>
       <label><input type="checkbox" checked={consentChecked} onChange={(event) => setConsentChecked(event.target.checked)} /> I understand and agree to location sharing</label>
       <div className="field-row"><button type="button" className="secondary-button" onClick={() => setShowConsent(false)}>Not now</button><button type="button" className="primary-button" disabled={!consentChecked} onClick={() => { window.localStorage.setItem(consentKey, 'accepted'); setShowConsent(false); void toggleDuty(true) }}>Continue</button></div>

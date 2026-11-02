@@ -34,10 +34,14 @@ export default function CustomerRiderTracking({ supabase, jobId }: { supabase: S
   const [revealError, setRevealError] = useState('')
   const [loading, setLoading] = useState(true)
   const [revealing, setRevealing] = useState(false)
+  const [requesting, setRequesting] = useState(false)
+  const [requestedAt, setRequestedAt] = useState<number | null>(null)
   const [showMap, setShowMap] = useState(false)
 
   const refresh = useCallback(async () => {
     if (document.hidden) return
+    const checkedAt = Date.now()
+    setRequestedAt((current) => current && checkedAt - current >= 600_000 ? null : current)
     const { data, error: rpcError } = await supabase.rpc('get_my_delivery_tracking', { p_job_id: jobId })
     if (rpcError) { setError('Tracking is unavailable right now.'); setTracking(null); setReveal(null) }
     else if (!validTracking(data)) { setError('Tracking returned an invalid status.'); setTracking(null); setReveal(null) }
@@ -84,6 +88,14 @@ export default function CustomerRiderTracking({ supabase, jobId }: { supabase: S
       else if (!mappedAddress) setRevealError('No reliable mapped community or street was found near this GPS point. The checked map location is still available below.')
     } finally { setRevealing(false) }
   }
+  async function requestLocation() {
+    if (requesting) return
+    setRequesting(true); setRevealError('')
+    const { error: requestError } = await supabase.rpc('request_customer_rider_location', { p_job_id: jobId })
+    if (requestError) setRevealError(requestError.message)
+    else setRequestedAt(Date.now())
+    setRequesting(false)
+  }
 
   const live = tracking?.state === 'live'
   const lat = reveal?.latitude ?? 0, lon = reveal?.longitude ?? 0
@@ -93,7 +105,7 @@ export default function CustomerRiderTracking({ supabase, jobId }: { supabase: S
     {loading && <p>Checking rider progress…</p>}
     {error && <p role="status">{error}</p>}
     {!loading && !error && tracking?.state === 'awaiting_rider' && <p>A rider has not been assigned yet.</p>}
-    {!loading && !error && tracking?.state === 'offline' && <p>Rider location is unavailable. Tracking resumes when their phone has GPS, internet, and active location sharing.</p>}
+    {!loading && !error && tracking?.state === 'offline' && <div><p>Rider location is not live right now.</p><button type="button" className="secondary-button" disabled={requesting} onClick={() => void requestLocation()}>{requesting ? 'Requesting…' : 'Request rider location'}</button>{requestedAt && <small> Waiting for the rider phone · checks every 5 minutes</small>}</div>}
     {!loading && !error && tracking?.state === 'completed' && <p>Tracking ended for this delivery.</p>}
     {live && <>
       <div className="customer-rider-tracking-stats">

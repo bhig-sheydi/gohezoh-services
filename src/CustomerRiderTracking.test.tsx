@@ -33,10 +33,12 @@ describe('customer rider tracking', () => {
     expect(rpc).toHaveBeenCalledWith('claim_my_rider_location_check', { p_job_id: 'job-1' })
   })
 
-  it('does not offer an address or map when the rider is offline', async () => {
+  it('requests an off-duty fix without revealing a stale address', async () => {
     const rpc = vi.fn().mockResolvedValue({ data: { state: 'offline' }, error: null })
     render(<CustomerRiderTracking supabase={{ rpc } as unknown as SupabaseClient} jobId="job-2" />)
-    await waitFor(() => expect(screen.getByText(/location is unavailable/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText(/location is not live right now/)).toBeInTheDocument())
+    await userEvent.click(screen.getByRole('button', { name: 'Request rider location' }))
+    expect(rpc).toHaveBeenCalledWith('request_customer_rider_location', { p_job_id: 'job-2' })
     expect(screen.queryByRole('button', { name: 'Check rider address' })).not.toBeInTheDocument()
   })
 
