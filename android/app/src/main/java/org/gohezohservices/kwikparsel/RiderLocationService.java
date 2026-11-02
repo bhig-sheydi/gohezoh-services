@@ -29,10 +29,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/** Runs only after the rider taps Go online. Android keeps its notification visible while tracking. */
+/** Visible foreground tracking continues off duty until the rider stops sharing. */
 public final class RiderLocationService extends Service implements LocationListener {
     public static final String ACTION_START = "org.gohezohservices.kwikparsel.START_TRACKING";
     public static final String ACTION_STOP = "org.gohezohservices.kwikparsel.STOP_TRACKING";
+    public static final String ACTION_SET_DUTY = "org.gohezohservices.kwikparsel.SET_DUTY";
+    public static final String EXTRA_DUTY = "onDuty";
     public static final String EXTRA_TOKEN = "trackingToken";
     private static final String CHANNEL = "rider_location";
     private static final String SUPABASE = "https://yejiqfocqmdxjeajoexd.supabase.co";
@@ -44,6 +46,7 @@ public final class RiderLocationService extends Service implements LocationListe
     private volatile long lastSentAt;
     private volatile Location lastSent;
     public static volatile boolean active = false;
+    public static volatile boolean onDuty = false;
     public static volatile String status = "Offline";
 
     @Override public IBinder onBind(Intent intent) { return null; }
@@ -51,6 +54,18 @@ public final class RiderLocationService extends Service implements LocationListe
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
         if (intent == null) { stopSelf(); return START_NOT_STICKY; }
         if (ACTION_STOP.equals(intent.getAction())) { stopTracking(); return START_NOT_STICKY; }
+        if (ACTION_SET_DUTY.equals(intent.getAction())) {
+            if (!active || trackingToken == null) return START_NOT_STICKY;
+            boolean nextDuty = intent.getBooleanExtra(EXTRA_DUTY, false);
+            onDuty = nextDuty;
+            lastSentAt = 0;
+            status = nextDuty ? "On duty · getting phone GPS…" : "Off duty · sharing phone location";
+            if (!nextDuty) uploads.execute(() -> {
+                try { postRpc("set_native_rider_duty", new JSONObject().put("p_token", trackingToken).put("p_on_duty", false)); }
+                catch (Exception ignored) { status = "Off duty · waiting for internet"; }
+            });
+            return START_NOT_STICKY;
+        }
         if (!ACTION_START.equals(intent.getAction())) return START_NOT_STICKY;
         String token = intent.getStringExtra(EXTRA_TOKEN);
         if (token == null || !token.matches("[0-9a-f]{64}")) { status = "Phone tracking could not start"; stopSelf(); return START_NOT_STICKY; }
@@ -59,6 +74,8 @@ public final class RiderLocationService extends Service implements LocationListe
             status = "Location permission is needed"; stopSelf(); return START_NOT_STICKY;
         }
         trackingToken = token;
+        if (!active) onDuty = true;
+        lastSentAt = 0;
         createChannel();
         Notification notification = notification();
         if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
@@ -102,14 +119,15 @@ public final class RiderLocationService extends Service implements LocationListe
                 body.put("p_longitude", fix.getLongitude());
                 body.put("p_accuracy_metres", (double) fix.getAccuracy());
                 body.put("p_captured_at", java.time.Instant.ofEpochMilli(fix.getTime()).toString());
-                int result = postRpc("report_native_rider_position", body);
+                boolean reportingDuty = onDuty;
+                int result = postRpc(reportingDuty ? "report_native_rider_position" : "report_native_off_duty_position", body);
                 if (result == 401 || result == 403) {
                     status = "Rider access ended. Sign in and go online again.";
                     stopTracking();
                 } else if (result >= 200 && result < 300) {
                     lastSentAt = System.currentTimeMillis();
                     lastSent = new Location(fix);
-                    status = "Online · phone GPS ±" + Math.round(fix.getAccuracy()) + " m";
+                    status = (reportingDuty ? "On duty" : "Off duty · sharing location") + " · GPS ±" + Math.round(fix.getAccuracy()) + " m";
                 } else status = "Could not send location. Retrying…";
             } catch (Exception error) { status = "No connection. Retrying location…"; }
             finally { if (wakeLock.isHeld()) wakeLock.release(); sending.set(false); }
@@ -144,6 +162,7 @@ public final class RiderLocationService extends Service implements LocationListe
         String token = trackingToken;
         trackingToken = null;
         active = false;
+        onDuty = false;
         status = "Offline";
         if (locations != null) locations.removeUpdates(this);
         if (token != null) uploads.execute(() -> {
@@ -157,7 +176,7 @@ public final class RiderLocationService extends Service implements LocationListe
     private void createChannel() {
         NotificationManager manager = getSystemService(NotificationManager.class);
         NotificationChannel channel = new NotificationChannel(CHANNEL, "On-duty rider location", NotificationManager.IMPORTANCE_LOW);
-        channel.setDescription("Phone location is shared while you are on duty. Tap Stop to end tracking.");
+        channel.setDescription("Phone location is shared until you stop it, including while off duty.");
         manager.createNotificationChannel(channel);
     }
 
@@ -167,9 +186,9 @@ public final class RiderLocationService extends Service implements LocationListe
         PendingIntent stop = PendingIntent.getService(this, 1,
             new Intent(this, RiderLocationService.class).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         return new Notification.Builder(this, CHANNEL)
-            .setSmallIcon(R.drawable.ic_tracking).setContentTitle("Kwik-Parsel rider on duty")
-            .setContentText("Phone GPS is sharing your location for nearby deliveries")
-            .setContentIntent(open).addAction(new Notification.Action.Builder(R.drawable.ic_tracking, "Go offline", stop).build())
+            .setSmallIcon(R.drawable.ic_tracking).setContentTitle("Kwik-Parsel location sharing")
+            .setContentText("Phone GPS is shared with your company and active delivery customers")
+            .setContentIntent(open).addAction(new Notification.Action.Builder(R.drawable.ic_tracking, "Stop sharing", stop).build())
             .setOngoing(true).build();
     }
 

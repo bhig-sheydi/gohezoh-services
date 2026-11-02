@@ -43,6 +43,7 @@ describe('partner organization invitations', () => {
     }))
     const rpc = vi.fn(async (name: string) => name === 'list_my_partner_team'
       ? { data: [{ partner_id: 'partner-1', partner_name: 'North Star Logistics', user_id: 'manager-1', email: 'manager@example.test', full_name: 'Manager', membership_role: 'manager', is_manager: true }], error: null }
+      : name === 'list_company_rider_locations' ? { data: [{ rider_id: 'roster-1', latitude: 4.88, longitude: 7.01, accuracy_metres: 20, captured_at: '2026-11-02T12:00:00Z', on_duty: false, is_fresh: true }], error: null }
       : { data: [], error: null })
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ riders }) })))
     const limit = vi.fn(async () => ({ data: [{ id: 'job-1', job_number: 'JOB-12345', status: 'delivered', pickup_address: 'Eliozu', delivery_address: 'Rumuokoro', updated_at: '2026-10-22T00:00:00Z' }], error: null }))
@@ -57,6 +58,8 @@ describe('partner organization invitations', () => {
     expect(screen.queryByText('Assigned deliveries')).not.toBeInTheDocument()
     expect(from).not.toHaveBeenCalled()
     await user.click(screen.getAllByRole('button', { name: 'Show & edit rider info' })[0])
+    expect(await screen.findByText(/Off duty · sharing/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'View location on map' })).toHaveAttribute('href', 'https://www.google.com/maps/search/?api=1&query=4.88,7.01')
     expect(await screen.findByText('JOB-12345')).toBeInTheDocument()
     expect(screen.getByText('Eliozu to Rumuokoro')).toBeInTheDocument()
     expect(from).toHaveBeenCalledWith('jobs')

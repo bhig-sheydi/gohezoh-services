@@ -90,4 +90,9 @@
 :root[data-theme='dark'] .rider-roster-photo>span { color:#e9f2ea; background:#294438; }
 :root[data-theme='dark'] .rider-roster-status,:root[data-theme='dark'] .rider-details-heading p,:root[data-theme='dark'] .rider-delivery-history p,:root[data-theme='dark'] .rider-delivery-line small { color:#bfd2c2; }
 :root[data-theme='dark'] .rider-roster-details,:root[data-theme='dark'] .rider-delivery-history ul,:root[data-theme='dark'] .rider-delivery-history li { border-color:#496253; }
+.rider-company-location{display:flex;flex-wrap:wrap;align-items:center;gap:.6rem;margin:.7rem 0;padding:.8rem;border:1px solid var(--line,#d6dfdc);border-radius:.8rem;background:var(--surface,#fff)}
+.rider-company-location p{flex-basis:100%;margin:0;display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
+.rider-company-location a{font-weight:700}
+:root[data-theme='dark'] .rider-company-location{background:#20352c;border-color:#496253;color:#e9f2ea}
+:root[data-theme='dark'] .rider-company-location a{color:#cbe879}
 :root[data-theme='dark'] .rider-delivery-line strong,:root[data-theme='dark'] .rider-delivery-line span,:root[data-theme='dark'] .rider-photo-edit,:root[data-theme='dark'] .rider-detail-settings small { color:#e9f2ea; }

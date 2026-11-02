@@ -6,6 +6,7 @@ type TeamMember = { partner_id: string; partner_name: string; user_id: string; i
 type RiderCredential = { user_id: string; device_bound_at: string | null; device_label: string | null; password_revoked_at: string | null; revoked_at: string | null }
 type CompanyRider = { id: string; full_name: string; phone: string | null; status: string; rejection_reason: string | null; photo_path: string | null; source_vehicle_id: string | null; created_at: string; rider_credentials: RiderCredential | RiderCredential[] | null }
 type RiderDelivery = { id: string; job_number: string; status: string; pickup_address: string; delivery_address: string; updated_at: string }
+type RiderLocation = { rider_id: string; latitude: number | null; longitude: number | null; accuracy_metres: number | null; captured_at: string | null; on_duty: boolean; is_fresh: boolean }
 const credentialFor = (rider: CompanyRider) => Array.isArray(rider.rider_credentials) ? rider.rider_credentials[0] : rider.rider_credentials
 const publicSiteUrl = 'https://gohezoh-services.vercel.app/'
 function partnerInviteFromLocation() {
@@ -63,12 +64,28 @@ export function PartnerRidersPanel({ supabase, userId, onError, onNotice, staffP
   const [riderPhotos, setRiderPhotos] = useState<Record<string, string>>({})
   const [expandedRiderId, setExpandedRiderId] = useState<string | null>(null)
   const [riderDeliveries, setRiderDeliveries] = useState<RiderDelivery[]>([])
+  const [riderLocations, setRiderLocations] = useState<Record<string, RiderLocation>>({})
+  const [locationLoading, setLocationLoading] = useState(false)
   const [deliveriesLoading, setDeliveriesLoading] = useState(false)
   const [deliveriesError, setDeliveriesError] = useState('')
   const riderRequestSequence = useRef(0)
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const managers = useMemo(() => [...new Map(members.filter((member) => member.is_manager).map((member) => [member.partner_id, { id: member.partner_id, name: member.partner_name }])).values()], [members])
+  const refreshLocations = useCallback(async () => {
+    if (!selectedPartner) return
+    setLocationLoading(true)
+    const { data, error } = await supabase.rpc('list_company_rider_locations', { p_partner_id: selectedPartner })
+    if (error) onError(error.message)
+    else setRiderLocations(Object.fromEntries(((data ?? []) as RiderLocation[]).map((row) => [row.rider_id, row])))
+    setLocationLoading(false)
+  }, [selectedPartner, supabase, onError])
+  useEffect(() => {
+    if (!selectedPartner) return
+    const timer = window.setTimeout(() => void refreshLocations(), 0)
+    const interval = window.setInterval(() => { if (!document.hidden) void refreshLocations() }, 60_000)
+    return () => { window.clearTimeout(timer); window.clearInterval(interval) }
+  }, [selectedPartner, refreshLocations])
   const load = useCallback(async () => {
     if (staffPartnerId) { setSelectedPartner(staffPartnerId); setLoading(false); return }
     setLoading(true)
@@ -231,6 +248,7 @@ export function PartnerRidersPanel({ supabase, userId, onError, onNotice, staffP
       {riders.length === 0 ? <p className="finance-empty">No registered riders yet.</p> :
         <div className="rider-roster-grid">{riders.map((rider) => {
           const credential = credentialFor(rider)
+          const riderLocation = riderLocations[rider.id]
           const expanded = expandedRiderId === rider.id
           return <article className={`rider-roster-card${expanded ? ' rider-roster-card-expanded' : ''}`} key={rider.id}>
             <div className="rider-roster-summary">
@@ -241,6 +259,14 @@ export function PartnerRidersPanel({ supabase, userId, onError, onNotice, staffP
             </div>
             {expanded && <div className="rider-roster-details" id={`rider-details-${rider.id}`}>
               <div className="rider-details-heading"><div><h4>{rider.full_name}</h4><p>{rider.status === 'approved' ? credential?.device_bound_at ? 'Login device registered' : 'Approved ? waiting for first login' : rider.status}</p></div><button type="button" className="text-button" onClick={() => void toggleRiderDetails(rider)}>Close</button></div>
+              {rider.status === 'approved' && <div className="rider-company-location">
+                <strong>Phone location</strong>
+                <button type="button" className="secondary-button" disabled={locationLoading} onClick={() => void refreshLocations()}>{locationLoading ? 'Checking…' : 'Refresh location'}</button>
+                {riderLocation?.captured_at && riderLocation.latitude !== null && riderLocation.longitude !== null ? <p>
+                  {riderLocation.is_fresh ? riderLocation.on_duty ? 'On duty' : 'Off duty · sharing' : 'Last known · not live'} · GPS ±{Math.round(riderLocation.accuracy_metres ?? 0)} m · {new Date(riderLocation.captured_at).toLocaleString('en-NG')}
+                  <a href={`https://www.google.com/maps/search/?api=1&query=${riderLocation.latitude},${riderLocation.longitude}`} target="_blank" rel="noreferrer">View location on map</a>
+                </p> : <p>No location shared in the past 24 hours.</p>}
+              </div>}
               {rider.rejection_reason && <p className="rider-rejection-reason">Reason: {rider.rejection_reason}</p>}
               <div className="rider-detail-columns">
                 <div className="rider-detail-settings">

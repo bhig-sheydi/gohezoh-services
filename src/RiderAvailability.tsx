@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { startRiderTracking } from './lib/rider-tracking'
-import { askNativeRiderStatus, hasNativeRiderTracking, listenNativeRiderStatus, startNativeRiderTracking, stopNativeRiderTracking } from './lib/native-rider'
+import { askNativeRiderStatus, hasNativeRiderTracking, listenNativeRiderStatus, setNativeRiderDuty, startNativeRiderTracking, stopNativeRiderTracking } from './lib/native-rider'
 
 type LoadState = 'available' | 'almost_full' | 'full'
 const loadOptions: { value: LoadState; label: string }[] = [
@@ -12,6 +12,7 @@ const loadOptions: { value: LoadState; label: string }[] = [
 
 export default function RiderAvailability({ supabase }: { supabase: SupabaseClient }) {
   const [enabled, setEnabled] = useState(false)
+  const [nativeOnDuty, setNativeOnDuty] = useState(false)
   const [status, setStatus] = useState('Offline')
   const [serverOnline, setServerOnline] = useState<boolean | null>(null)
   const [nativeBusy, setNativeBusy] = useState(false)
@@ -21,8 +22,9 @@ export default function RiderAvailability({ supabase }: { supabase: SupabaseClie
   const nativeTracking = hasNativeRiderTracking()
   useEffect(() => {
     if (!nativeTracking) return
-    const unsubscribe = listenNativeRiderStatus(({ active, message }) => {
+    const unsubscribe = listenNativeRiderStatus(({ active, onDuty, message }) => {
       setEnabled(active)
+      setNativeOnDuty(onDuty)
       if (!active) setServerOnline(null)
       setStatus(message)
       setNativeBusy(false)
@@ -63,7 +65,7 @@ export default function RiderAvailability({ supabase }: { supabase: SupabaseClie
     })
   }, [enabled, nativeTracking, supabase])
   useEffect(() => {
-    if (!enabled) return
+    if (!enabled || (nativeTracking && !nativeOnDuty)) return
     let active = true
     const check = async () => {
       if (document.hidden) return
@@ -74,15 +76,17 @@ export default function RiderAvailability({ supabase }: { supabase: SupabaseClie
     const timer = window.setInterval(() => { void check() }, 30_000)
     document.addEventListener('visibilitychange', check)
     return () => { active = false; window.clearInterval(timer); document.removeEventListener('visibilitychange', check) }
-  }, [enabled, supabase])
+  }, [enabled, nativeOnDuty, nativeTracking, supabase])
   async function toggleDuty() {
     setServerOnline(null)
     if (nativeTracking) {
       if (nativeBusy) return
       setNativeBusy(true)
       if (enabled) {
-        stopNativeRiderTracking()
-        setStatus('Stopping phone location…')
+        setNativeRiderDuty(!nativeOnDuty)
+        setNativeOnDuty(!nativeOnDuty)
+        setStatus(nativeOnDuty ? 'Off duty · location sharing continues' : 'Going on duty…')
+        setNativeBusy(false)
       } else {
         const { data, error } = await supabase.auth.getSession()
         if (error || !data.session) { setStatus('Sign in again to go online.'); setNativeBusy(false); return }
@@ -99,17 +103,20 @@ export default function RiderAvailability({ supabase }: { supabase: SupabaseClie
     setStatus(enabled ? 'Offline' : 'Getting your location…')
     setEnabled(!enabled)
   }
-  const heading = enabled && serverOnline === true ? 'On duty'
+  const heading = nativeTracking && enabled && !nativeOnDuty ? 'Off duty · location shared'
+    : enabled && serverOnline === true ? 'On duty'
     : enabled && serverOnline === false ? 'Location paused'
     : enabled || nativeBusy ? 'Connecting' : 'Off duty'
-  const message = enabled && serverOnline === false
+  const message = nativeTracking && enabled && !nativeOnDuty ? status
+    : enabled && serverOnline === false
     ? 'No fresh location has reached the server. Check phone GPS and internet.'
     : enabled && serverOnline === null && status.startsWith('Online')
       ? 'Checking that your location is reaching the server…' : status
   return <section className="form-card rider-availability" aria-label="Rider availability">
     <div><h2>{heading}</h2><p role="status">{message}</p>
-      <small>{nativeTracking ? 'Phone GPS stays on duty with a visible notification, including when the screen is off.' : 'Keep this screen open. Nearby jobs go to your company for bidding.'}</small></div>
-    <button type="button" className="primary-button" disabled={nativeBusy} onClick={() => void toggleDuty()}>{enabled ? 'Go offline' : 'Go online'}</button>
+      <small>{nativeTracking ? 'With your permission, phone GPS stays shared with your company while off duty. Customers can check only during their active delivery, twice per hour. Stop sharing ends tracking.' : 'Keep this screen open. Browser GPS pauses in the background.'}</small></div>
+    <button type="button" className="primary-button" disabled={nativeBusy} onClick={() => void toggleDuty()}>{nativeTracking ? nativeOnDuty ? 'Go off duty' : 'Go on duty' : enabled ? 'Go offline' : 'Go online'}</button>
+    {nativeTracking && enabled && <button type="button" className="secondary-button" onClick={() => stopNativeRiderTracking()}>Stop sharing location</button>}
     <div className="rider-load-control">
       <strong>Box space</strong>
       <div className="rider-load-options" role="group" aria-label="Box space">

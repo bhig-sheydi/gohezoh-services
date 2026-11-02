@@ -121,6 +121,12 @@ public final class MainActivity extends Activity {
             JSONObject message = new JSONObject(data);
             switch (message.optString("type")) {
                 case "rider:status": sendRiderStatus(); break;
+                case "rider:set-duty":
+                    if (RiderLocationService.active) startService(new Intent(this, RiderLocationService.class)
+                        .setAction(RiderLocationService.ACTION_SET_DUTY)
+                        .putExtra(RiderLocationService.EXTRA_DUTY, message.optBoolean("onDuty", false)));
+                    new Handler(Looper.getMainLooper()).postDelayed(this::sendRiderStatus, 300);
+                    break;
                 case "rider:stop":
                     if (RiderLocationService.active) startService(new Intent(this, RiderLocationService.class).setAction(RiderLocationService.ACTION_STOP));
                     else sendRiderStatus();
@@ -228,7 +234,7 @@ public final class MainActivity extends Activity {
 
     private void sendRiderEvent(boolean active, String message) {
         try { sendEvent("kwik-parsel:native", new JSONObject().put("type", "rider:status")
-            .put("active", active).put("message", message)); }
+            .put("active", active).put("onDuty", RiderLocationService.onDuty).put("message", message)); }
         catch (Exception ignored) { }
     }
 
