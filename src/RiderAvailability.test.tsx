@@ -4,7 +4,7 @@ import RiderAvailability from './RiderAvailability'
 import { startRiderTracking } from './lib/rider-tracking'
 
 vi.mock('./lib/rider-tracking', () => ({ startRiderTracking: vi.fn(() => () => {}) }))
-afterEach(() => { delete window.KwikParselNative; vi.clearAllMocks() })
+afterEach(() => { delete window.KwikParselNative; window.localStorage.removeItem('kwik-parsel-rider-location-terms-v1'); vi.clearAllMocks() })
 
 describe('RiderAvailability', () => {
   it('shows connecting until the server confirms a fresh rider location', async () => {
@@ -34,8 +34,11 @@ describe('RiderAvailability', () => {
     window.KwikParselNative = { postMessage }
     const rpc = vi.fn(async (name: string) => ({ data: name === 'issue_rider_tracking_token' ? 'a'.repeat(64) : name === 'my_rider_online' ? true : 'available', error: null }))
     render(<RiderAvailability supabase={{ rpc, auth: { getSession: vi.fn(async () => ({ data: { session: { user: { id: 'rider' } } }, error: null })) } } as never} />)
-    expect(screen.getByText(/Phone GPS is shared with your company, including while off duty/i)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Go on duty' }))
+    expect(screen.getByRole('dialog', { name: 'Allow rider location sharing' })).toBeInTheDocument()
+    expect(rpc).not.toHaveBeenCalledWith('issue_rider_tracking_token')
+    fireEvent.click(screen.getByRole('checkbox', { name: /I understand and agree/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
     expect(screen.getByRole('button', { name: 'Go on duty' })).toBeDisabled()
     await waitFor(() => expect(postMessage).toHaveBeenCalledWith(JSON.stringify({ type: 'rider:start', trackingToken: 'a'.repeat(64) })))
     expect(startRiderTracking).not.toHaveBeenCalled()
@@ -43,7 +46,7 @@ describe('RiderAvailability', () => {
     expect(await screen.findByRole('heading', { name: 'On duty' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Go off duty' }))
     expect(postMessage).toHaveBeenCalledWith(JSON.stringify({ type: 'rider:set-duty', onDuty: false }))
-    expect(screen.getByRole('button', { name: 'Stop sharing location' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Stop sharing location' })).not.toBeInTheDocument()
   })
   it('shows location paused when the server has no fresh rider fix', async () => {
     const rpc = vi.fn(async (name: string) => ({ data: name === 'my_rider_online' ? false : 'available', error: null }))

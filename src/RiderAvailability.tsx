@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { startRiderTracking } from './lib/rider-tracking'
-import { askNativeRiderStatus, hasNativeRiderTracking, listenNativeRiderStatus, openRiderBackgroundSettings, setNativeRiderDuty, startNativeRiderTracking, stopNativeRiderTracking } from './lib/native-rider'
+import { askNativeRiderStatus, hasNativeRiderTracking, listenNativeRiderStatus, openRiderBackgroundSettings, setNativeRiderDuty, startNativeRiderTracking } from './lib/native-rider'
+
+const consentKey = 'kwik-parsel-rider-location-terms-v1'
 
 type LoadState = 'available' | 'almost_full' | 'full'
 const loadOptions: { value: LoadState; label: string }[] = [
@@ -19,6 +21,8 @@ export default function RiderAvailability({ supabase }: { supabase: SupabaseClie
   const [loadState, setLoadState] = useState<LoadState | null>(null)
   const [loadBusy, setLoadBusy] = useState(false)
   const [loadError, setLoadError] = useState('')
+  const [showConsent, setShowConsent] = useState(false)
+  const [consentChecked, setConsentChecked] = useState(false)
   const nativeTracking = hasNativeRiderTracking()
   useEffect(() => {
     if (!nativeTracking) return
@@ -77,7 +81,11 @@ export default function RiderAvailability({ supabase }: { supabase: SupabaseClie
     document.addEventListener('visibilitychange', check)
     return () => { active = false; window.clearInterval(timer); document.removeEventListener('visibilitychange', check) }
   }, [enabled, nativeOnDuty, nativeTracking, supabase])
-  async function toggleDuty() {
+  async function toggleDuty(acceptedTerms = false) {
+    if (nativeTracking && !enabled && !acceptedTerms && window.localStorage.getItem(consentKey) !== 'accepted') {
+      setShowConsent(true)
+      return
+    }
     setServerOnline(null)
     if (nativeTracking) {
       if (nativeBusy) return
@@ -114,10 +122,16 @@ export default function RiderAvailability({ supabase }: { supabase: SupabaseClie
       ? 'Checking that your location is reaching the server…' : status
   return <section className="form-card rider-availability" aria-label="Rider availability">
     <div><h2>{heading}</h2><p role="status">{message}</p>
-      <small>{nativeTracking ? <>Phone GPS is shared with your company, including while off duty; active delivery customers can check twice per hour. It may restart after a phone reboot if you enable background location. <a href="/rider-location-terms.html" target="_blank" rel="noreferrer">Rider location terms</a>.</> : 'Keep this screen open. Browser GPS pauses in the background.'}</small></div>
+      {!nativeTracking && <small>Keep this screen open. Browser GPS pauses in the background.</small>}</div>
     <button type="button" className="primary-button" disabled={nativeBusy} onClick={() => void toggleDuty()}>{nativeTracking ? nativeOnDuty ? 'Go off duty' : 'Go on duty' : enabled ? 'Go offline' : 'Go online'}</button>
-    {nativeTracking && enabled && <button type="button" className="secondary-button" onClick={() => stopNativeRiderTracking()}>Stop sharing location</button>}
     {nativeTracking && <button type="button" className="secondary-button" onClick={openRiderBackgroundSettings}>Allow location after reboot</button>}
+    {showConsent && <div role="dialog" aria-modal="true" aria-labelledby="rider-location-consent-title" className="form-card rider-location-consent">
+      <h3 id="rider-location-consent-title">Allow rider location sharing</h3>
+      <p>Your company can see your phone location while you are on or off duty. Customers can check it twice per hour while you carry their paid, undelivered parcels. With Android background-location permission, sharing may resume after a reboot. A visible Android notification shows while tracking runs.</p>
+      <p><a href="/rider-location-terms.html" target="_blank" rel="noreferrer">Read rider location terms</a></p>
+      <label><input type="checkbox" checked={consentChecked} onChange={(event) => setConsentChecked(event.target.checked)} /> I understand and agree to location sharing</label>
+      <div className="field-row"><button type="button" className="secondary-button" onClick={() => setShowConsent(false)}>Not now</button><button type="button" className="primary-button" disabled={!consentChecked} onClick={() => { window.localStorage.setItem(consentKey, 'accepted'); setShowConsent(false); void toggleDuty(true) }}>Continue</button></div>
+    </div>}
     <div className="rider-load-control">
       <strong>Box space</strong>
       <div className="rider-load-options" role="group" aria-label="Box space">
