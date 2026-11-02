@@ -34,7 +34,7 @@ describe('RiderAvailability', () => {
     window.KwikParselNative = { postMessage }
     const rpc = vi.fn(async (name: string) => ({ data: name === 'issue_rider_tracking_token' ? 'a'.repeat(64) : name === 'my_rider_online' ? true : 'available', error: null }))
     render(<RiderAvailability supabase={{ rpc, auth: { getSession: vi.fn(async () => ({ data: { session: { user: { id: 'rider' } } }, error: null })) } } as never} />)
-    expect(screen.getByText(/phone GPS stays shared with your company while off duty/i)).toBeInTheDocument()
+    expect(screen.getByText(/Phone GPS is shared with your company, including while off duty/i)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Go on duty' }))
     expect(screen.getByRole('button', { name: 'Go on duty' })).toBeDisabled()
     await waitFor(() => expect(postMessage).toHaveBeenCalledWith(JSON.stringify({ type: 'rider:start', trackingToken: 'a'.repeat(64) })))

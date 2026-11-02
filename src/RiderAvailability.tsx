@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { startRiderTracking } from './lib/rider-tracking'
-import { askNativeRiderStatus, hasNativeRiderTracking, listenNativeRiderStatus, setNativeRiderDuty, startNativeRiderTracking, stopNativeRiderTracking } from './lib/native-rider'
+import { askNativeRiderStatus, hasNativeRiderTracking, listenNativeRiderStatus, openRiderBackgroundSettings, setNativeRiderDuty, startNativeRiderTracking, stopNativeRiderTracking } from './lib/native-rider'
 
 type LoadState = 'available' | 'almost_full' | 'full'
 const loadOptions: { value: LoadState; label: string }[] = [
@@ -114,9 +114,10 @@ export default function RiderAvailability({ supabase }: { supabase: SupabaseClie
       ? 'Checking that your location is reaching the server…' : status
   return <section className="form-card rider-availability" aria-label="Rider availability">
     <div><h2>{heading}</h2><p role="status">{message}</p>
-      <small>{nativeTracking ? 'With your permission, phone GPS stays shared with your company while off duty. Customers can check only during their active delivery, twice per hour. Stop sharing ends tracking.' : 'Keep this screen open. Browser GPS pauses in the background.'}</small></div>
+      <small>{nativeTracking ? <>Phone GPS is shared with your company, including while off duty; active delivery customers can check twice per hour. It may restart after a phone reboot if you enable background location. <a href="/rider-location-terms.html" target="_blank" rel="noreferrer">Rider location terms</a>.</> : 'Keep this screen open. Browser GPS pauses in the background.'}</small></div>
     <button type="button" className="primary-button" disabled={nativeBusy} onClick={() => void toggleDuty()}>{nativeTracking ? nativeOnDuty ? 'Go off duty' : 'Go on duty' : enabled ? 'Go offline' : 'Go online'}</button>
     {nativeTracking && enabled && <button type="button" className="secondary-button" onClick={() => stopNativeRiderTracking()}>Stop sharing location</button>}
+    {nativeTracking && <button type="button" className="secondary-button" onClick={openRiderBackgroundSettings}>Allow location after reboot</button>}
     <div className="rider-load-control">
       <strong>Box space</strong>
       <div className="rider-load-options" role="group" aria-label="Box space">

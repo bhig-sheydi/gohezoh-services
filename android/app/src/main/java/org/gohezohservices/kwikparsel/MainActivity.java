@@ -5,6 +5,7 @@ import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.provider.Settings;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -121,6 +122,10 @@ public final class MainActivity extends Activity {
             JSONObject message = new JSONObject(data);
             switch (message.optString("type")) {
                 case "rider:status": sendRiderStatus(); break;
+                case "rider:background-settings":
+                    startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:" + getPackageName())));
+                    break;
                 case "rider:set-duty":
                     if (RiderLocationService.active) startService(new Intent(this, RiderLocationService.class)
                         .setAction(RiderLocationService.ACTION_SET_DUTY)

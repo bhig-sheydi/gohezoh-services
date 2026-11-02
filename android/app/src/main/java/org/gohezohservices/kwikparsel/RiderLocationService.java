@@ -52,7 +52,12 @@ public final class RiderLocationService extends Service implements LocationListe
     @Override public IBinder onBind(Intent intent) { return null; }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent == null) { stopSelf(); return START_NOT_STICKY; }
+        if (intent == null) {
+            String saved = getSharedPreferences("rider_location", MODE_PRIVATE).getString("token", null);
+            if (saved == null) { stopSelf(); return START_NOT_STICKY; }
+            intent = new Intent(this, RiderLocationService.class).setAction(ACTION_START)
+                .putExtra(EXTRA_TOKEN, saved).putExtra(EXTRA_DUTY, false);
+        }
         if (ACTION_STOP.equals(intent.getAction())) { stopTracking(); return START_NOT_STICKY; }
         if (ACTION_SET_DUTY.equals(intent.getAction())) {
             if (!active || trackingToken == null) return START_NOT_STICKY;
@@ -73,14 +78,20 @@ public final class RiderLocationService extends Service implements LocationListe
                 && checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             status = "Location permission is needed"; stopSelf(); return START_NOT_STICKY;
         }
+        boolean wasActive = active;
         trackingToken = token;
-        if (!active) onDuty = true;
+        if (!wasActive) onDuty = intent.getBooleanExtra(EXTRA_DUTY, true);
+        getSharedPreferences("rider_location", MODE_PRIVATE).edit().putString("token", token).apply();
         lastSentAt = 0;
         createChannel();
         Notification notification = notification();
         if (Build.VERSION.SDK_INT >= 29) startForeground(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION);
         else startForeground(NOTIFICATION_ID, notification);
         active = true;
+        if (!onDuty) uploads.execute(() -> {
+            try { postRpc("set_native_rider_duty", new JSONObject().put("p_token", trackingToken).put("p_on_duty", false)); }
+            catch (Exception ignored) { /* The next fix retries reporting. */ }
+        });
         status = "Connecting to phone GPS…";
         locations = (LocationManager) getSystemService(LOCATION_SERVICE);
         try {
@@ -95,7 +106,7 @@ public final class RiderLocationService extends Service implements LocationListe
             }
             if (!provider) { status = "Turn on phone location to go online"; stopTracking(); }
         } catch (SecurityException error) { status = "Location permission is needed"; stopTracking(); }
-        return START_NOT_STICKY;
+        return START_STICKY;
     }
 
     @Override public void onLocationChanged(Location fix) {
@@ -160,6 +171,7 @@ public final class RiderLocationService extends Service implements LocationListe
 
     private void stopTracking() {
         String token = trackingToken;
+        getSharedPreferences("rider_location", MODE_PRIVATE).edit().remove("token").apply();
         trackingToken = null;
         active = false;
         onDuty = false;

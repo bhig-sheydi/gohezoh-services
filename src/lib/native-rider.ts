@@ -16,6 +16,7 @@ function send(message: object) {
 }
 
 export function askNativeRiderStatus() { send({ type: 'rider:status' }) }
+export function openRiderBackgroundSettings() { send({ type: 'rider:background-settings' }) }
 
 export function startNativeRiderTracking(trackingToken: string) {
   if (!hasNativeRiderTracking()) throw new Error('The phone location service is unavailable.')

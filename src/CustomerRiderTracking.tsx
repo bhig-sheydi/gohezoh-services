@@ -93,7 +93,7 @@ export default function CustomerRiderTracking({ supabase, jobId }: { supabase: S
     {loading && <p>Checking rider progress…</p>}
     {error && <p role="status">{error}</p>}
     {!loading && !error && tracking?.state === 'awaiting_rider' && <p>A rider has not been assigned yet.</p>}
-    {!loading && !error && tracking?.state === 'offline' && <p>Rider location is unavailable. Tracking resumes when their phone is online and the rider app is open.</p>}
+    {!loading && !error && tracking?.state === 'offline' && <p>Rider location is unavailable. Tracking resumes when their phone has GPS, internet, and active location sharing.</p>}
     {!loading && !error && tracking?.state === 'completed' && <p>Tracking ended for this delivery.</p>}
     {live && <>
       <div className="customer-rider-tracking-stats">
