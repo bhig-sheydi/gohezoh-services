@@ -1,9 +1,9 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { createPaystackAccount, paymentMatches, verifyPaystackPayment } from '../_shared/paystack.ts'
+import { isUuid } from '../_shared/uuid.ts'
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' }
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: cors })
-const uuid = (value: unknown) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
 
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: cors })
@@ -21,11 +21,11 @@ Deno.serve(async (request) => {
   if (authError || !user?.email) return json({ error: 'Sign in with a verified email to pay' }, 401)
   let body: { action?: string; requestId?: string; bidId?: string }
   try { body = await request.json() } catch { return json({ error: 'Invalid payment request' }, 400) }
-  if (!uuid(body.requestId)) return json({ error: 'Invalid delivery request' }, 400)
+  if (!isUuid(body.requestId)) return json({ error: 'Invalid delivery request' }, 400)
   const requestId = body.requestId as string
   try {
     if (body.action === 'start') {
-      if (!uuid(body.bidId)) return json({ error: 'Choose a company offer' }, 400)
+      if (!isUuid(body.bidId)) return json({ error: 'Choose a company offer' }, 400)
       const { error } = await client.rpc('select_customer_partner_bid', { p_request_id: requestId, p_bid_id: body.bidId })
       if (error) {
         const { data: existing } = await client.rpc('get_my_flutterwave_hold', { p_request_id: requestId })

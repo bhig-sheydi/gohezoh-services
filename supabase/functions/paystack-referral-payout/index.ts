@@ -1,9 +1,9 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { availableBalanceNgn, createRecipient, initiateTransfer, listBanks, resolveAccount, transferMatches, verifyTransfer } from '../_shared/paystack-payout.ts'
+import { isUuid } from '../_shared/uuid.ts'
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' }
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: cors })
-const uuid = (value: unknown) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
 
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: cors })
@@ -43,7 +43,7 @@ Deno.serve(async (request) => {
     if (body.action === 'withdraw') {
       if (!secret.startsWith('sk_test_') && Deno.env.get('PAYSTACK_LIVE_PAYOUTS_ENABLED') !== 'true')
         return json({ error: 'Live withdrawals are not enabled yet' }, 503)
-      if (!Number.isSafeInteger(body.amountNgn) || Number(body.amountNgn) <= 0 || !uuid(body.idempotencyKey))
+      if (!Number.isSafeInteger(body.amountNgn) || Number(body.amountNgn) <= 0 || !isUuid(body.idempotencyKey))
         return json({ error: 'Invalid withdrawal amount' }, 400)
       const { data: existing, error: lookupError } = await admin.from('customer_referral_withdrawals').select('id')
         .eq('user_id', user.id).eq('idempotency_key', body.idempotencyKey).maybeSingle()
@@ -75,7 +75,7 @@ Deno.serve(async (request) => {
       return json({ withdrawalId: id, status: claim.status === 'reserved' ? 'queued' : claim.status, testMode: secret.startsWith('sk_test_') })
     }
     if (body.action === 'status') {
-      if (!uuid(body.withdrawalId)) return json({ error: 'Invalid withdrawal' }, 400)
+      if (!isUuid(body.withdrawalId)) return json({ error: 'Invalid withdrawal' }, 400)
       const { data: mine, error: listError } = await client.rpc('my_referral_payout_state')
       if (listError || !mine?.withdrawals?.some((row: { id: string }) => row.id === body.withdrawalId)) return json({ error: 'Withdrawal not found' }, 404)
       const { data: claim, error: claimError } = await admin.rpc('claim_referral_transfer', { p_id: body.withdrawalId })
