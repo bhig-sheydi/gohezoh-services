@@ -29,3 +29,5 @@
 :root[data-theme='dark'] .customer-shell .customer-history .customer-payment-card.customer-payment-paid { border-color:#527e62; color:#e9f2ea; background:#1d3429; }
 :root[data-theme='dark'] .customer-shell .customer-history .customer-payment-card.customer-payment-expired { border-color:#b65c5c; color:#ffe4e0; background:#472626; }
 :root[data-theme='dark'] .customer-shell .customer-history .customer-payment-card.customer-payment-review { border-color:#ad8547; color:#ffeac3; background:#493821; }
+.customer-payment-test-warning { padding: .7rem .9rem; border: 2px solid #d97706; border-radius: .6rem; color: #92400e; background: #fffbeb; font-weight: 700; }
+:root[data-theme='dark'] .customer-payment-test-warning { color: #fde68a; background: #451a03; border-color: #f59e0b; }

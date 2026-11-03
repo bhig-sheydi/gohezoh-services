@@ -14,7 +14,7 @@ describe('customer referral program', () => {
         earned_ngn: 125, completed_job_value_ngn: 20000,
       } : null, leaders: [] }, error: null }
     })
-    const supabase = { rpc } as unknown as SupabaseClient
+    const supabase = { rpc, functions: { invoke: vi.fn(async () => ({ data: { available_ngn: 0, account: null, withdrawals: [] }, error: null })) } } as unknown as SupabaseClient
     render(<CustomerReferralPanel supabase={supabase} onError={vi.fn()} onNotice={vi.fn()} />)
     const user = userEvent.setup()
     expect(await screen.findByRole('button', { name: 'Join referral program' })).toBeInTheDocument()

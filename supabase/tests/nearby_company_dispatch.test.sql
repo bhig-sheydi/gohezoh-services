@@ -308,9 +308,13 @@ begin
   -- A paying customer can track only the assigned rider's fresh GPS fix.
   update public.jobs set delivery_latitude=6.46,delivery_longitude=3.41
     where order_id=(select id from public.orders where service_request_id=v_request);
-  update public.rider_presence set captured_at=now(),received_at=now(),
+  update public.rider_presence set captured_at=clock_timestamp(),received_at=clock_timestamp(),
     previous_position=extensions.st_setsrid(extensions.st_makepoint(3.399,6.45),4326)::extensions.geography,
     previous_accuracy_metres=10,previous_captured_at=now()-interval '60 seconds'
+    where user_id=v_rider;
+  update public.rider_location_latest set
+    previous_position=extensions.st_setsrid(extensions.st_makepoint(3.399,6.45),4326)::extensions.geography,
+    previous_accuracy_metres=10,previous_captured_at=clock_timestamp()-interval '60 seconds'
     where user_id=v_rider;
   perform set_config('request.jwt.claim.sub',v_customer_user::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_customer_user,'role','authenticated')::text,true);
@@ -321,12 +325,12 @@ begin
     raise exception 'Recent rider movement did not produce speed and ETA'; end if;
   if (public.get_my_delivery_tracking(v_job) ? 'latitude') or (public.get_my_delivery_tracking(v_job) ? 'longitude') then
     raise exception 'Ordinary tracking leaked precise coordinates'; end if;
-  update public.rider_presence set captured_at=now()-interval '3 minutes' where user_id=v_rider;
+  update public.rider_location_latest set captured_at=clock_timestamp()-interval '3 minutes' where user_id=v_rider;
   if (public.get_my_delivery_tracking((select id from public.jobs where order_id=(select id from public.orders where service_request_id=v_request)))->>'state')<>'offline' then
     raise exception 'Stale rider coordinates were exposed'; end if;
   if (public.claim_my_rider_location_check(v_job)->>'state')<>'offline' then
     raise exception 'Stale rider location used a check'; end if;
-  update public.rider_presence set captured_at=now() where user_id=v_rider;
+  update public.rider_location_latest set captured_at=clock_timestamp() where user_id=v_rider;
   if (public.claim_my_rider_location_check(v_job)->>'latitude') is null
     or (public.claim_my_rider_location_check(v_job)->>'longitude') is null then
     raise exception 'First two paid location checks failed'; end if;

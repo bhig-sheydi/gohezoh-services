@@ -60,7 +60,7 @@ describe('customer delivery quotes', () => {
     expect(screen.getByText('Rider: Number not supplied')).toBeInTheDocument()
     expect(screen.getByText('Company: 08012345678')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Choose this company' }))
-    await waitFor(() => expect(functions.invoke).toHaveBeenCalledWith('flutterwave-payment', { body: { action: 'start', requestId: 'request-1', bidId: 'bid-1' } }))
+    await waitFor(() => expect(functions.invoke).toHaveBeenCalledWith('paystack-payment', { body: { action: 'start', requestId: 'request-1', bidId: 'bid-1' } }))
   })
 
   it('shows the temporary account and exact selected bid amount', async () => {

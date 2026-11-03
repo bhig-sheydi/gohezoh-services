@@ -6,7 +6,7 @@ import './customer-bidding.css'
 type QuoteWindow = { request_id: string; deadline_at: string; status: string }
 type CustomerQuote = { request_id: string; customer_price_ngn: number | null; expires_at: string | null; status: string }
 type PaymentHold = { request_id: string; status: string; amount_ngn: number; account_number: string | null;
-  bank_name: string | null; expires_at: string; reference: string }
+  bank_name: string | null; expires_at: string; reference: string; provider?: 'flutterwave' | 'paystack'; test_mode?: boolean | null }
 type CustomerBidState = { windows: QuoteWindow[]; quotes: CustomerQuote[]; holds: PaymentHold[] }
 type BikePrice = { request_id: string; customer_price_ngn: number; distance_metres: number;
   duration_seconds: number; estimated_fuel_litres: number }
@@ -115,16 +115,16 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
     if (!active.length) return
     const timer = window.setInterval(() => { if (!document.hidden && !paymentCheckingRef.current) {
       paymentCheckingRef.current = true
-      void Promise.all(active.map((hold) => supabase.functions.invoke('flutterwave-payment', { body: { action: 'check', requestId: hold.request_id } })))
+      void Promise.all(active.map((hold) => supabase.functions.invoke(hold.provider === 'flutterwave' ? 'flutterwave-payment' : 'paystack-payment', { body: { action: 'check', requestId: hold.request_id } })))
         .then(() => load()).finally(() => { paymentCheckingRef.current = false })
     } }, 15000)
     return () => clearInterval(timer)
   }, [pendingHoldKey, supabase, load])
   async function choose(requestId: string, bidId: string) {
     setBusy(requestId)
-    const { data, error } = await supabase.functions.invoke('flutterwave-payment', { body: { action: 'start', requestId, bidId } })
+    const { data, error } = await supabase.functions.invoke('paystack-payment', { body: { action: 'start', requestId, bidId } })
     if (error) onError(error.message)
-    else { onNotice(data?.status === 'management' ? 'Company selected. Your final delivery price is being prepared.' : 'Company selected. Pay within two minutes to confirm the rider.'); await load(); onRefresh() }
+    else { onNotice(data?.status === 'management' ? 'Company selected. Your final delivery price is being prepared.' : 'Company selected. Pay within 15 minutes to confirm the rider.'); await load(); onRefresh() }
     setBusy('')
   }
   async function retryBikePrice(requestId: string) {
@@ -151,7 +151,7 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
   }
   async function retryAccount(requestId: string) {
     setBusy(requestId)
-    const { error } = await supabase.functions.invoke('flutterwave-payment', { body: { action: 'status', requestId } })
+    const { error } = await supabase.functions.invoke(holdsRef.current[requestId]?.provider === 'flutterwave' ? 'flutterwave-payment' : 'paystack-payment', { body: { action: 'status', requestId } })
     if (error) onError(error.message)
     await load()
     setBusy('')
@@ -170,6 +170,7 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
       return <section className={`customer-payment-card customer-payment-${displayStatus}`} key={requestId} aria-label="Delivery payment" role="status">
         <div className="customer-payment-heading"><img src="/favicon.svg" alt="Kwik-Parsel logo" /><p className="eyebrow">KWIK-PARSEL · DELIVERY PAYMENT</p></div>
         <h3>{hold.status === 'paid' ? 'Payment confirmed' : active ? `Pay ${money(Number(hold.amount_ngn))}` : hold.status === 'review' ? 'Payment needs review' : 'Booking expired'}</h3>
+        {hold.test_mode && <p className="customer-payment-test-warning">TEST MODE — this account does not accept real payment. Do not send money.</p>}
         {active && <><strong className="customer-payment-timer">{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')} left</strong>
           {hold.account_number && hold.bank_name ? <div className="customer-payment-account"><span>{hold.bank_name}</span><strong>{hold.account_number}</strong><button type="button" onClick={() => void copyAccount(hold.account_number!)}>Copy account</button>{copyMessage && <small role="status">{copyMessage}</small>}</div> : <><p>Preparing your temporary bank account…</p><button type="button" disabled={busy === requestId} onClick={() => void retryAccount(requestId)}>Check account status</button></>}
           <p>Transfer the exact amount now. Your rider waits until payment is confirmed.</p></>}

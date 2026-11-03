@@ -20,3 +20,7 @@
 :root[data-theme='dark'] .customer-referral-rule,:root[data-theme='dark'] .customer-referral-panel small{color:#b9cbc2}
 :root[data-theme='dark'] .customer-referral-panel .field input{background:#20352c;border-color:#4d6659;color:#e9f2ea}
 :root[data-theme='dark'] .customer-referral-panel progress{color-scheme:dark}
+.referral-payout { display: grid; gap: 1rem; margin-block: 1.25rem; min-width: 0; }
+.referral-payout .history-heading { align-items: center; gap: .75rem; flex-wrap: wrap; }
+.referral-payout .form-grid { max-width: 38rem; }
+.referral-payout .commission-plan-list { max-height: 16rem; overflow: auto; }

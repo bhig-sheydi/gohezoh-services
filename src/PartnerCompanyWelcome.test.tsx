@@ -34,7 +34,7 @@ describe('company welcome', () => {
     await user.click(await screen.findByRole('button', { name: 'Withdraw' }))
     expect(screen.getByText(/ending 7890/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Confirm withdrawal' }))
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith('flutterwave-payout', { body: expect.objectContaining({ action: 'withdraw', partnerId: 'company-1', amountNgn: 5000 }) }))
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('paystack-payout', { body: expect.objectContaining({ action: 'withdraw', partnerId: 'company-1', amountNgn: 5000 }) }))
     expect(onNotice).toHaveBeenCalledWith('Withdrawal submitted. Check its status below.')
     expect(rpc).toHaveBeenCalledWith('my_partner_company_welcome', {
       p_day_start: new Date(2026, 9, 15).toISOString(),
@@ -98,10 +98,10 @@ describe('company welcome', () => {
     await user.click(screen.getByRole('button', { name: 'Verify account' }))
     expect(await screen.findByText('Swift Movers', { selector: '.partner-payout-resolved strong' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Verify account' })).toBeDisabled()
-    expect(invoke).not.toHaveBeenCalledWith('flutterwave-payout', { body: expect.objectContaining({ action: 'save-account' }) })
+    expect(invoke).not.toHaveBeenCalledWith('paystack-payout', { body: expect.objectContaining({ action: 'save-account' }) })
     await user.click(screen.getByRole('button', { name: 'Confirm and save' }))
     expect(await screen.findByText(/7890/, { selector: '.partner-payout-destination small' })).toBeInTheDocument()
-    expect(invoke).toHaveBeenCalledWith('flutterwave-payout', { body: expect.objectContaining({ action: 'save-account', partnerId: 'company-1', accountName: 'Swift Movers' }) })
+    expect(invoke).toHaveBeenCalledWith('paystack-payout', { body: expect.objectContaining({ action: 'save-account', partnerId: 'company-1', accountName: 'Swift Movers' }) })
   })
 
   it('shows the bank verification response instead of the generic Edge Function error', async () => {
@@ -113,16 +113,16 @@ describe('company welcome', () => {
     const invoke = vi.fn(async (_name: string, args: { body: { action: string } }) => args.body.action === 'banks'
       ? { data: { banks: [{ code: '044', name: 'Access Bank' }], testMode: true, verificationTestMode: true }, error: null }
       : args.body.action === 'resolve'
-        ? { data: null, error: { message: 'Edge Function returned a non-2xx status code', context: new Response(JSON.stringify({ error: 'Flutterwave test mode accepts sample bank accounts only.' }), { status: 422 }) } }
+        ? { data: null, error: { message: 'Edge Function returned a non-2xx status code', context: new Response(JSON.stringify({ error: 'Paystack could not verify this account in test mode.' }), { status: 422 }) } }
         : { data: { account: null }, error: null })
     const supabase = { rpc, functions: { invoke } } as unknown as ReturnType<typeof getSupabaseClient>
     const user = userEvent.setup()
     render(<PartnerCompanyWelcome supabase={supabase} onError={onError} onNotice={vi.fn()} />)
     await user.click(await screen.findByRole('button', { name: 'Add bank account' }))
-    expect(screen.getByText(/Flutterwave accepts Access Bank sample accounts/)).toBeInTheDocument()
+    expect(screen.getByText(/Use a Paystack test account/)).toBeInTheDocument()
     await user.selectOptions(await screen.findByLabelText('Bank'), '044')
     await user.type(screen.getByLabelText('Account number'), '1234567890')
     await user.click(screen.getByRole('button', { name: 'Verify account' }))
-    await waitFor(() => expect(onError).toHaveBeenCalledWith('Flutterwave test mode accepts sample bank accounts only.'))
+    await waitFor(() => expect(onError).toHaveBeenCalledWith('Paystack could not verify this account in test mode.'))
   })
 })

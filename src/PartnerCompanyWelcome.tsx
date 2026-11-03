@@ -80,7 +80,7 @@ export default function PartnerCompanyWelcome({ supabase, onError, onNotice, sho
     companyId.current = row?.partner_id ?? null
     if (showPayout) await refreshPayables(row?.partner_id)
     if (row && showPayout) {
-      const payout = await supabase.functions.invoke('flutterwave-payout', { body: { action: 'account', partnerId: row.partner_id } })
+      const payout = await supabase.functions.invoke('paystack-payout', { body: { action: 'account', partnerId: row.partner_id } })
       if (payout.error) onError(await payoutErrorMessage(payout.error))
       else { setAccount((payout.data as { account?: PayoutAccount | null })?.account ?? null); setTestMode(!!payout.data?.testMode); setVerificationTestMode(!!payout.data?.verificationTestMode) }
     }
@@ -97,7 +97,7 @@ export default function PartnerCompanyWelcome({ supabase, onError, onNotice, sho
     setAccountNumber('')
     if (banks.length) return
     setAccountBusy(true)
-    const { data, error } = await supabase.functions.invoke('flutterwave-payout', { body: { action: 'banks', partnerId: company.partner_id } })
+    const { data, error } = await supabase.functions.invoke('paystack-payout', { body: { action: 'banks', partnerId: company.partner_id } })
     if (error) onError(await payoutErrorMessage(error))
     else { setBanks((data as { banks?: Bank[] })?.banks ?? []); setTestMode(!!data?.testMode); setVerificationTestMode(!!data?.verificationTestMode) }
     setAccountBusy(false)
@@ -107,7 +107,7 @@ export default function PartnerCompanyWelcome({ supabase, onError, onNotice, sho
     if (!company || !bankCode || !/^\d{10}$/.test(accountNumber) || accountBusy) return
     setAccountBusy(true)
     setResolvedAccount(null)
-    const { data, error } = await supabase.functions.invoke('flutterwave-payout', { body: { action: 'resolve', partnerId: company.partner_id, bankCode, accountNumber } })
+    const { data, error } = await supabase.functions.invoke('paystack-payout', { body: { action: 'resolve', partnerId: company.partner_id, bankCode, accountNumber } })
     if (error) onError(await payoutErrorMessage(error))
     else if (data?.accountName && data?.accountNumber === accountNumber && data?.bankCode === bankCode) { setResolvedAccount(data as ResolvedAccount); if (data?.testMode) setTestMode(true) }
     else onError('The account could not be verified. Check the bank and account number.')
@@ -117,7 +117,7 @@ export default function PartnerCompanyWelcome({ supabase, onError, onNotice, sho
   async function saveBankAccount() {
     if (!company || !resolvedAccount || accountBusy) return
     setAccountBusy(true)
-    const { data, error } = await supabase.functions.invoke('flutterwave-payout', { body: { action: 'save-account', partnerId: company.partner_id, bankCode: resolvedAccount.bankCode, accountNumber: resolvedAccount.accountNumber, accountName: resolvedAccount.accountName } })
+    const { data, error } = await supabase.functions.invoke('paystack-payout', { body: { action: 'save-account', partnerId: company.partner_id, bankCode: resolvedAccount.bankCode, accountNumber: resolvedAccount.accountNumber, accountName: resolvedAccount.accountName } })
     if (error) onError(await payoutErrorMessage(error))
     else if (data?.account) { setAccount(data.account as PayoutAccount); setEditingAccount(false); setResolvedAccount(null); setAccountNumber(''); if (data?.testMode) setTestMode(true); onNotice('Verified payout account saved.') }
     else onError('The payout account was not saved.')
@@ -129,7 +129,7 @@ export default function PartnerCompanyWelcome({ supabase, onError, onNotice, sho
     setWithdrawing(true)
     const idempotencyKey = withdrawalKey.current ?? crypto.randomUUID()
     withdrawalKey.current = idempotencyKey
-    const { data, error } = await supabase.functions.invoke('flutterwave-payout', { body: {
+    const { data, error } = await supabase.functions.invoke('paystack-payout', { body: {
       action: 'withdraw', partnerId: company.partner_id, amountNgn: Math.floor(Number(payables.available_ngn)), idempotencyKey,
     } })
     if (error) onError(await payoutErrorMessage(error))
@@ -146,7 +146,7 @@ export default function PartnerCompanyWelcome({ supabase, onError, onNotice, sho
 
   async function checkWithdrawal() {
     if (!withdrawal) return
-    const { data, error } = await supabase.functions.invoke('flutterwave-payout', { body: { action: 'status', partnerId: company?.partner_id, withdrawalId: withdrawal.withdrawalId } })
+    const { data, error } = await supabase.functions.invoke('paystack-payout', { body: { action: 'status', partnerId: company?.partner_id, withdrawalId: withdrawal.withdrawalId } })
     if (error) onError(await payoutErrorMessage(error))
     else if (data?.withdrawalId === withdrawal.withdrawalId) { setWithdrawal(data as Withdrawal); if (data?.testMode) setTestMode(true); await refreshPayables(company?.partner_id) }
   }
@@ -218,7 +218,7 @@ export default function PartnerCompanyWelcome({ supabase, onError, onNotice, sho
     </div>}
     {showPayout && editingAccount && <div className="partner-payout-account-form" aria-label="Bank account details">
       <div className="partner-payout-form-heading"><div><p className="eyebrow">PAYOUT DETAILS</p><h2>{account ? 'Change bank account' : 'Add bank account'}</h2><p>Choose your bank and enter your account number. We will show the account name before you save.</p></div><button type="button" className="partner-payout-close" aria-label="Close bank account form" onClick={() => { setEditingAccount(false); setResolvedAccount(null); setAccountNumber('') }}>×</button></div>
-      {verificationTestMode && <p className="partner-payout-sandbox-note">Bank verification is in test mode. Flutterwave accepts Access Bank sample accounts 0690000031–0690000041 only. To verify your real account, a live verification key must be configured; this does not enable withdrawals.</p>}
+      {verificationTestMode && <p className="partner-payout-sandbox-note">Bank verification is in test mode. Use a Paystack test account. Real accounts require live verification; this does not enable withdrawals.</p>}
       <div className="partner-payout-fields">
         <label className="field"><span>Bank</span><select value={bankCode} onChange={(event) => { setBankCode(event.target.value); setResolvedAccount(null) }} disabled={accountBusy}><option value="">Select bank</option>{banks.map((bank) => <option value={bank.code} key={bank.code}>{bank.name}</option>)}</select></label>
         <label className="field"><span>Account number</span><input value={accountNumber} onChange={(event) => { setAccountNumber(event.target.value.replace(/\D/g, '').slice(0, 10)); setResolvedAccount(null) }} inputMode="numeric" autoComplete="off" maxLength={10} placeholder="10 digits" /></label>

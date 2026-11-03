@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import './customer-referrals.css'
+import ReferralPayoutPanel from './ReferralPayoutPanel'
 
 type Member = { code: string; display_name: string; rank: number; earned_ngn: number; completed_job_value_ngn: number }
 type Leader = { rank: number; display_name: string; earned_ngn: number; completed_job_value_ngn: number }
@@ -57,6 +58,7 @@ export default function CustomerReferralPanel({ supabase, onError, onNotice }: {
       </div>
       <small>Send the same link to a new customer or logistics company. They can also type {member.code} during signup. Company referrals count after approval and completed paid deliveries.</small>
       <div className="customer-referral-progress"><span>Year-end prize minimum</span><progress max={500000} value={Math.min(500000, Number(member.completed_job_value_ngn))} /><strong>{money(member.completed_job_value_ngn)} / ₦500,000</strong></div>
+      <ReferralPayoutPanel supabase={supabase} onError={onError} onNotice={onNotice} />
     </>}
     <div className="customer-referral-leaderboard"><h3>{dashboard?.year ?? new Date().getFullYear()} leaderboard</h3>
       {!dashboard?.leaders?.length ? <p>No earnings yet. Completed and paid jobs will appear here.</p> : <ol>{dashboard.leaders.map((leader) => <li key={`${leader.rank}-${leader.display_name}`}><span>#{leader.rank} {leader.display_name}</span><strong>{money(leader.earned_ngn)}</strong><small>{money(leader.completed_job_value_ngn)} in jobs</small></li>)}</ol>}
