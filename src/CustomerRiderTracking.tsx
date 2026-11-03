@@ -41,7 +41,7 @@ export default function CustomerRiderTracking({ supabase, jobId }: { supabase: S
   const refresh = useCallback(async () => {
     if (document.hidden) return
     const checkedAt = Date.now()
-    setRequestedAt((current) => current && checkedAt - current >= 600_000 ? null : current)
+    setRequestedAt((current) => current && checkedAt - current >= 4_200_000 ? null : current)
     const { data, error: rpcError } = await supabase.rpc('get_my_delivery_tracking', { p_job_id: jobId })
     if (rpcError) { setError('Tracking is unavailable right now.'); setTracking(null); setReveal(null) }
     else if (!validTracking(data)) { setError('Tracking returned an invalid status.'); setTracking(null); setReveal(null) }
@@ -105,7 +105,7 @@ export default function CustomerRiderTracking({ supabase, jobId }: { supabase: S
     {loading && <p>Checking rider progress…</p>}
     {error && <p role="status">{error}</p>}
     {!loading && !error && tracking?.state === 'awaiting_rider' && <p>A rider has not been assigned yet.</p>}
-    {!loading && !error && tracking?.state === 'offline' && <div><p>Rider location is not live right now.</p><button type="button" className="secondary-button" disabled={requesting} onClick={() => void requestLocation()}>{requesting ? 'Requesting…' : 'Request rider location'}</button>{requestedAt && <small> Waiting for the rider phone · checks every 5 minutes</small>}</div>}
+    {!loading && !error && tracking?.state === 'offline' && <div><p>Rider location is not live right now.</p><button type="button" className="secondary-button" disabled={requesting} onClick={() => void requestLocation()}>{requesting ? 'Requesting…' : 'Request rider location'}</button>{requestedAt && <small> Waiting for the rider phone · checks hourly</small>}</div>}
     {!loading && !error && tracking?.state === 'completed' && <p>Tracking ended for this delivery.</p>}
     {live && <>
       <div className="customer-rider-tracking-stats">

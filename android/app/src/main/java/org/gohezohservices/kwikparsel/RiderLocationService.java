@@ -57,7 +57,7 @@ public final class RiderLocationService extends Service implements LocationListe
                 }
                 catch (Exception ignored) { status = "Waiting for internet to check location requests"; }
             });
-            if (active) requestHandler.postDelayed(this, 300000L);
+            if (active) requestHandler.postDelayed(this, 3600000L);
         }
     };
     public static volatile boolean active = false;

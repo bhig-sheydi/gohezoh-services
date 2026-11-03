@@ -25,5 +25,8 @@ begin
   if pg_get_functiondef('public.report_native_off_duty_position(text,double precision,double precision,double precision,timestamptz)'::regprocedure)
     not like '%Update the Kwik-Parsel Android app%' then
     raise exception 'Old continuous off-duty reporting remains active'; end if;
+  if pg_get_functiondef('public.queue_rider_location_request(uuid)'::regprocedure)
+    not like '%70 minutes%' then
+    raise exception 'Hourly request can expire before the next phone check'; end if;
 end $$;
 rollback;

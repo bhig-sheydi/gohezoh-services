@@ -80,14 +80,14 @@ export function PartnerRidersPanel({ supabase, userId, onError, onNotice, staffP
     if (error) onError(error.message)
     else setRiderLocations(Object.fromEntries(((data ?? []) as RiderLocation[]).map((row) => [row.rider_id, row])))
     const checkedAt = Date.now()
-    setRequestedRiderLocations((current) => Object.fromEntries(Object.entries(current).filter(([, requested]) => checkedAt - requested < 600_000)))
+    setRequestedRiderLocations((current) => Object.fromEntries(Object.entries(current).filter(([, requested]) => checkedAt - requested < 4_200_000)))
     setLocationLoading(false)
   }, [selectedPartner, supabase, onError])
   async function requestRiderLocation(riderId: string) {
     if (!selectedPartner) return
     const { error } = await supabase.rpc('request_company_rider_location', { p_partner_id: selectedPartner, p_roster_id: riderId })
     if (error) onError(error.message)
-    else { setRequestedRiderLocations((current) => ({ ...current, [riderId]: Date.now() })); onNotice('Checking the rider phone. It checks every five minutes; GPS and network may add time.'); void refreshLocations() }
+    else { setRequestedRiderLocations((current) => ({ ...current, [riderId]: Date.now() })); onNotice('Checking the rider phone. It checks hourly; GPS and network may add time.'); void refreshLocations() }
   }
   useEffect(() => {
     if (!selectedPartner) return
@@ -271,7 +271,7 @@ export function PartnerRidersPanel({ supabase, userId, onError, onNotice, staffP
               {rider.status === 'approved' && <div className="rider-company-location">
                 <strong>Phone location</strong>
                 {!riderLocation?.is_fresh && <button type="button" className="secondary-button" onClick={() => void requestRiderLocation(rider.id)}>Request current location</button>}
-                {requestedRiderLocations[rider.id] && (!riderLocation?.captured_at || new Date(riderLocation.captured_at).getTime() < requestedRiderLocations[rider.id]) && <small>Waiting for rider phone · checks every 5 minutes</small>}
+                {requestedRiderLocations[rider.id] && (!riderLocation?.captured_at || new Date(riderLocation.captured_at).getTime() < requestedRiderLocations[rider.id]) && <small>Waiting for rider phone · checks hourly</small>}
                 <button type="button" className="secondary-button" disabled={locationLoading} onClick={() => void refreshLocations()}>{locationLoading ? 'Checking…' : 'Refresh location'}</button>
                 {riderLocation?.captured_at && riderLocation.latitude !== null && riderLocation.longitude !== null ? <p>
                   {riderLocation.is_fresh ? riderLocation.on_duty ? 'On duty' : 'Off duty · sharing' : 'Last known · not live'} · GPS ±{Math.round(riderLocation.accuracy_metres ?? 0)} m · {new Date(riderLocation.captured_at).toLocaleString('en-NG')}
