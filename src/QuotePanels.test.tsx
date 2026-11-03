@@ -11,7 +11,7 @@ function client(rows: Record<string, Array<Record<string, unknown>>>) {
     : name === 'list_customer_bid_state' ? { data: { windows: rows.delivery_quote_windows ?? [], quotes: rows.customer_delivery_quotes ?? [], holds: rows.holds ?? [] }, error: null }
     : name === 'list_my_flutterwave_holds' ? { data: rows.holds ?? [], error: null }
     : { data: null, error: null })
-  const functions = { invoke: vi.fn(async () => ({ data: { status: 'pending' }, error: null })) }
+  const functions = { invoke: vi.fn(async (): Promise<{ data: unknown; error: { message: string; context?: Response } | null }> => ({ data: { status: 'pending' }, error: null })) }
   const from = vi.fn((table: string) => {
     const query: Record<string, unknown> = {}
     for (const method of ['select', 'in']) query[method] = () => query
@@ -23,6 +23,15 @@ function client(rows: Record<string, Array<Record<string, unknown>>>) {
 }
 
 describe('customer delivery quotes', () => {
+  it('shows the payment provider error instead of a generic Edge Function message', async () => {
+    const { supabase, functions } = client({ delivery_quote_windows: [{ request_id: 'request-1', status: 'awaiting_customer_selection', deadline_at: '2020-01-01T12:00:00Z' }], offers: [{ bid_id: 'bid-1', partner_name: 'Test logistics', bid_amount_ngn: 2000 }] })
+    functions.invoke.mockResolvedValueOnce({ data: null, error: { message: 'Edge Function returned a non-2xx status code', context: new Response(JSON.stringify({ error: 'Payment setup failed' }), { status: 400 }) } })
+    const onError = vi.fn()
+    render(<CustomerQuotePanel supabase={supabase} requestIds={['request-1']} onError={onError} onNotice={vi.fn()} onRefresh={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Choose this company' }))
+    await waitFor(() => expect(onError).toHaveBeenCalledWith('Payment setup failed'))
+  })
+
   it('shows the final price and accepts only the customer quote for that request', async () => {
     const { supabase, rpc } = client({ customer_delivery_quotes: [{ request_id: 'request-1', customer_price_ngn: 10000, expires_at: '2030-01-01T12:00:00Z', status: 'sent' }] })
     const notice = vi.fn()

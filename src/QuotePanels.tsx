@@ -22,6 +22,16 @@ type OpenRequest = { request_id: string; request_number: string; pickup_city: st
 const money = (value: number) => new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' }).format(value)
 const date = (value: string) => new Intl.DateTimeFormat('en-NG', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 
+async function paymentErrorMessage(error: { message: string; context?: unknown }) {
+  if (error.context instanceof Response) {
+    try {
+      const body: unknown = await error.context.clone().json()
+      if (body && typeof body === 'object' && 'error' in body && typeof body.error === 'string') return body.error
+    } catch { /* Keep the network error when the response has no JSON body. */ }
+  }
+  return error.message
+}
+
 export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [], localRequestIds = [], paymentReceivedAtByRequest = {}, onError, onNotice, onRefresh }: { supabase: SupabaseClient; requestIds: string[]; pendingRequestIds?: string[]; localRequestIds?: string[]; paymentReceivedAtByRequest?: Record<string, string>; onError: (message: string) => void; onNotice: (message: string) => void; onRefresh: () => void }) {
   const requestIdKey = requestIds.join(',')
   const pendingIdKey = pendingRequestIds.join(',')
@@ -30,6 +40,7 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
   const [quotes, setQuotes] = useState<CustomerQuote[]>([])
   const [holds, setHolds] = useState<Record<string, PaymentHold>>({})
   const holdsRef = useRef(holds)
+  const accountInitAttempted = useRef(new Set<string>())
   useEffect(() => { holdsRef.current = holds }, [holds])
   const [offers, setOffers] = useState<Record<string, CustomerBid[]>>({})
   const [bikePrices, setBikePrices] = useState<Record<string, BikePrice>>({})
@@ -120,10 +131,23 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
     } }, 15000)
     return () => clearInterval(timer)
   }, [pendingHoldKey, supabase, load])
+  useEffect(() => {
+    if (document.hidden) return
+    const initializing = Object.values(holds).filter((hold) => hold.status === 'initializing' && Date.parse(hold.expires_at) > Date.now())
+    for (const hold of initializing) {
+      if (accountInitAttempted.current.has(hold.reference)) continue
+      accountInitAttempted.current.add(hold.reference)
+      void supabase.functions.invoke(hold.provider === 'flutterwave' ? 'flutterwave-payment' : 'paystack-payment',
+        { body: { action: 'status', requestId: hold.request_id } }).then(async ({ error }) => {
+        if (error) onError(await paymentErrorMessage(error))
+        await load()
+      })
+    }
+  }, [holds, supabase, load, onError])
   async function choose(requestId: string, bidId: string) {
     setBusy(requestId)
     const { data, error } = await supabase.functions.invoke('paystack-payment', { body: { action: 'start', requestId, bidId } })
-    if (error) onError(error.message)
+    if (error) { onError(await paymentErrorMessage(error)); await load(); onRefresh() }
     else { onNotice(data?.status === 'management' ? 'Company selected. Your final delivery price is being prepared.' : 'Company selected. Pay within 15 minutes to confirm the rider.'); await load(); onRefresh() }
     setBusy('')
   }
@@ -152,7 +176,7 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
   async function retryAccount(requestId: string) {
     setBusy(requestId)
     const { error } = await supabase.functions.invoke(holdsRef.current[requestId]?.provider === 'flutterwave' ? 'flutterwave-payment' : 'paystack-payment', { body: { action: 'status', requestId } })
-    if (error) onError(error.message)
+    if (error) onError(await paymentErrorMessage(error))
     await load()
     setBusy('')
   }
