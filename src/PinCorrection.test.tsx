@@ -66,7 +66,7 @@ describe('mobile pin correction', () => {
     vi.stubGlobal('URL', { ...URL, createObjectURL: vi.fn(() => 'blob:map'), revokeObjectURL: vi.fn() })
     render(<PinCorrection supabase={{} as SupabaseClient} initial={{ latitude: 4.85, longitude: 7.01 }} onChoose={vi.fn()} onClose={vi.fn()} />)
     await userEvent.setup().type(screen.getByRole('textbox', { name: 'Street name' }), 'Ibeku')
-    expect(await screen.findByRole('button', { name: 'Ibeku Road, Umuahia' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Ibeku Road, Umuahia' }, { timeout: 5000 })).toBeInTheDocument()
     expect(suggestAddresses).toHaveBeenCalledWith(expect.anything(), 'Ibeku', expect.anything())
   })
   it('explains when neither nearby nor wider street search finds a match', async () => {

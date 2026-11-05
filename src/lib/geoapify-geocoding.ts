@@ -227,11 +227,18 @@ const tileSlots: Promise<void>[] = [Promise.resolve(), Promise.resolve(), Promis
 let nextTileSlot = 0
 
 /** Called only by an explicit user action. A device fix never guarantees a particular sensor or building. */
-export async function getAddressFromCurrentPosition(client: SupabaseClient, options: { signal?: AbortSignal; onPosition?: (fix: PositionFix) => void } = {}): Promise<AddressSuggestion> {
+export async function getAddressFromCurrentPosition(client: SupabaseClient, options: { signal?: AbortSignal; onPosition?: (fix: PositionFix) => void; resolvePosition?: (fix: PositionFix) => Promise<AddressSuggestion | null> } = {}): Promise<AddressSuggestion> {
   const fix = await requestAddressPosition({ signal: options.signal })
   options.signal?.throwIfAborted()
   options.onPosition?.(fix)
-  const identified = await identifyCurrentLocation(client, fix, options.signal)
+  const saved = await options.resolvePosition?.(fix)
+  options.signal?.throwIfAborted()
+  if (saved) return saved
+  return getAddressAtPosition(client, fix, options.signal)
+}
+
+export async function getAddressAtPosition(client: SupabaseClient, fix: PositionFix, signal?: AbortSignal): Promise<AddressSuggestion> {
+  const identified = await identifyCurrentLocation(client, fix, signal)
   const mapped = identified.matchedAddress
   return { address: identified.label, city: mapped?.city ?? '', state: mapped?.state ?? '',
     latitude: fix.latitude, longitude: fix.longitude, specificity: mapped?.specificity ?? 'area', resultType: mapped?.resultType ?? 'amenity',

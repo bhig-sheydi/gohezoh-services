@@ -31,6 +31,15 @@ describe('authenticated location lookup', () => {
     expect(onPosition).toHaveBeenCalledOnce()
     expect(invoke).toHaveBeenCalledTimes(2)
   })
+  it('uses a matched customer place before reverse geocoding a precise phone fix', async () => {
+    vi.mocked(requestAddressPosition).mockResolvedValue(fix)
+    const { client, invoke } = setup()
+    const saved = { ...address, evidence: { ...fix, source: 'saved' as const }, qualityNote: 'Shared place' }
+    const resolvePosition = vi.fn(async () => saved)
+    await expect(getAddressFromCurrentPosition(client, { resolvePosition })).resolves.toEqual(saved)
+    expect(resolvePosition).toHaveBeenCalledWith(fix)
+    expect(invoke).not.toHaveBeenCalled()
+  })
   it('never reverse geocodes after denied device permission', async () => {
     vi.mocked(requestAddressPosition).mockRejectedValueOnce(new Error('Location permission was denied.'))
     const { client, invoke } = setup()

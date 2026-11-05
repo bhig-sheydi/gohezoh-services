@@ -32,7 +32,7 @@ function MapTile({ supabase, z, x, y, left, top, onFailure }: { supabase: Supaba
 }
 
 export default function PinCorrection({ supabase, initial, onChoose, onClose, requireMove = false, streetInputName, initialStreet = '', onStreetChange, onPointChange, compactMap = false, autoSelectSuggestion = false, streetSearchRadiusMetres, hideSearch = false }: {
-  supabase: SupabaseClient; initial: Point; onChoose: (evidence: LocationEvidence, address: AddressSuggestion | null) => void; onClose?: () => void; requireMove?: boolean
+  supabase: SupabaseClient; initial: Point; onChoose: (evidence: LocationEvidence, address: AddressSuggestion | null, movedPin: boolean) => void; onClose?: () => void; requireMove?: boolean
   streetInputName?: string; initialStreet?: string; onStreetChange?: (street: string) => void; onPointChange?: () => void; compactMap?: boolean; autoSelectSuggestion?: boolean; streetSearchRadiusMetres?: number; hideSearch?: boolean
 }) {
   const [point, setPoint] = useState(initial)
@@ -134,19 +134,19 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
     setPoint({ latitude: result.latitude, longitude: result.longitude }); setZoom(17)
     setQuery(result.address); setSelectedLabel(result.address); setSuggestions([]); setMovedPin(false)
     setSelectedStreet(result.address); setStreetStatus('idle'); setLandmarkQuery(''); setLandmarkSuggestions([]); setSideStreetSuggestions([]); setLandmarkStatus('idle')
-    if (autoSelectSuggestion) onChoose(result.evidence, result)
+    if (autoSelectSuggestion) onChoose(result.evidence, result, false)
   }
   function choosePlace(result: AddressSuggestion) {
     setPoint({ latitude: result.latitude, longitude: result.longitude }); setZoom(18)
     setSelectedLabel(result.address); setLandmarkQuery(''); setLandmarkSuggestions([]); setSideStreetSuggestions([]); setLandmarkStatus('idle'); setMovedPin(false)
-    if (autoSelectSuggestion) onChoose(result.evidence, result)
+    if (autoSelectSuggestion) onChoose(result.evidence, result, false)
   }
   async function confirm() {
     setBusy(true); setError('')
     let address: AddressSuggestion | null = null
     try { address = await reverseAddress(supabase, { ...point, accuracyMetres: null, capturedAt: Date.now(), source: 'map' }) }
     catch { /* The customer's chosen pin remains valid when reverse geocoding fails. */ }
-    onChoose({ ...point, accuracyMetres: null, capturedAt: Date.now(), source: 'map' }, address)
+    onChoose({ ...point, accuracyMetres: null, capturedAt: Date.now(), source: 'map' }, address, movedPin)
     setBusy(false)
   }
   return <div className="pin-correction" aria-label="Adjust location pin">

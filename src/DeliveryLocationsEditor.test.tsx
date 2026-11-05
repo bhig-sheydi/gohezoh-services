@@ -1,12 +1,17 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import DeliveryLocationsEditor from './DeliveryLocationsEditor'
-import { getAddressFromCurrentPosition, suggestAddresses, type AddressSuggestion } from './lib/geoapify-geocoding'
+import { getAddressAtPosition, suggestAddresses, type AddressSuggestion } from './lib/geoapify-geocoding'
+import { requestAddressPosition } from './lib/proximity'
 
-vi.mock('./lib/geoapify-geocoding', () => ({ getAddressFromCurrentPosition: vi.fn(), suggestAddresses: vi.fn() }))
+vi.mock('./lib/geoapify-geocoding', () => ({ getAddressAtPosition: vi.fn(), suggestAddresses: vi.fn() }))
+vi.mock('./lib/proximity', () => ({ requestAddressPosition: vi.fn() }))
+vi.mock('./lib/shared-delivery-places', () => ({ searchSharedDeliveryPlaces: vi.fn(async () => []) }))
 const result: AddressSuggestion = { address: '10 Palm Street', city: 'Umuahia', state: 'Abia', latitude: 5.5, longitude: 7.5, specificity: 'building', resultType: 'building', confidence: null, distanceMetres: 10, evidence: { latitude: 5.5, longitude: 7.5, accuracyMetres: 12, capturedAt: Date.now(), source: 'browser' }, qualityNote: 'Building-level suggestion; check the building and street.' }
+const phoneFix = { latitude: 5.5, longitude: 7.5, accuracyMetres: 18, capturedAt: Date.now(), source: 'browser' as const }
+beforeEach(() => vi.resetAllMocks())
 function setup() {
   const upsert = vi.fn(() => ({ abortSignal: vi.fn(async () => ({ error: null })) }))
   const supabase = { from: vi.fn(() => ({ upsert })) } as unknown as SupabaseClient
@@ -27,14 +32,15 @@ describe('delivery location editor', () => {
     expect(await within(card).findByRole('group', { name: /address suggestions/ })).toHaveTextContent('10 Palm Street')
   })
   it('blocks a corrected area label until it has a selected map point', async () => {
-    vi.mocked(getAddressFromCurrentPosition).mockResolvedValueOnce({ ...result, address: 'Ibeku', specificity: 'area', evidence: { ...result.evidence, accuracyMetres: 500 } })
+    vi.mocked(requestAddressPosition).mockResolvedValueOnce({ ...phoneFix, accuracyMetres: 500 })
+    vi.mocked(getAddressAtPosition).mockResolvedValueOnce({ ...result, address: 'Ibeku', specificity: 'area', evidence: { ...result.evidence, accuracyMetres: 500 } })
     const { props, upsert } = setup()
     render(<DeliveryLocationsEditor {...props} />)
     const card = screen.getByText('Work').closest('form')!
     const user = userEvent.setup()
     expect(screen.queryByRole('button', { name: /map/i })).not.toBeInTheDocument()
     await user.click(within(card).getByRole('button', { name: 'Get address' }))
-    expect(within(card).getByLabelText('Address')).toHaveValue('Ibeku')
+    await waitFor(() => expect(within(card).getByLabelText('Address')).toHaveValue('Ibeku'))
     expect(within(card).getByLabelText('City')).toHaveValue('Umuahia')
     expect(within(card).getByLabelText('State')).toHaveValue('Abia')
     expect(within(card).getByRole('status')).toHaveTextContent('The map found only an area, not your building or street. Phone accuracy ±500 m.')
@@ -46,10 +52,10 @@ describe('delivery location editor', () => {
     expect(within(card).getByRole('alert')).toHaveTextContent('Select an address suggestion')
   })
   it('keeps manual search usable after permission denial but blocks unpinned text', async () => {
-    vi.mocked(getAddressFromCurrentPosition).mockRejectedValueOnce(new Error('Location permission was denied.'))
+    vi.mocked(requestAddressPosition).mockRejectedValueOnce(new Error('Location permission was denied.'))
     const { props, upsert } = setup()
     render(<DeliveryLocationsEditor {...props} />)
-    expect(getAddressFromCurrentPosition).not.toHaveBeenCalled()
+    expect(requestAddressPosition).not.toHaveBeenCalled()
     const card = screen.getByText('Work').closest('form')!
     const user = userEvent.setup()
     await user.type(within(card).getByLabelText('Address'), '20 Market Road')
@@ -77,13 +83,14 @@ describe('delivery location editor', () => {
   })
   it('deduplicates clicks and prevents input edits while a result is pending', async () => {
     let resolve!: (value: AddressSuggestion) => void
-    vi.mocked(getAddressFromCurrentPosition).mockReturnValueOnce(new Promise((done) => { resolve = done }))
+    vi.mocked(requestAddressPosition).mockResolvedValueOnce(phoneFix)
+    vi.mocked(getAddressAtPosition).mockReturnValueOnce(new Promise((done) => { resolve = done }))
     const { props } = setup()
     render(<DeliveryLocationsEditor {...props} />)
     const card = screen.getByText('Work').closest('form')!
     const user = userEvent.setup()
     await user.dblClick(within(card).getByRole('button', { name: 'Get address' }))
-    expect(getAddressFromCurrentPosition).toHaveBeenCalledTimes(1)
+    expect(requestAddressPosition).toHaveBeenCalledTimes(1)
     expect(within(card).getByLabelText('Address')).toBeDisabled()
     expect(within(card).getByRole('button', { name: 'Save location' })).toHaveTextContent('Save location')
     await act(async () => resolve(result))
@@ -92,11 +99,13 @@ describe('delivery location editor', () => {
   })
   it('aborts a lookup on editor closure and ignores a late result after reopening', async () => {
     let resolve!: (value: AddressSuggestion) => void
-    vi.mocked(getAddressFromCurrentPosition).mockReturnValueOnce(new Promise((done) => { resolve = done }))
+    vi.mocked(requestAddressPosition).mockResolvedValueOnce(phoneFix)
+    vi.mocked(getAddressAtPosition).mockReturnValueOnce(new Promise((done) => { resolve = done }))
     const { props } = setup()
     const view = render(<DeliveryLocationsEditor {...props} />)
     await userEvent.setup().click(screen.getAllByRole('button', { name: 'Get address' })[0])
-    const signal = vi.mocked(getAddressFromCurrentPosition).mock.calls[0][1]!.signal!
+    await waitFor(() => expect(getAddressAtPosition).toHaveBeenCalledOnce())
+    const signal = vi.mocked(getAddressAtPosition).mock.calls[0][2]!
     view.unmount()
     expect(signal.aborted).toBe(true)
     render(<DeliveryLocationsEditor {...props} />)

@@ -3,9 +3,11 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { getSupabaseClient } from './lib/supabase'
 import ParcelPalsPanel from './ParcelPalsPanel'
-import { getAddressFromCurrentPosition } from './lib/geoapify-geocoding'
+import { getAddressAtPosition } from './lib/geoapify-geocoding'
+import { requestAddressPosition } from './lib/proximity'
 
-vi.mock('./lib/geoapify-geocoding', () => ({ getAddressFromCurrentPosition: vi.fn() }))
+vi.mock('./lib/geoapify-geocoding', () => ({ getAddressAtPosition: vi.fn() }))
+vi.mock('./lib/proximity', () => ({ requestAddressPosition: vi.fn() }))
 
 type Client = ReturnType<typeof getSupabaseClient>
 
@@ -132,7 +134,8 @@ describe('Parcel Pals privacy and requests', () => {
       return { data: null, error: null }
     })
     const { supabase, upsert } = makeClient(rpc)
-    vi.mocked(getAddressFromCurrentPosition).mockResolvedValueOnce({ address: '10 Palm Street', city: 'Umuahia', state: 'Abia', latitude: 5.5, longitude: 7.5, specificity: 'building', resultType: 'building', distanceMetres: 12, confidence: null, evidence: { latitude: 5.5, longitude: 7.5, accuracyMetres: 18, capturedAt: Date.now(), source: 'browser' }, qualityNote: 'Building suggestion; verify the house/building before saving. Device-reported accuracy: about 18 m.' })
+    vi.mocked(requestAddressPosition).mockResolvedValueOnce({ latitude: 5.5, longitude: 7.5, accuracyMetres: 18, capturedAt: Date.now(), source: 'browser' })
+    vi.mocked(getAddressAtPosition).mockResolvedValueOnce({ address: '10 Palm Street', city: 'Umuahia', state: 'Abia', latitude: 5.5, longitude: 7.5, specificity: 'building', resultType: 'building', distanceMetres: 12, confidence: null, evidence: { latitude: 5.5, longitude: 7.5, accuracyMetres: 18, capturedAt: Date.now(), source: 'browser' }, qualityNote: 'Building suggestion; verify the house/building before saving. Device-reported accuracy: about 18 m.' })
     const user = userEvent.setup()
     const view = render(<ParcelPalsPanel supabase={supabase} userId="user-1" onError={vi.fn()} onNotice={vi.fn()} />)
     expect(screen.queryByRole('heading', { name: 'Your delivery locations' })).not.toBeInTheDocument()
@@ -148,7 +151,7 @@ describe('Parcel Pals privacy and requests', () => {
     await user.click(within(workCard).getByRole('checkbox', { name: 'Address is correct.' }))
     await user.click(within(workCard).getByRole('button', { name: 'Save location' }))
     await waitFor(() => expect(upsert).toHaveBeenCalledWith({ user_id: 'user-1', slot: 1, label: 'Work', address: '10 Palm Street', city: 'Umuahia', state: 'Abia', secondary_phone: null,
-      latitude: 5.5, longitude: 7.5, location_source: 'browser', location_accuracy_metres: 18 }, { onConflict: 'user_id,slot' }))
+      latitude: 5.5, longitude: 7.5, location_source: 'browser', location_accuracy_metres: 18, shared_label: null, pin_moved_by_user: false }, { onConflict: 'user_id,slot' }))
   })
 
   it('reminds again on the next app open while the profile still has no picture', async () => {
