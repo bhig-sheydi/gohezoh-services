@@ -57,6 +57,7 @@ export function CompanyStaffLogin() {
   return <main className="app-shell"><header className="topbar"><a href="/" className="brand"><img className="brand-mark" src="/favicon.svg" alt="" /><span><strong>KWIK-PARSEL</strong><small>COMPANY STAFF</small></span></a></header>
     {!ready ? <div className="loading">Preparing staff sign-in...</div> : session ? <section className="form-card narrow"><h1>Already signed in</h1><a href="/">Open your dashboard</a></section> : <section className="form-card narrow rider-login"><p className="eyebrow">COMPANY OPERATIONS</p><h1>Welcome back</h1><form className="form-grid" onSubmit={(event) => void signIn(event)}><label className="field"><span>Your password</span><input name="password" type="password" autoComplete="current-password" required /></label><button className="primary-button" disabled={busy}>{busy ? 'Signing in...' : 'Sign in'}</button></form></section>}
     {error && <div role="alert" className="toast toast-error">{error}</div>}
+    <footer className="page-footer"><a href="/privacy-policy.html">Privacy</a><a href="/delete-account">Delete account</a></footer>
   </main>
 }
 export function CompanyStaffDashboard({ supabase, userId, onError, onNotice }: { supabase: SupabaseClient; userId: string; onError: (message: string) => void; onNotice: (message: string) => void }) {

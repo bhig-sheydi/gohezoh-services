@@ -2,6 +2,7 @@ package org.gohezohservices.kwikparsel;
 
 import android.Manifest;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.net.Uri;
@@ -142,8 +143,8 @@ public final class MainActivity extends Activity {
             switch (message.optString("type")) {
                 case "rider:status": sendRiderStatus(); break;
                 case "rider:background-settings":
-                    startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                        Uri.parse("package:" + getPackageName())));
+                    showRiderLocationDisclosure(() -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:" + getPackageName()))));
                     break;
                 case "rider:set-duty":
                     if (RiderLocationService.active) startService(new Intent(this, RiderLocationService.class)
@@ -160,8 +161,10 @@ public final class MainActivity extends Activity {
                     String token = message.optString("trackingToken");
                     if (!token.matches("[0-9a-f]{64}")) { sendRiderEvent(false, "Phone tracking could not start"); return; }
                     pendingTrackingToken = token;
-                    if (hasLocationPermission()) startTracking();
-                    else requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, LOCATION_PERMISSION);
+                    showRiderLocationDisclosure(() -> {
+                        if (hasLocationPermission()) startTracking();
+                        else requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, LOCATION_PERMISSION);
+                    });
                     break;
                 default: break;
             }
@@ -171,6 +174,21 @@ public final class MainActivity extends Activity {
     private boolean hasLocationPermission() {
         return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
             || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void showRiderLocationDisclosure(Runnable continueAction) {
+        if (getSharedPreferences("rider_location", MODE_PRIVATE).getBoolean("location_disclosure_v2", false)) {
+            continueAction.run(); return;
+        }
+        new AlertDialog.Builder(this)
+            .setTitle("Rider location sharing")
+            .setMessage("Kwik-Parsel collects location data to enable rider dispatch, customer delivery tracking, company vehicle and rider safety, and authorized location requests even when the app is closed or not in use. While on duty, location is updated automatically. While off duty, the app checks for authorized requests about once an hour and reports a fresh position only when requested. The rider can manage this permission in Android settings. Continue to the Android permission request?")
+            .setNegativeButton("Not now", (dialog, which) -> { pendingTrackingToken = null; sendRiderEvent(false, "Location permission is needed for rider tracking"); })
+            .setPositiveButton("Continue", (dialog, which) -> {
+                getSharedPreferences("rider_location", MODE_PRIVATE).edit().putBoolean("location_disclosure_v2", true).apply();
+                continueAction.run();
+            })
+            .setCancelable(false).show();
     }
 
     private void startTracking() {

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-export default function PartnerOwnerIdentity({ supabase, applicationId, userId, ready, onSaved, onError }: {
-  supabase: SupabaseClient; applicationId: string; userId: string; ready: boolean;
+export default function PartnerOwnerIdentity({ supabase, applicationId, userId, ready, previousPhotoPath, onSaved, onError }: {
+  supabase: SupabaseClient; applicationId: string; userId: string; ready: boolean; previousPhotoPath?: string | null;
   onSaved: () => Promise<void>; onError: (message: string) => void
 }) {
   const video = useRef<HTMLVideoElement>(null)
@@ -12,6 +12,7 @@ export default function PartnerOwnerIdentity({ supabase, applicationId, userId, 
   const [preview, setPreview] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [camera, setCamera] = useState(false)
+  const [ownerConfirmed, setOwnerConfirmed] = useState(false)
   useEffect(() => () => { stream.current?.getTracks().forEach((track) => track.stop()) }, [])
   useEffect(() => () => { if (preview) URL.revokeObjectURL(preview) }, [preview])
   useEffect(() => { if (camera && video.current && stream.current) { video.current.srcObject = stream.current; void video.current.play() } }, [camera])
@@ -41,6 +42,7 @@ export default function PartnerOwnerIdentity({ supabase, applicationId, userId, 
     }, 'image/jpeg', 0.82)
   }
   async function save() {
+    if (!ownerConfirmed) { onError('Confirm that you are the company owner and have read the privacy notice.'); return }
     if (!/^[0-9]{11}$/.test(nin)) { onError('Enter the owner NIN as 11 digits.'); return }
     if (!photo || photo.size > 5242880) { onError('Capture an owner face photo under 5 MB.'); return }
     setBusy(true); onError('')
@@ -51,18 +53,22 @@ export default function PartnerOwnerIdentity({ supabase, applicationId, userId, 
     else {
       const result = await supabase.rpc('submit_partner_owner_identity', { p_application_id: applicationId, p_nin: nin, p_selfie_path: path })
       if (result.error) { await bucket.remove([path]); onError(result.error.message) }
-      else { setNin(''); setPhoto(null); setPreview(null); await onSaved() }
+      else {
+        if (previousPhotoPath && previousPhotoPath !== path) await bucket.remove([previousPhotoPath])
+        setNin(''); setPhoto(null); setPreview(null); setOwnerConfirmed(false); await onSaved()
+      }
     }
     setBusy(false)
   }
   return <div className="owner-identity"><h3>Company owner identity</h3>
-    <p className="section-intro">Only the company owner may take this face photo. Do not take it if you are not the company owner. The NIN and photo are private and reviewed by Super Admin.</p>
+    <p className="section-intro">Only the company owner may take this face photo. Do not take it if you are not the company owner. The NIN and photo are private and reviewed by Super Admin. Use a bright place and keep your full face visible.</p>
     {ready && <p role="status">Owner NIN and face photo submitted. You can replace them before approval.</p>}
     <label className="field"><span>Company owner NIN (11 digits)</span><input inputMode="numeric" pattern="[0-9]{11}" maxLength={11} autoComplete="off" value={nin} onChange={(event) => setNin(event.target.value.replace(/\D/g, '').slice(0, 11))} /></label>
     {camera && <video ref={video} autoPlay playsInline muted aria-label="Live owner camera preview" />}
     {!camera && !photo && <button type="button" className="secondary-button" onClick={() => void startCamera()}>Open camera for live face photo</button>}
     {camera && <button type="button" className="secondary-button" onClick={capture}>Capture face photo</button>}
     {preview && <><img src={preview} alt="Captured owner face for review" className="owner-face-preview" /><button type="button" className="secondary-button" onClick={() => { setPhoto(null); setPreview(null) }}>Retake photo</button></>}
-    <button type="button" className="primary-button" disabled={busy || !photo || nin.length !== 11} onClick={() => void save()}>{busy ? 'Saving...' : 'Submit owner identity'}</button>
+    <label><input type="checkbox" checked={ownerConfirmed} onChange={(event) => setOwnerConfirmed(event.target.checked)} /> I am the company owner and have read how my NIN and photo are used in the <a href="/privacy-policy.html" target="_blank" rel="noreferrer">privacy policy</a>.</label>
+    <button type="button" className="primary-button" disabled={busy || !photo || nin.length !== 11 || !ownerConfirmed} onClick={() => void save()}>{busy ? 'Saving...' : 'Submit owner identity'}</button>
   </div>
 }

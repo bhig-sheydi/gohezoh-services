@@ -221,5 +221,6 @@ export default function RiderApp() {
     </section>}
     {error && <div className="toast toast-error" role="alert"><span>{error}</span><button type="button" onClick={() => setError('')}>Close</button></div>}
     {notice && <div className="toast toast-success" role="status"><span>{notice}</span><button type="button" onClick={() => setNotice('')}>Close</button></div>}
+    <footer className="page-footer"><a href="/privacy-policy.html">Privacy</a><a href="/delete-account">Delete account</a></footer>
   </main>
 }
