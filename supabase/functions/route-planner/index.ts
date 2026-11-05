@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { geoapifyRoadMatrix } from '../_shared/geoapify-road-matrix.ts'
+import { googleRoadMatrix } from '../_shared/google-road-matrix.ts'
 import { bestPerCompany, optimizeCommittedRoute, planRiderRoute, DEFAULT_POLICY, type Point, type Stop, type RiderCandidate } from '../_shared/rider-route-planner.ts'
 
 type Event = { event_id: string; request_id: string; rider_id: string | null; event_kind: string }
@@ -24,16 +24,19 @@ Deno.serve(async (request) => {
     return Response.json({ error: 'Unauthorized' }, { status: 401 })
   const url = Deno.env.get('SUPABASE_URL')
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
-  const geoKey = Deno.env.get('GEOAPIFY_API_KEY')
-  if (!url || !serviceKey || !geoKey) return Response.json({ error: 'Routing is not configured' }, { status: 503 })
+  const googleKey = Deno.env.get('GOOGLE_ROUTES_API_KEY')
+  const dailyLimit = Number(Deno.env.get('GOOGLE_ROUTE_MATRIX_DAILY_LIMIT') ?? '5000')
+  if (!url || !serviceKey || !googleKey || !Number.isInteger(dailyLimit) || dailyLimit < 1 || dailyLimit > 1_000_000)
+    return Response.json({ error: 'Routing is not configured' }, { status: 503 })
   const db = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } })
   const rpc = async (name: string, args: Record<string, unknown>) => {
     const { data, error } = await db.rpc(name, args)
     if (error) throw new Error(`${name}: ${error.message}`)
     return data
   }
-  const roads = (points: Point[]) => geoapifyRoadMatrix(unique(points), geoKey,
-    async (credits) => Boolean(await rpc('reserve_route_matrix_credits', { p_credits: credits })))
+  const roads = (points: Point[]) => googleRoadMatrix(unique(points), googleKey,
+    async (elements) => Boolean(await rpc('reserve_google_route_matrix_elements',
+      { p_elements: elements, p_daily_limit: dailyLimit })))
   const replan = async (riderId: string) => {
     const context = await rpc('rider_route_context', { p_rider: riderId }) as Context | null
     if (!context) return
