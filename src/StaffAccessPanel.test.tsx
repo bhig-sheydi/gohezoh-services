@@ -11,7 +11,7 @@ it('shows the Super Admin rejection reason to the applicant', async () => {
 })
 
 it.each([null, 'company-invitation'])('shows vehicle registration only for company applicants after document submission (%s)', async (invitation) => {
-  const application = { id: 'app-1', requested_role: 'partner', status: 'pending', partner_document_path: 'company.pdf', organization_name: 'Acme Logistics', partner_invitation_id: invitation }
+  const application = { id: 'app-1', requested_role: 'partner', status: 'pending', partner_document_path: 'company.pdf', owner_nin: '12345678901', owner_selfie_path: 'owner.jpg', organization_name: 'Acme Logistics', partner_invitation_id: invitation }
   const query = { select: vi.fn(), eq: vi.fn(), order: vi.fn(async () => ({ data: [application], error: null })) }
   query.select.mockReturnValue(query); query.eq.mockReturnValue(query)
   const vehicles = { select: vi.fn(), eq: vi.fn(), order: vi.fn(async () => ({ data: [], error: null })) }
@@ -21,6 +21,15 @@ it.each([null, 'company-invitation'])('shows vehicle registration only for compa
   await screen.findByText('Document submitted. You may replace it before approval.')
   if (invitation) expect(screen.queryByRole('heading', { name: 'Your vehicles' })).not.toBeInTheDocument()
   else expect(await screen.findByRole('heading', { name: 'Your vehicles' })).toBeInTheDocument()
+})
+
+it('holds company vehicle registration until owner identity is submitted', async () => {
+  const application = { id: 'app-2', requested_role: 'partner', status: 'pending', partner_document_path: 'company.pdf', owner_nin: null, owner_selfie_path: null, partner_invitation_id: null }
+  const query = { select: vi.fn(), eq: vi.fn(), order: vi.fn(async () => ({ data: [application], error: null })) }
+  query.select.mockReturnValue(query); query.eq.mockReturnValue(query)
+  render(<StaffAccessPanel supabase={{ from: () => query } as unknown as SupabaseClient} userId="owner" onError={vi.fn()} onNotice={vi.fn()} />)
+  expect(await screen.findByText('Company owner identity')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: /Vehicles/ })).toBeDisabled()
 })
 
 it('uploads a partner document and registers it for approval', async () => {

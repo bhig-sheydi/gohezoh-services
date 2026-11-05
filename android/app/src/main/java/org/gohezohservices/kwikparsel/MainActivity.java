@@ -12,6 +12,7 @@ import android.os.Looper;
 import android.os.Build;
 import android.os.Message;
 import android.webkit.ValueCallback;
+import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
@@ -35,10 +36,12 @@ public final class MainActivity extends Activity {
     private static final int LOCATION_PERMISSION = 41;
     private static final int FILE_CHOOSER = 42;
     private static final int NOTIFICATION_PERMISSION = 43;
+    private static final int CAMERA_PERMISSION = 44;
     private WebView web;
     private String pendingTrackingToken;
     private String pendingPositionId;
     private ValueCallback<Uri[]> selectedFiles;
+    private PermissionRequest pendingCameraRequest;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -66,6 +69,22 @@ public final class MainActivity extends Activity {
             }
         });
         web.setWebChromeClient(new WebChromeClient() {
+            @Override public void onPermissionRequest(PermissionRequest request) {
+                runOnUiThread(() -> {
+                    if (web == null || web.getUrl() == null || !allowed(Uri.parse(web.getUrl()))
+                        || !allowed(request.getOrigin())) { request.deny(); return; }
+                    String[] resources = request.getResources();
+                    if (resources.length != 1 || !PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resources[0])) {
+                        request.deny(); return;
+                    }
+                    if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                        request.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
+                    } else {
+                        pendingCameraRequest = request;
+                        requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION);
+                    }
+                });
+            }
             @Override public boolean onCreateWindow(WebView view, boolean isDialog, boolean isUserGesture, Message resultMsg) {
                 if (!isUserGesture) return false;
                 WebView popup = new WebView(MainActivity.this);
@@ -250,6 +269,15 @@ public final class MainActivity extends Activity {
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(requestCode, permissions, results);
+        if (requestCode == CAMERA_PERMISSION) {
+            if (pendingCameraRequest != null) {
+                if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+                    pendingCameraRequest.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
+                else pendingCameraRequest.deny();
+                pendingCameraRequest = null;
+            }
+            return;
+        }
         if (requestCode == NOTIFICATION_PERMISSION) {
             if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) startTracking();
             else { pendingTrackingToken = null; sendRiderEvent(false, "Allow notifications to go online"); }

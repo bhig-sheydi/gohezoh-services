@@ -5,7 +5,7 @@ do $$
 declare
   v_admin uuid;v_manager uuid:=gen_random_uuid();v_staff uuid:=gen_random_uuid();
   v_partner_user uuid:=gen_random_uuid();v_partner uuid:=gen_random_uuid();
-  v_application uuid;v_partner_application uuid;v_document_path text;
+  v_application uuid;v_partner_application uuid;v_document_path text;v_selfie_path text;
 begin
   select id into v_admin from auth.users where lower(email)='admin@gohezohservices.org' limit 1;
   if v_admin is null then
@@ -53,8 +53,10 @@ begin
     raise exception 'Partner approved without verification document';
   exception when check_violation then null;end;
   v_document_path:=v_partner_user::text||'/'||v_partner_application::text||'/test.pdf';
+  v_selfie_path:=v_partner_user::text||'/'||v_partner_application::text||'/owner.jpg';
   insert into storage.objects(bucket_id,name,owner_id,metadata)
-    values('partner-verification',v_document_path,v_partner_user::text,'{"mimetype":"application/pdf","size":100}'::jsonb);
+    values('partner-verification',v_document_path,v_partner_user::text,'{"mimetype":"application/pdf","size":100}'::jsonb),
+      ('partner-verification',v_selfie_path,v_partner_user::text,'{"mimetype":"image/jpeg","size":100}'::jsonb);
   perform set_config('request.jwt.claim.sub',v_partner_user::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_partner_user,'role','authenticated')::text,true);
   if not public.partner_document_upload_allowed(v_document_path) then raise exception 'Pending partner could not upload document';end if;
@@ -67,6 +69,7 @@ begin
     raise exception 'Invalid document type accepted';
   exception when check_violation then null;end;
   perform public.submit_partner_document(v_partner_application,'cac',v_document_path);
+  perform public.submit_partner_owner_identity(v_partner_application,'12345678901',v_selfie_path);
   insert into storage.objects(bucket_id,name,owner_id,metadata) values
     ('partner-vehicles',v_document_path||'-vehicle',v_partner_user::text,'{"mimetype":"application/pdf","size":100}'),
     ('partner-vehicles',v_document_path||'-licence',v_partner_user::text,'{"mimetype":"application/pdf","size":100}');

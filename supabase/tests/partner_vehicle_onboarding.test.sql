@@ -2,20 +2,24 @@ begin;
 do $$
 declare
   u uuid:=gen_random_uuid(); other_user uuid:=gen_random_uuid(); a uuid; p uuid; v uuid; admin_id uuid;
-  prefix text; papers text; licence text; doc text; denied boolean;
+  prefix text; papers text; licence text; doc text; selfie text; denied boolean;
 begin
   insert into auth.users(id,instance_id,aud,role,email,encrypted_password,email_confirmed_at,raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
   values(u,'00000000-0000-0000-0000-000000000000','authenticated','authenticated',u||'@example.test','',now(),'{}',
     '{"account_kind":"staff","requested_role":"partner","organization_name":"Fleet Test Company"}',now(),now());
   select id into a from public.staff_applications where user_id=u and requested_role='partner';
-  prefix:=u||'/'||a||'/'; doc:=prefix||'company.pdf'; papers:=prefix||'vehicle.pdf'; licence:=prefix||'licence.pdf';
+  prefix:=u||'/'||a||'/'; doc:=prefix||'company.pdf'; selfie:=prefix||'owner.jpg'; papers:=prefix||'vehicle.pdf'; licence:=prefix||'licence.pdf';
   insert into storage.objects(bucket_id,name,owner_id,metadata) values
     ('partner-verification',doc,u::text,'{"mimetype":"application/pdf","size":100}'),
+    ('partner-verification',selfie,u::text,'{"mimetype":"image/jpeg","size":100}'),
     ('partner-vehicles',papers,u::text,'{"mimetype":"application/pdf","size":100}'),
     ('partner-vehicles',licence,u::text,'{"mimetype":"application/pdf","size":100}');
   perform set_config('request.jwt.claim.sub',u::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',u,'role','authenticated')::text,true);
   perform public.submit_partner_document(a,'cac',doc);
+  denied:=false;
+  begin perform public.submit_partner_owner_identity(a,'123',selfie); exception when check_violation then denied:=true; end;
+  if not denied then raise exception 'Invalid owner NIN accepted'; end if;
   denied:=false;
   begin perform public.register_partner_vehicle(a,'motorcycle','TEST-101','Wrong Company',papers,'Test Driver','12345678901',licence,'08:00','18:00');
   exception when check_violation then denied:=true; end;
@@ -51,8 +55,15 @@ begin
   execute 'set local role authenticated';
   if exists(select 1 from public.partner_application_vehicles where id=v) then raise exception 'Other user can read driver NIN'; end if;
   if exists(select 1 from storage.objects where bucket_id='partner-vehicles' and name=papers) then raise exception 'Other user can read vehicle papers'; end if;
+  if exists(select 1 from storage.objects where bucket_id='partner-verification' and name=selfie) then raise exception 'Other user can read owner selfie'; end if;
   execute 'reset role';
 
+  perform set_config('request.jwt.claim.sub',admin_id::text,true);
+  denied:=false;
+  begin perform public.review_staff_application(a,true,null); exception when check_violation then denied:=true; end;
+  if not denied then raise exception 'Approval without owner identity granted access'; end if;
+  perform set_config('request.jwt.claim.sub',u::text,true);
+  perform public.submit_partner_owner_identity(a,'12345678901',selfie);
   perform set_config('request.jwt.claim.sub',admin_id::text,true);
   perform public.review_staff_application(a,true,null);
   select partner_id into p from public.partner_application_vehicles where id=v;

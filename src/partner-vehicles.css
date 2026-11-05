@@ -96,3 +96,5 @@
 :root[data-theme='dark'] .rider-company-location{background:#20352c;border-color:#496253;color:#e9f2ea}
 :root[data-theme='dark'] .rider-company-location a{color:#cbe879}
 :root[data-theme='dark'] .rider-delivery-line strong,:root[data-theme='dark'] .rider-delivery-line span,:root[data-theme='dark'] .rider-photo-edit,:root[data-theme='dark'] .rider-detail-settings small { color:#e9f2ea; }
+.owner-identity { display:grid; gap:12px; padding:18px; border:1px solid var(--border, #d8e2da); border-radius:14px; }
+.owner-identity video, .owner-face-preview { display:block; width:min(100%, 340px); aspect-ratio:4/3; object-fit:cover; border-radius:12px; }

@@ -335,7 +335,7 @@ describe('account access', () => {
     })
     const originalQuery = mockState.query.getMockImplementation()! as (...args: unknown[]) => unknown
     mockState.query.mockImplementation((...args: unknown[]) => args[0] === 'staff_applications'
-      ? { data: [{ id: 'application-1', partner_document_type: 'cac', partner_document_path: 'partner-1/application-1/registration.pdf' }], error: null }
+      ? { data: [{ id: 'application-1', partner_document_type: 'cac', partner_document_path: 'partner-1/application-1/registration.pdf', owner_nin: '12345678901', owner_selfie_path: 'partner-1/application-1/owner.jpg' }], error: null }
       : originalQuery(...args))
     const tab = { opener: null, location: { replace: vi.fn() }, close: vi.fn() }
     const open = vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window)
@@ -343,6 +343,8 @@ describe('account access', () => {
     expect(await screen.findByRole('heading', { name: 'Business verification' })).toBeInTheDocument()
     expect(screen.queryByRole('combobox', { name: /Partner company/ })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Approve' })).not.toBeDisabled()
+    expect(screen.getByText('Owner NIN: ending 8901')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'View owner face photo' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'View document' }))
     await waitFor(() => expect(mockState.createSignedUrl).toHaveBeenCalledWith('partner-1/application-1/registration.pdf', 300))
     expect(await screen.findByTitle('Partner Company - CAC document')).toHaveAttribute('src', 'https://signed.example.test/document')

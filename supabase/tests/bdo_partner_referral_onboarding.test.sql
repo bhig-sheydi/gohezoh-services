@@ -2,7 +2,7 @@ begin;
 do $$
 declare
   v_bdo uuid:=gen_random_uuid();v_admin uuid;v_partner_user uuid:=gen_random_uuid();
-  v_prospect uuid;v_application uuid;v_token text;v_partner_id uuid;v_path text;
+  v_prospect uuid;v_application uuid;v_token text;v_partner_id uuid;v_path text;v_selfie text;
 begin
   insert into auth.users(id,instance_id,aud,role,email,encrypted_password,email_confirmed_at,raw_app_meta_data,raw_user_meta_data,created_at,updated_at)
   values(v_bdo,'00000000-0000-0000-0000-000000000000','authenticated','authenticated','bdo-partner-'||v_bdo||'@example.test','',now(),'{}',
@@ -26,11 +26,14 @@ begin
   if public.has_role(v_partner_user,'partner') then raise exception 'Partner access was granted before document review';end if;
 
   v_path:=v_partner_user::text||'/'||v_application::text||'/cac.pdf';
+  v_selfie:=v_partner_user::text||'/'||v_application::text||'/owner.jpg';
   insert into storage.objects(bucket_id,name,owner_id,metadata)
-    values('partner-verification',v_path,v_partner_user::text,'{"mimetype":"application/pdf","size":100}'::jsonb);
+    values('partner-verification',v_path,v_partner_user::text,'{"mimetype":"application/pdf","size":100}'::jsonb),
+      ('partner-verification',v_selfie,v_partner_user::text,'{"mimetype":"image/jpeg","size":100}'::jsonb);
   perform set_config('request.jwt.claim.sub',v_partner_user::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_partner_user,'role','authenticated')::text,true);
   perform public.submit_partner_document(v_application,'cac',v_path);
+  perform public.submit_partner_owner_identity(v_application,'12345678901',v_selfie);
   insert into storage.objects(bucket_id,name,owner_id,metadata) values
     ('partner-vehicles',v_path||'-vehicle',v_partner_user::text,'{"mimetype":"application/pdf","size":100}'),
     ('partner-vehicles',v_path||'-licence',v_partner_user::text,'{"mimetype":"application/pdf","size":100}');
