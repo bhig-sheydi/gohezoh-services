@@ -393,6 +393,7 @@
 .address-suggestions button { display:grid; gap:3px; width:100%; padding:10px 12px; text-align:left; border:0; border-radius:8px; background:transparent; color:var(--ink); cursor:pointer; }
 .address-suggestions button:hover,.address-suggestions button:focus-visible { background:rgba(63,135,111,.13); }
 .address-suggestions small { opacity:.75; }
+.address-suggestions .google-maps-attribution { padding:3px 10px; color:#1f1f1f; font-size:12px; font-weight:400; opacity:1; white-space:nowrap; }
 .pin-correction { display:grid; gap:10px; width:min(100%,680px); padding:12px; border:1px solid #b7c9be; border-radius:14px; background:var(--surface, #fff); color:var(--ink); }
 .pin-street-field { position:relative; z-index:3; }
 .pin-street-field input { position:relative; pointer-events:auto; touch-action:manipulation; user-select:text; -webkit-user-select:text; caret-color:var(--ink); }

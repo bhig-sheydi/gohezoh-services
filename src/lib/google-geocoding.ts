@@ -33,7 +33,8 @@ function fromGeocode(item: GeocodeV4): AddressResult {
 }
 function fromPlace(item: GooglePlace): AddressResult {
   const point = item.location
-  if (!point || !Number.isFinite(point.lat()) || !Number.isFinite(point.lng())) throw new Error('Google returned an invalid place.')
+  if (!point || !Number.isFinite(point.lat()) || Math.abs(point.lat()) > 90 ||
+    !Number.isFinite(point.lng()) || Math.abs(point.lng()) > 180) throw new Error('Google returned an invalid place.')
   const parts = item.addressComponents
   const street = component(parts, 'route')
   const community = component(parts, 'sublocality') || component(parts, 'neighborhood')
@@ -48,12 +49,64 @@ function fromPlace(item: GooglePlace): AddressResult {
     specificity: item.primaryType === 'street_address' ? 'building' : street ? 'street' : 'area',
     distanceMetres: null, confidence: null, placeId: item.id }
 }
-async function places(text: string, point?: LocationPoint, maximum = 5): Promise<AddressResult[]> {
+type AutocompletePlace = GooglePlace & { types?: string[]; fetchFields(request: { fields: string[] }): Promise<unknown> }
+type AutocompletePrediction = { placeId: string; text: { text: string }; mainText?: { text: string };
+  secondaryText?: { text: string }; types?: string[]; toPlace(): AutocompletePlace }
+type AutocompleteLibrary = { AutocompleteSessionToken: new () => object;
+  AutocompleteSuggestion: { fetchAutocompleteSuggestions(request: Record<string, unknown>): Promise<{
+    suggestions?: Array<{ placePrediction?: AutocompletePrediction }>
+  }> } }
+export type GoogleAutocompleteSession = { token?: object }
+export type GoogleAutocompleteOption = { address: string; detail: string; placeId: string;
+  select(signal?: AbortSignal): Promise<AddressSuggestion> }
+export const newGoogleAutocompleteSession = (): GoogleAutocompleteSession => ({})
+
+/** Autocomplete gives text first; only the selected place receives a billable Details lookup. */
+export async function googleAutocomplete(text: string, session: GoogleAutocompleteSession, signal?: AbortSignal): Promise<GoogleAutocompleteOption[]> {
+  signal?.throwIfAborted()
   const google = await loadGoogleMaps()
-  const { Place } = await google.importLibrary('places')
-  const { places: matches } = await Place.searchByText({ textQuery: text, fields: ['displayName', 'formattedAddress', 'location', 'addressComponents', 'primaryType', 'id'],
-    maxResultCount: maximum, region: 'ng', ...(point ? { locationBias: { center: googlePoint(point), radius: 10000 } } : {}) })
-  return (matches ?? []).flatMap((item) => { try { return [fromPlace(item)] } catch { return [] } })
+  const { AutocompleteSessionToken, AutocompleteSuggestion } = await google.importLibrary('places') as unknown as AutocompleteLibrary
+  signal?.throwIfAborted()
+  session.token ??= new AutocompleteSessionToken()
+  const { suggestions } = await AutocompleteSuggestion.fetchAutocompleteSuggestions({
+    input: text, includedRegionCodes: ['ng'], region: 'ng', sessionToken: session.token,
+  })
+  signal?.throwIfAborted()
+  return (suggestions ?? []).flatMap(({ placePrediction }) => {
+    if (!placePrediction?.placeId) return []
+    const address = (placePrediction.mainText?.text || placePrediction.text?.text || '').trim()
+    if (!address) return []
+    return [{ address, detail: placePrediction.secondaryText?.text ?? '', placeId: placePrediction.placeId,
+      async select(selectionSignal?: AbortSignal) {
+        selectionSignal?.throwIfAborted()
+        const place = placePrediction.toPlace()
+        // displayName and primaryType are Pro fields; these Essentials fields retain
+        // the address and coordinates without upgrading the terminating session.
+        await place.fetchFields({ fields: ['formattedAddress', 'location', 'addressComponents', 'types'] })
+        selectionSignal?.throwIfAborted()
+        const types = place.types ?? placePrediction.types ?? []
+        const primaryType = types.includes('route') ? 'route' : types.includes('locality') ? 'locality' :
+          types.includes('sublocality') ? 'sublocality' : types.includes('street_address') ? 'street_address' : undefined
+        return suggestion(fromPlace({ ...place, displayName: address, primaryType, id: placePrediction.placeId }))
+      } }]
+  })
+}
+// Google results are not retained. Coalesce only identical requests that are already in flight.
+const placeFlights = new Map<string, Promise<AddressResult[]>>()
+async function places(text: string, point?: LocationPoint, maximum = 5): Promise<AddressResult[]> {
+  const key = JSON.stringify([text, point?.latitude, point?.longitude, maximum])
+  const existing = placeFlights.get(key)
+  if (existing) return existing
+  const task = (async () => {
+    const google = await loadGoogleMaps()
+    const { Place } = await google.importLibrary('places')
+    const { places: matches } = await Place.searchByText({ textQuery: text, fields: ['displayName', 'formattedAddress', 'location', 'addressComponents', 'primaryType', 'id'],
+      maxResultCount: maximum, region: 'ng', ...(point ? { locationBias: { center: googlePoint(point), radius: 10000 } } : {}) })
+    return (matches ?? []).flatMap((item) => { try { return [fromPlace(item)] } catch { return [] } })
+  })()
+  placeFlights.set(key, task)
+  try { return await task }
+  finally { if (placeFlights.get(key) === task) placeFlights.delete(key) }
 }
 async function geocode(request: { location?: { lat: number; lng: number }; address?: string; placeId?: string }): Promise<AddressResult[]> {
   const path = request.location ? `location/${request.location.lat},${request.location.lng}`

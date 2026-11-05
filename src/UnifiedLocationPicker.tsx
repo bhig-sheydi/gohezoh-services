@@ -3,6 +3,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ParcelDestination } from './ParcelPalsPanel'
 import { requestAddressPosition } from './lib/proximity'
 import { identifyCurrentLocation, searchAddress, suggestAddresses, suggestNearby, type AddressSuggestion, type LocationEvidence } from './lib/geoapify-geocoding'
+import { googleMapsDemoEnabled } from './lib/google-maps'
+import { googleAutocomplete, newGoogleAutocompleteSession, type GoogleAutocompleteOption, type GoogleAutocompleteSession } from './lib/google-geocoding'
 import PinCorrection from './PinCorrection'
 
 type Point = { latitude: number; longitude: number }
@@ -21,6 +23,7 @@ export default function UnifiedLocationPicker({ kind, supabase, userId, destinat
   const [fix, setFix] = useState<LocationEvidence | null>(() => savedFix(destination))
   const [point, setPoint] = useState<Point | null>(() => savedFix(destination))
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([])
+  const [googleOptions, setGoogleOptions] = useState<GoogleAutocompleteOption[]>([])
   const [searching, setSearching] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -31,6 +34,7 @@ export default function UnifiedLocationPicker({ kind, supabase, userId, destinat
   const [pinVersion, setPinVersion] = useState(0)
   const root = useRef<HTMLDivElement>(null)
   const pending = useRef<AbortController | null>(null)
+  const autocompleteSession = useRef<GoogleAutocompleteSession | null>(null)
 
   useEffect(() => {
     const form = root.current?.closest('form')
@@ -43,16 +47,16 @@ export default function UnifiedLocationPicker({ kind, supabase, userId, destinat
       const target = event.target as HTMLInputElement
       if (target.name !== `${kind}_city`) return
       readCity()
-      pending.current?.abort(); pending.current = null
-      setFix(null); setPoint(null); setSuggestions([]); setAddress(''); setQuery(''); setSlot(''); setNote(''); setError(''); setNeedsPin(false)
+      pending.current?.abort(); pending.current = null; autocompleteSession.current = null
+      setFix(null); setPoint(null); setSuggestions([]); setGoogleOptions([]); setAddress(''); setQuery(''); setSlot(''); setNote(''); setError(''); setNeedsPin(false)
     }
-    const reset = () => { pending.current?.abort(); pending.current = null; setFix(null); setPoint(null); setSuggestions([]); setAddress(''); setQuery(''); setSlot(''); setNote(''); setError(''); setNeedsPin(false) }
+    const reset = () => { pending.current?.abort(); pending.current = null; autocompleteSession.current = null; setFix(null); setPoint(null); setSuggestions([]); setGoogleOptions([]); setAddress(''); setQuery(''); setSlot(''); setNote(''); setError(''); setNeedsPin(false) }
     form?.addEventListener('change', changed); form?.addEventListener('reset', reset)
     return () => { pending.current?.abort(); form?.removeEventListener('change', changed); form?.removeEventListener('reset', reset) }
   }, [kind])
 
   useEffect(() => {
-    if (!userId || kind !== 'pickup') return
+    if (!userId) return
     let active = true
     void supabase.from('customer_parcel_destinations').select('slot,label,address,city,state,latitude,longitude,location_source,location_accuracy_metres')
       .eq('user_id', userId).order('slot').then(({ data }) => { if (active) setSaved((data ?? []) as ParcelDestination[]) })
@@ -64,38 +68,66 @@ export default function UnifiedLocationPicker({ kind, supabase, userId, destinat
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
       setSearching(true)
-      void suggestAddresses(supabase, `${query.trim()}${city ? `, ${city}` : ''}, Nigeria`, controller.signal)
-        .then((results) => { if (!controller.signal.aborted) { setSuggestions(results.filter((item) => !city || !item.city || item.city.toLowerCase() === city.toLowerCase())); setSearching(false) } })
-        .catch(() => { if (!controller.signal.aborted) { setSuggestions([]); setSearching(false) } })
+      const text = `${query.trim()}${city ? `, ${city}` : ''}, Nigeria`
+      if (googleMapsDemoEnabled) {
+        autocompleteSession.current ??= newGoogleAutocompleteSession()
+        void googleAutocomplete(text, autocompleteSession.current, controller.signal)
+          .then((results) => { if (!controller.signal.aborted) { setGoogleOptions(results); setSearching(false) } })
+          .catch(() => { if (!controller.signal.aborted) { setGoogleOptions([]); setSearching(false) } })
+      } else {
+        void suggestAddresses(supabase, text, controller.signal)
+          .then((results) => { if (!controller.signal.aborted) { setSuggestions(results.filter((item) => !city || !item.city || item.city.toLowerCase() === city.toLowerCase())); setSearching(false) } })
+          .catch(() => { if (!controller.signal.aborted) { setSuggestions([]); setSearching(false) } })
+      }
     }, 350)
     return () => { window.clearTimeout(timer); controller.abort() }
   }, [query, city, fix, supabase])
 
   function chooseResult(result: AddressSuggestion, nearby = false) {
+    autocompleteSession.current = null
     setQuery(result.address); setAddress(result.address); setFix(result.evidence)
     setPoint(result.evidence); setPinVersion((value) => value + 1)
-    setSuggestions([]); setSearching(false); setError(''); setSlot('')
+    setSuggestions([]); setGoogleOptions([]); setSearching(false); setError(''); setSlot('')
     const broad = result.specificity === 'area' || result.confidence !== null && result.confidence < 0.7
     setNeedsPin(broad)
     setNote(broad ? 'Only a broad area was found. Adjust the pin to confirm the location.' : nearby ? 'Matched near your phone. Confirm the point.' : 'Confirm this mapped point.')
   }
 
+  async function chooseGoogleOption(option: GoogleAutocompleteOption) {
+    if (pending.current) return
+    const controller = new AbortController(); pending.current = controller
+    setBusy(true); setError('')
+    try {
+      const result = await option.select(controller.signal)
+      if (result.city && city && result.city.toLowerCase() !== city.toLowerCase())
+        throw new Error(`That result is in ${result.city}, not ${city}. Try another nearby place.`)
+      if (!controller.signal.aborted) chooseResult(result)
+    } catch (cause) {
+      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Could not select that place.')
+    } finally {
+      if (pending.current === controller) pending.current = null
+      if (!controller.signal.aborted) setBusy(false)
+    }
+  }
+
   function chooseSaved(value: string) {
-    setSlot(value); setError(''); setSuggestions([])
+    autocompleteSession.current = null
+    setSlot(value); setError(''); setSuggestions([]); setGoogleOptions([])
     const selected = saved.find((item) => String(item.slot) === value)
     if (!selected) { setQuery(''); setAddress(''); setFix(null); setPoint(null); setNote(''); setNeedsPin(false); return }
     const evidence = savedFix(selected)
     setQuery(selected.address); setAddress(selected.address); setFix(evidence); setPoint(evidence)
     setPinVersion((version) => version + 1); setCity(selected.city)
-    setNote(evidence ? 'Saved pickup location' : '')
+    setNote(evidence ? `Saved ${kind === 'pickup' ? 'pickup' : 'drop-off'} location` : '')
     if (!evidence) setError('This saved address has no map point. Select a search result or update it in Edit my delivery info.')
     setNeedsPin(false); onCitySelected?.(selected.city)
   }
 
   async function find() {
     if (pending.current || query.trim().length < 3) return
+    autocompleteSession.current = null
     const controller = new AbortController(); pending.current = controller
-    setBusy(true); setError(''); setSuggestions([])
+    setBusy(true); setError(''); setSuggestions([]); setGoogleOptions([])
     try {
       const cityValue = city || (root.current?.closest('form')?.elements.namedItem(`${kind}_city`) as HTMLSelectElement | null)?.value || ''
       if (!cityValue) throw new Error(`Choose the ${kind} city first.`)
@@ -121,6 +153,7 @@ export default function UnifiedLocationPicker({ kind, supabase, userId, destinat
 
   async function findCurrentPosition() {
     if (pending.current) return
+    autocompleteSession.current = null
     const controller = new AbortController(); pending.current = controller
     setBusy(true); setError('')
     try {
@@ -128,7 +161,7 @@ export default function UnifiedLocationPicker({ kind, supabase, userId, destinat
       const result = await identifyCurrentLocation(supabase, device, controller.signal)
       if (!controller.signal.aborted) {
         setQuery(result.label); setAddress(result.label); setFix(device); setPoint(device)
-        setPinVersion((value) => value + 1); setSuggestions([])
+        setPinVersion((value) => value + 1); setSuggestions([]); setGoogleOptions([])
         const areaOnly = result.landmarkDistanceMetres === null && result.matchedAddress?.specificity === 'area'
         setNote(areaOnly
           ? `Phone accuracy ±${Math.round(device.accuracyMetres)} m. The map found only an area, not your building or street. Add the exact address or search a nearby place before confirming.`
@@ -140,12 +173,13 @@ export default function UnifiedLocationPicker({ kind, supabase, userId, destinat
   }
 
   return <div ref={root} className={`field unified-location-picker ${kind}-location`}>
-    {saved.length > 0 && kind === 'pickup' && <label className="field"><span>My pickup addresses</span><select value={slot} onChange={(event) => chooseSaved(event.target.value)}><option value="">Use a new place</option>{saved.map((item) => <option key={item.slot} value={item.slot}>{item.label} — {item.address}</option>)}</select></label>}
+    {saved.length > 0 && <label className="field"><span>My {kind === 'pickup' ? 'pickup' : 'delivery'} addresses</span><select value={slot} onChange={(event) => chooseSaved(event.target.value)}><option value="">Use a new place</option>{saved.map((item) => <option key={item.slot} value={item.slot}>{item.label} — {item.address}</option>)}</select></label>}
     <label className="field"><span>{kind === 'pickup' ? 'Pickup place' : 'Drop-off place'}</span>
-      <input className="location-single-search" type="search" autoComplete="off" aria-label={`${kind === 'pickup' ? 'Pickup' : 'Drop-off'} place search`} placeholder={`Search the closest known place to you in ${city || 'the selected city'}`} value={query} required onChange={(event) => { setQuery(event.target.value); setAddress(event.target.value); setFix(null); setPoint(null); setNote(''); setSlot(''); setError(''); setNeedsPin(false) }} />
+      <input className="location-single-search" type="search" autoComplete="off" aria-label={`${kind === 'pickup' ? 'Pickup' : 'Drop-off'} place search`} placeholder={`Search the closest known place to you in ${city || 'the selected city'}`} value={query} required onChange={(event) => { pending.current?.abort(); pending.current = null; setBusy(false); setSearching(false); setSuggestions([]); setGoogleOptions([]); setQuery(event.target.value); setAddress(event.target.value); setFix(null); setPoint(null); setNote(''); setSlot(''); setError(''); setNeedsPin(false) }} />
     </label>
     {searching && <small role="status" className="address-search-status"><span className="address-search-spinner" aria-hidden="true" />Searching places...</small>}
     {suggestions.length > 0 && <div className="address-suggestions" role="group" aria-label={`${kind} place suggestions`}>{suggestions.map((item, index) => <button type="button" key={`${item.latitude}-${item.longitude}-${index}`} onClick={() => chooseResult(item)}><strong>{item.address}</strong><small>{item.city}, {item.state}</small></button>)}</div>}
+    {googleOptions.length > 0 && <div className="address-suggestions" role="group" aria-label={`${kind} place suggestions`}>{googleOptions.map((item) => <button type="button" key={item.placeId} disabled={busy} onClick={() => void chooseGoogleOption(item)}><strong>{item.address}</strong><small>{item.detail}</small></button>)}<small className="google-maps-attribution" translate="no">Google Maps</small></div>}
     <div className="field-row"><button type="button" className="secondary-button" disabled={busy || query.trim().length < 3} onClick={() => void find()}>{busy ? 'Finding location...' : 'Find location'}</button><button type="button" className="text-button" disabled={busy} onClick={() => void findCurrentPosition()}>I'm here — use GPS</button></div>
     {error && <small role="alert">{error}</small>}
     {fix && point && <><small role="status">{note || 'Confirm this location.'}</small>

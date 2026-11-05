@@ -28,12 +28,46 @@ Deno.serve(async (request) => {
     .eq('id', requestId).single()
   if (readError || !routeRequest || routeRequest.created_by !== identity.user.id) return reply({ error: 'Request unavailable' }, 403)
   if (routeRequest.pickup_city !== routeRequest.delivery_city) return reply({ error: 'Automatic bike pricing is for local deliveries only' }, 422)
-  const { data: existing } = await admin.from('bike_route_prices').select('customer_price_ngn,distance_metres,duration_seconds,estimated_fuel_litres')
-    .eq('request_id', requestId).maybeSingle()
-  if (existing) return reply(existing)
+  const priceColumns = 'customer_price_ngn,distance_metres,duration_seconds,estimated_fuel_litres,company_share_ngn,platform_share_ngn'
+  const readPrice = async () => {
+    const { data, error } = await admin.from('bike_route_prices').select(priceColumns)
+      .eq('request_id', requestId).maybeSingle()
+    if (error) throw new Error(`Road price lookup: ${error.message}`)
+    return data
+  }
+  try {
+    const existing = await readPrice()
+    if (existing) return reply(existing)
+  } catch (error) {
+    console.error('Bike road price lookup failed', error)
+    return reply({ error: 'Road pricing is temporarily unavailable' }, 503)
+  }
   const point = (latitude: number, longitude: number) => ({ location: { latLng: { latitude, longitude } } })
   const coordinates = [routeRequest.pickup_latitude,routeRequest.pickup_longitude,routeRequest.delivery_latitude,routeRequest.delivery_longitude]
   if (coordinates.some((value) => typeof value !== 'number' || !Number.isFinite(value))) return reply({ error: 'Choose mapped pickup and drop-off points' }, 422)
+  const { data: claimToken, error: claimError } = await admin.rpc('claim_bike_route_price_calculation',
+    { p_request_id: requestId,
+      p_pickup_latitude: routeRequest.pickup_latitude, p_pickup_longitude: routeRequest.pickup_longitude,
+      p_delivery_latitude: routeRequest.delivery_latitude, p_delivery_longitude: routeRequest.delivery_longitude })
+  if (claimError) {
+    console.error('Bike road price claim failed', claimError)
+    return reply({ error: 'Road pricing is temporarily unavailable' }, 503)
+  }
+  if (!claimToken) {
+    // Another instance owns the short lease. Return its saved result when ready,
+    // without making a second Google request or returning a misleading price.
+    for (const delay of [500, 1000, 1500]) {
+      await new Promise((resolve) => setTimeout(resolve, delay))
+      try {
+        const ready = await readPrice()
+        if (ready) return reply(ready)
+      } catch (error) {
+        console.error('Bike road price wait failed', error)
+        return reply({ error: 'Road pricing is temporarily unavailable' }, 503)
+      }
+    }
+    return reply({ error: 'Road price is being prepared. Try again shortly.' }, 503)
+  }
   try {
     const response = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
       method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': key,
@@ -49,16 +83,22 @@ Deno.serve(async (request) => {
     const seconds = Number.parseFloat(route?.duration)
     if (!Number.isInteger(distance) || !Number.isFinite(seconds) || distance < 100 || seconds < 30)
       return reply({ error: 'No usable road route was found' }, 422)
-    const { error } = await admin.rpc('record_bike_route_price', { p_request_id: requestId,
+    const { error } = await admin.rpc('complete_bike_route_price_calculation', { p_request_id: requestId,
+      p_claim_token: claimToken,
       p_distance_metres: distance, p_duration_seconds: Math.ceil(seconds) })
-    if (error) return reply({ error: error.message }, 422)
-    const { data: saved, error: savedError } = await admin.from('bike_route_prices')
-      .select('customer_price_ngn,distance_metres,duration_seconds,estimated_fuel_litres,company_share_ngn,platform_share_ngn')
-      .eq('request_id', requestId).single()
-    if (savedError) return reply({ error: 'Could not read the saved price' }, 503)
+    if (error) {
+      console.error('Bike road price completion failed', error)
+      return reply({ error: 'Road pricing could not be completed. Try again shortly.' }, 503)
+    }
+    const saved = await readPrice()
+    if (!saved) return reply({ error: 'Could not read the saved price' }, 503)
     return reply(saved)
   } catch (error) {
     console.error('Bike road pricing failed', error)
     return reply({ error: 'Road pricing timed out. Try again shortly.' }, 503)
+  } finally {
+    const { error } = await admin.rpc('release_bike_route_price_calculation',
+      { p_request_id: requestId, p_claim_token: claimToken })
+    if (error) console.error('Bike road price lease release failed', error)
   }
 })
