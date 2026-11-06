@@ -1,0 +1,31 @@
+.traffic-panel { display:grid; gap:17px; padding:22px; border:1px solid rgba(23,59,52,.13); border-radius:18px; color:var(--ink); background:var(--surface,rgba(255,255,252,.88)); }
+.traffic-panel-heading,.traffic-panel-actions,.traffic-alert-title { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.traffic-panel-heading h2 { margin:5px 0 0; font-size:23px; letter-spacing:-.04em; }
+.traffic-panel-actions { flex-wrap:wrap; justify-content:flex-end; }
+.traffic-panel-actions button { min-height:38px; }
+.traffic-phone-alerts { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:11px 14px; border:1px solid var(--line,#dfe8dc); border-radius:10px; background:var(--paper,#f4f6ef); }
+.traffic-phone-alerts div { display:grid; gap:3px; }.traffic-phone-alerts strong { font-size:13px; }.traffic-phone-alerts small { color:var(--muted); font-size:11px; }
+.traffic-health { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:6px 14px; padding:12px 15px; border:1px solid #a7c9b6; border-radius:11px; color:#13442e; background:#e8f5eb; }
+.traffic-health-alert { border-color:#e6a091; color:#7b211a; background:#fff0ec; }
+.traffic-health strong { font-size:14px; }.traffic-health span { font-size:11px; }
+.traffic-metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(155px,1fr)); gap:9px; }
+.traffic-metric { display:grid; gap:5px; min-width:0; padding:13px; border:1px solid var(--line,#dfe8dc); border-radius:11px; background:var(--paper,#f4f6ef); }
+.traffic-metric-warning { border-color:#d6a55e; }.traffic-metric-critical { border-color:#d4756b; }
+.traffic-metric span,.traffic-metric small { color:var(--muted); font-size:11px; }.traffic-metric strong { font-size:21px; line-height:1.1; }.traffic-metric strong small { font-size:11px; font-weight:500; }
+.traffic-alert-list { display:grid; gap:8px; }.traffic-alert-list h3 { margin:2px 0 0; font-size:14px; }
+.traffic-alert { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:12px 13px; border:1px solid #dba55b; border-left-width:4px; border-radius:10px; background:#fff8e9; color:#49350f; }
+.traffic-alert-critical { border-color:#cc6b5d; background:#fff0ec; color:#642018; }.traffic-alert-acknowledged { border-color:var(--line,#dfe8dc); background:var(--paper,#f4f6ef); color:var(--ink); }
+.traffic-alert-title { justify-content:flex-start; }.traffic-alert-title strong { font-size:13px; }.traffic-alert-title span { font-size:10px; font-weight:750; text-transform:uppercase; }
+.traffic-alert p { margin:5px 0; font-size:12px; line-height:1.4; }.traffic-alert small { color:inherit; font-size:10px; opacity:.82; }.traffic-alert button { flex:none; }
+.traffic-monitor-empty,.traffic-monitor-footnote { margin:0; color:var(--muted); font-size:11px; }.traffic-monitor-error { margin:0; padding:9px 12px; border:1px solid #cc6b5d; border-radius:8px; color:#7b211a; background:#fff0ec; font-size:12px; }
+@media(max-width:680px) { .traffic-panel { padding:16px; }.traffic-panel-heading,.traffic-alert,.traffic-phone-alerts { align-items:stretch; flex-direction:column; }.traffic-panel-actions { justify-content:flex-start; }.traffic-alert button { align-self:flex-start; } }
+:root[data-theme='dark'] .traffic-panel { border-color:#3f5b4d; background:#1b2b23; }
+:root[data-theme='dark'] .traffic-health { border-color:#3c7a53; color:#e5f7ea; background:#1e5035; }
+:root[data-theme='dark'] .traffic-health-alert,:root[data-theme='dark'] .traffic-monitor-error { border-color:#a9443a; color:#ffe5df; background:#5a251e; }
+:root[data-theme='dark'] .traffic-metric { border-color:#4b5f52; background:#22382a; }
+:root[data-theme='dark'] .traffic-phone-alerts { border-color:#4b5f52; background:#22382a; }
+:root[data-theme='dark'] .traffic-metric-warning { border-color:#b98a43; }
+:root[data-theme='dark'] .traffic-metric-critical { border-color:#bd5a50; }
+:root[data-theme='dark'] .traffic-alert { border-color:#b98a43; color:#fff1d8; background:#4a361d; }
+:root[data-theme='dark'] .traffic-alert-critical { border-color:#c75b4c; color:#ffe2dd; background:#53261f; }
+:root[data-theme='dark'] .traffic-alert-acknowledged { border-color:#4b5f52; color:var(--ink); background:#22382a; }

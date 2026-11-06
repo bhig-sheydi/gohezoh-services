@@ -13,6 +13,10 @@
     <application android:label="Kwik-Parsel" android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round" android:theme="@android:style/Theme.Material.Light.NoActionBar"
         android:usesCleartextTraffic="false" android:allowBackup="false">
+        <meta-data android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="admin_spike_alarm_v1" />
+        <meta-data android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_spike" />
         <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -27,6 +31,11 @@
         </activity>
         <service android:name=".RiderLocationService" android:exported="false"
             android:foregroundServiceType="location" android:stopWithTask="false" />
+        <service android:name=".AdminSpikeMessagingService" android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
         <receiver android:name=".RiderBootReceiver" android:exported="true">
             <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /></intent-filter>
         </receiver>

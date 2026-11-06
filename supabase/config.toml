@@ -451,3 +451,7 @@ verify_jwt = false
 [functions.route-planner]
 # Protected by a dedicated server-only secret, including scheduled calls.
 verify_jwt = false
+
+[functions.admin-spike-push]
+# Cron uses a dedicated secret; no public JWT can drain the push queue.
+verify_jwt = false

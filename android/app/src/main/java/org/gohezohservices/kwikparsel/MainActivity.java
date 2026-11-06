@@ -26,6 +26,9 @@ import android.location.LocationManager;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 
+import com.google.firebase.FirebaseApp;
+import com.google.firebase.messaging.FirebaseMessaging;
+
 import org.json.JSONObject;
 
 import java.util.Collections;
@@ -38,6 +41,7 @@ public final class MainActivity extends Activity {
     private static final int FILE_CHOOSER = 42;
     private static final int NOTIFICATION_PERMISSION = 43;
     private static final int CAMERA_PERMISSION = 44;
+    private static final int ADMIN_NOTIFICATION_PERMISSION = 45;
     private WebView web;
     private String pendingTrackingToken;
     private String pendingPositionId;
@@ -48,6 +52,7 @@ public final class MainActivity extends Activity {
         super.onCreate(state);
         web = new WebView(this);
         setContentView(web);
+        AdminSpikeNotification.createChannel(this);
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
             web.loadData("<h2>Update Android System WebView</h2><p>This app needs a newer Android System WebView for secure phone tracking.</p>", "text/html", "UTF-8");
             return;
@@ -138,10 +143,15 @@ public final class MainActivity extends Activity {
     }
 
     private void riderMessage(String data) {
+        String requestedType = "";
         try {
             JSONObject message = new JSONObject(data);
-            switch (message.optString("type")) {
+            requestedType = message.optString("type");
+            switch (requestedType) {
                 case "rider:status": sendRiderStatus(); break;
+                case "admin:push-status": adminPushStatus(); break;
+                case "admin:enable-push": enableAdminPush(); break;
+                case "admin:disable-push": disableAdminPush(); break;
                 case "rider:background-settings":
                     showRiderLocationDisclosure(() -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                         Uri.parse("package:" + getPackageName()))));
@@ -168,12 +178,65 @@ public final class MainActivity extends Activity {
                     break;
                 default: break;
             }
-        } catch (Exception error) { sendRiderEvent(false, "Phone tracking request was invalid"); }
+        } catch (Exception error) {
+            if (requestedType.startsWith("admin:"))
+                sendAdminPushEvent("error", null, "Phone notifications could not be started.");
+            else sendRiderEvent(false, "Phone tracking request was invalid");
+        }
     }
 
     private boolean hasLocationPermission() {
         return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
             || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void adminPushStatus() {
+        if (FirebaseApp.getApps(this).isEmpty()) {
+            sendAdminPushEvent("unavailable", null, "Phone alerts need Firebase setup in the Android app.");
+        } else if (Build.VERSION.SDK_INT >= 33
+            && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            sendAdminPushEvent("disabled", null, "Allow Android notifications to hear spike alarms.");
+        } else {
+            fetchAdminPushToken();
+        }
+    }
+
+    private void enableAdminPush() {
+        if (FirebaseApp.getApps(this).isEmpty()) {
+            sendAdminPushEvent("unavailable", null, "Phone alerts need Firebase setup in the Android app.");
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= 33
+            && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, ADMIN_NOTIFICATION_PERMISSION);
+            return;
+        }
+        fetchAdminPushToken();
+    }
+
+    private void fetchAdminPushToken() {
+        FirebaseMessaging.getInstance().getToken().addOnCompleteListener(task -> {
+            if (!task.isSuccessful() || task.getResult() == null) {
+                sendAdminPushEvent("error", null, "Could not connect phone alerts. Try again.");
+                return;
+            }
+            sendAdminPushEvent("token", task.getResult(), "Phone notifications are ready.");
+        });
+    }
+
+    private void disableAdminPush() {
+        if (FirebaseApp.getApps(this).isEmpty()) return;
+        FirebaseMessaging.getInstance().deleteToken().addOnCompleteListener(task ->
+            sendAdminPushEvent("disabled", null, "Phone alerts are off on this device."));
+    }
+
+    private void sendAdminPushEvent(String status, String token, String message) {
+        try {
+            JSONObject detail = new JSONObject().put("type", "admin:push-state")
+                .put("status", status).put("message", message);
+            if (token != null) detail.put("token", token);
+            sendEvent("kwik-parsel:admin-push", detail);
+        } catch (Exception ignored) { /* The web screen can request state again. */ }
     }
 
     private void showRiderLocationDisclosure(Runnable continueAction) {
@@ -299,6 +362,12 @@ public final class MainActivity extends Activity {
         if (requestCode == NOTIFICATION_PERMISSION) {
             if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) startTracking();
             else { pendingTrackingToken = null; sendRiderEvent(false, "Allow notifications to go online"); }
+            return;
+        }
+        if (requestCode == ADMIN_NOTIFICATION_PERMISSION) {
+            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
+                fetchAdminPushToken();
+            else sendAdminPushEvent("disabled", null, "Android notification permission was denied.");
             return;
         }
         if (requestCode != LOCATION_PERMISSION) return;

@@ -6,6 +6,7 @@ import CoverageAdminPanel from './CoverageAdminPanel'
 import PartnerVehicleRegistration from './PartnerVehicleRegistration'
 import DocumentPreview, { type PreviewDocument } from './DocumentPreview'
 import AccountDeletionAdminPanel from './AccountDeletionAdminPanel'
+import AdminTrafficSpikePanel from './AdminTrafficSpikePanel'
 
 type Application = {
   id: string; user_id: string; email: string; full_name: string | null;
@@ -82,6 +83,7 @@ export default function AdminConsole({ supabase, onError, onNotice }: {
 
   return <main className="dashboard admin-page">
     <div className="dashboard-heading"><div><p className="eyebrow">KWIK-PARSEL SUPER ADMIN</p><h1>Access control</h1><p className="section-intro">Approve verified staff and partners, link partners to their company, and revoke access when needed.</p></div><button className="secondary-button" onClick={() => void load()} disabled={loading}>Refresh</button></div>
+    <AdminTrafficSpikePanel supabase={supabase} />
     <AdminQuotePricingPanel supabase={supabase} onError={onError} onNotice={onNotice} />
     <AdminBikePricePanel supabase={supabase} onError={onError} onNotice={onNotice} />
     <CoverageAdminPanel supabase={supabase} onError={onError} onNotice={onNotice} />
