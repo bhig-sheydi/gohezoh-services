@@ -73,7 +73,6 @@ export default function UnifiedLocationPicker({ kind, supabase, userId, destinat
     if (query.trim().length < 3 || fix || nearbyPhonePoint) return
     const controller = new AbortController()
     const timer = window.setTimeout(() => {
-      setSearching(true)
       const text = `${query.trim()}${city ? `, ${city}` : ''}, Nigeria`
       void (async () => {
         if (!providerOnly) {
@@ -84,10 +83,18 @@ export default function UnifiedLocationPicker({ kind, supabase, userId, destinat
               setSuggestions(local); setGoogleOptions([]); setOfferProvider(true)
               return
             }
-          } catch { /* A failed local lookup must not block provider search. */ }
+          } catch {
+            // A failed or rate-limited local search must not automatically
+            // multiply paid provider requests. The customer can still opt in.
+            if (!controller.signal.aborted) {
+              setSuggestions([]); setGoogleOptions([]); setOfferProvider(true)
+              setError('Saved places are unavailable. Tap Search more places to use the map.')
+            }
+            return
+          }
         }
         if (controller.signal.aborted) return
-        setOfferProvider(false)
+        setOfferProvider(false); setError('')
         if (googleMapsDemoEnabled) {
           autocompleteSession.current ??= newGoogleAutocompleteSession()
           const results = await googleAutocomplete(text, autocompleteSession.current, controller.signal)
@@ -101,7 +108,7 @@ export default function UnifiedLocationPicker({ kind, supabase, userId, destinat
         }
       })().catch(() => { if (!controller.signal.aborted) { setSuggestions([]); setGoogleOptions([]) } })
         .finally(() => { if (!controller.signal.aborted) setSearching(false) })
-    }, 350)
+    }, 600)
     return () => { window.clearTimeout(timer); controller.abort() }
   }, [query, city, fix, supabase, providerOnly, nearbyPhonePoint])
 
@@ -237,13 +244,13 @@ export default function UnifiedLocationPicker({ kind, supabase, userId, destinat
   return <div ref={root} className={`field unified-location-picker ${kind}-location`}>
     {saved.length > 0 && <label className="field"><span>My {kind === 'pickup' ? 'pickup' : 'delivery'} addresses</span><select value={slot} onChange={(event) => chooseSaved(event.target.value)}><option value="">Use a new place</option>{saved.map((item) => <option key={item.slot} value={item.slot}>{item.label} — {item.address}</option>)}</select></label>}
     <label className="field"><span>{kind === 'pickup' ? 'Pickup place' : 'Drop-off place'}</span>
-      <input className="location-single-search" type="search" autoComplete="off" aria-label={`${kind === 'pickup' ? 'Pickup' : 'Drop-off'} place search`} placeholder={`Search the closest known place to you in ${city || 'the selected city'}`} value={query} required onChange={(event) => { pending.current?.abort(); pending.current = null; setBusy(false); setSearching(false); setSuggestions([]); setGoogleOptions([]); setQuery(event.target.value); setCustomerQuery(event.target.value); setAddress(event.target.value); setFix(null); setPoint(null); setNote(''); setSlot(''); setError(''); setNeedsPin(false); setProviderOnly(false); setOfferProvider(false); setUserMovedPin(false); setNearbyPhonePoint(null) }} />
+      <input className="location-single-search" type="search" autoComplete="off" aria-label={`${kind === 'pickup' ? 'Pickup' : 'Drop-off'} place search`} placeholder={`Search the closest known place to you in ${city || 'the selected city'}`} value={query} required onChange={(event) => { pending.current?.abort(); pending.current = null; setBusy(false); setSearching(event.target.value.trim().length >= 3); setSuggestions([]); setGoogleOptions([]); setQuery(event.target.value); setCustomerQuery(event.target.value); setAddress(event.target.value); setFix(null); setPoint(null); setNote(''); setSlot(''); setError(''); setNeedsPin(false); setProviderOnly(false); setOfferProvider(false); setUserMovedPin(false); setNearbyPhonePoint(null) }} />
     </label>
     {searching && <small role="status" className="address-search-status"><span className="address-search-spinner" aria-hidden="true" />Searching places...</small>}
     {suggestions.length > 0 && <div className="address-suggestions" role="group" aria-label={`${kind} place suggestions`}>{suggestions.map((item, index) => <button type="button" key={`${item.latitude}-${item.longitude}-${index}`} onClick={() => chooseResult(item)}><strong>{item.address}</strong><small>{item.city}, {item.state}{item.distanceMetres === null ? '' : ` · ${Math.round(item.distanceMetres)} m from your phone`}</small></button>)}</div>}
     {googleOptions.length > 0 && <div className="address-suggestions" role="group" aria-label={`${kind} place suggestions`}>{googleOptions.map((item) => <button type="button" key={item.placeId} disabled={busy} onClick={() => void chooseGoogleOption(item)}><strong>{item.address}</strong><small>{item.detail}</small></button>)}<small className="google-maps-attribution" translate="no">Google Maps</small></div>}
     {nearbyPhonePoint && <button type="button" className="text-button" disabled={busy} onClick={() => void choosePhonePointInstead()}>Use my phone point instead</button>}
-    {offerProvider && !fix && <button type="button" className="text-button" onClick={() => { setProviderOnly(true); setOfferProvider(false); setSuggestions([]); setNearbyPhonePoint(null) }}>Search more places</button>}
+    {offerProvider && !fix && <button type="button" className="text-button" onClick={() => { setProviderOnly(true); setOfferProvider(false); setSuggestions([]); setNearbyPhonePoint(null); setError(''); setSearching(true) }}>Search more places</button>}
     <div className="field-row"><button type="button" className="secondary-button" disabled={busy || query.trim().length < 3} onClick={() => void find()}>{busy ? 'Finding location...' : 'Find location'}</button><button type="button" className="text-button" disabled={busy} onClick={() => void findCurrentPosition()}>I'm here — use GPS</button></div>
     {error && <small role="alert">{error}</small>}
     {fix && point && <><small role="status">{note || 'Confirm this location.'}</small>

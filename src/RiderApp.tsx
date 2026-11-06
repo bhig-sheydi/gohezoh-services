@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { getSupabaseClient } from './lib/supabase'
 import { riderDeviceProof } from './lib/rider-device'
@@ -14,6 +14,13 @@ type RiderJob = { job_id: string; job_number: string; status: string; pickup_add
   parcel_summary: string; company_name: string; latitude?: number | null; longitude?: number | null; delivery_latitude?: number | null; delivery_longitude?: number | null; sender_name?: string; sender_phone?: string }
 type SelectedPickup = { request_id: string; request_number: string; pickup_city: string; delivery_city: string;
   pickup_address?: string | null; delivery_address?: string | null; parcel_summary: string | null; company_name: string; selected_at: string }
+type RiderDashboardSnapshot = {
+  has_role: boolean; session_active: boolean; jobs: RiderJob[];
+  profile: Array<{ company_name?: string | null }>;
+  pickup_locations: Array<{ job_id: string; sender_name?: string; sender_phone?: string; latitude?: number; longitude?: number }>;
+  delivery_locations: Array<{ job_id: string; latitude?: number; longitude?: number }>;
+  selected_pickups: SelectedPickup[]; next_stop: RiderRouteStop[];
+}
 const nextStatus: Record<string, string[]> = {
   partner_assigned: ['pickup_scheduled', 'exception'], pickup_scheduled: ['exception'],
   picked_up: ['exception'], in_transit: ['exception'],
@@ -67,32 +74,63 @@ export default function RiderApp() {
   const [codes, setCodes] = useState<Record<string, string>>({})
   const [pickupCodes, setPickupCodes] = useState<Record<string, string>>({})
   const [senderConfirmationRequested, setSenderConfirmationRequested] = useState<Record<string, boolean>>({})
+  const lastAccessCheckAt = useRef(0)
+  const loadGeneration = useRef(0)
+  const clearDashboard = useCallback(() => {
+    setJobs([]); setSelectedPickups([]); setNextStop(null); setCompanyName('Company rider')
+  }, [])
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => { setSession(data.session); setReady(true) })
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, next) => {
-      if (event === 'SIGNED_OUT') stopNativeRiderTracking()
+      loadGeneration.current++
+      if (event === 'SIGNED_OUT') { stopNativeRiderTracking(); lastAccessCheckAt.current = 0; clearDashboard() }
       setSession(next); setRider(null)
     })
     return () => subscription.unsubscribe()
-  }, [supabase])
+  }, [supabase, clearDashboard])
   const load = useCallback(async () => {
     if (!session?.user) return
-    const { data: role } = await supabase.from('user_roles').select('role').eq('user_id', session.user.id).eq('role', 'rider').maybeSingle()
-    setRider(Boolean(role))
-    if (!role) { setNextStop(null); return }
-    const [{ data, error: loadError }, profile, pickupLocations, deliveryLocations, selected, route] = await Promise.all([
-      supabase.rpc('list_my_rider_jobs'), supabase.rpc('my_rider_profile'), supabase.rpc('list_my_rider_pickup_locations'), supabase.rpc('list_my_rider_delivery_locations'), supabase.rpc('list_my_selected_pickups'), supabase.rpc('my_rider_next_stop'),
-    ])
-    if (loadError || selected.error) setError((loadError ?? selected.error)?.message ?? 'Could not load pickups')
-    else setJobs(((data ?? []) as RiderJob[]).map((job) => {
-      const delivery = Array.isArray(deliveryLocations.data) ? deliveryLocations.data.find((location: { job_id: string }) => location.job_id === job.job_id) : null
-      return { ...job, ...(Array.isArray(pickupLocations.data) ? pickupLocations.data.find((location: { job_id: string }) => location.job_id === job.job_id) : {}),
+    const generation = ++loadGeneration.current
+    let result: Awaited<ReturnType<typeof supabase.rpc>>
+    try { result = await supabase.rpc('my_rider_dashboard_snapshot') }
+    catch {
+      if (generation !== loadGeneration.current) return
+      lastAccessCheckAt.current = 0; clearDashboard(); setError('Could not check rider access. Refresh to try again.')
+      return
+    }
+    if (generation !== loadGeneration.current) return
+    const { data, error: loadError } = result
+    if (loadError) { lastAccessCheckAt.current = 0; clearDashboard(); setError(loadError.message); return }
+    const snapshot = data as RiderDashboardSnapshot | null
+    if (!snapshot || typeof snapshot.has_role !== 'boolean' || typeof snapshot.session_active !== 'boolean' ||
+      !Array.isArray(snapshot.jobs) || !Array.isArray(snapshot.profile) ||
+      !Array.isArray(snapshot.pickup_locations) || !Array.isArray(snapshot.delivery_locations) ||
+      !Array.isArray(snapshot.selected_pickups) || !Array.isArray(snapshot.next_stop)) {
+      lastAccessCheckAt.current = 0; clearDashboard(); setError('Could not load rider jobs. Refresh to try again.'); return
+    }
+    lastAccessCheckAt.current = Date.now()
+    setRider(snapshot.has_role)
+    if (!snapshot.has_role) {
+      clearDashboard()
+      setError('Your rider access has ended. Ask company management for a new password.')
+      await supabase.auth.signOut()
+      return
+    }
+    if (!snapshot.session_active) {
+      clearDashboard()
+      setError('Your rider access has ended. Ask company management for a new password.')
+      await supabase.auth.signOut()
+      return
+    }
+    setJobs(snapshot.jobs.map((job) => {
+      const delivery = snapshot.delivery_locations.find((location) => location.job_id === job.job_id)
+      return { ...job, ...snapshot.pickup_locations.find((location) => location.job_id === job.job_id),
         delivery_latitude: delivery?.latitude, delivery_longitude: delivery?.longitude }
     }))
-    if (!selected.error) setSelectedPickups((selected.data ?? []) as SelectedPickup[])
-    setNextStop(!route.error && Array.isArray(route.data) ? (route.data[0] as RiderRouteStop | undefined) ?? null : null)
-    if (!profile.error && profile.data?.[0]?.company_name) setCompanyName(String(profile.data[0].company_name))
-  }, [session, supabase])
+    setSelectedPickups(snapshot.selected_pickups)
+    setNextStop(snapshot.next_stop[0] ?? null)
+    if (snapshot.profile[0]?.company_name) setCompanyName(snapshot.profile[0].company_name)
+  }, [session, supabase, clearDashboard])
   useEffect(() => { const timer = window.setTimeout(() => { void load() }, 0); return () => window.clearTimeout(timer) }, [load])
   useEffect(() => {
     if (!session?.user || !rider) return
@@ -103,15 +141,23 @@ export default function RiderApp() {
   }, [session, rider, load])
   useEffect(() => {
     if (!session?.user || !rider) return
-    const check = async () => {
+    const check = async (force = false) => {
+      if (!force && document.visibilityState === 'visible' && Date.now() - lastAccessCheckAt.current < 15_000) return
       const { data, error } = await supabase.rpc('rider_session_active')
-      if (!error && data === false) { setError('Your rider access has ended. Ask company management for a new password.'); await supabase.auth.signOut() }
+      if (error) { lastAccessCheckAt.current = 0; return }
+      lastAccessCheckAt.current = Date.now()
+      if (data === false) {
+        loadGeneration.current++
+        clearDashboard()
+        setError('Your rider access has ended. Ask company management for a new password.')
+        await supabase.auth.signOut()
+      }
     }
     const timer = window.setInterval(() => { void check() }, 15000)
-    const focused = () => { void check() }
+    const focused = () => { void check(true) }
     window.addEventListener('focus', focused)
     return () => { window.clearInterval(timer); window.removeEventListener('focus', focused) }
-  }, [rider, session, supabase])
+  }, [rider, session, supabase, clearDashboard])
 
   async function signIn(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()

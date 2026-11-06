@@ -30,3 +30,39 @@ it('surfaces database failures so the caller can fall back to the map provider',
   const client = clientFor(null, { message: 'unavailable' })
   await expect(searchSharedDeliveryPlaces(client, 'Orji Woko', 'Port Harcourt')).rejects.toThrow('Saved places are unavailable')
 })
+
+it('coalesces concurrent text lookups and reuses a recent result without another database read', async () => {
+  let finish!: (value: { data: unknown[]; error: null }) => void
+  const response = new Promise<{ data: unknown[]; error: null }>((resolve) => { finish = resolve })
+  const client = { rpc: vi.fn(() => Object.assign(response, { abortSignal: () => response })) } as unknown as SupabaseClient
+  const aborted = new AbortController()
+  const first = searchSharedDeliveryPlaces(client, 'Orji Woko', 'Port Harcourt', undefined, aborted.signal)
+  const second = searchSharedDeliveryPlaces(client, 'orji  woko', 'port harcourt')
+  expect(client.rpc).toHaveBeenCalledOnce()
+  aborted.abort()
+  await expect(first).rejects.toMatchObject({ name: 'AbortError' })
+  finish({ data: [{ id: 'test', label: 'Orji Woko Close', city: 'Port Harcourt', state: 'Rivers',
+    latitude: 4.882269, longitude: 7.0096482, distance_metres: null }], error: null })
+  expect((await second)[0].address).toBe('Orji Woko Close')
+  expect((await searchSharedDeliveryPlaces(client, 'Orji Woko', 'Port Harcourt'))[0].address).toBe('Orji Woko Close')
+  expect(client.rpc).toHaveBeenCalledOnce()
+})
+
+it('does not retry a recent empty text result on every repeated Find click', async () => {
+  const client = clientFor([])
+  expect(await searchSharedDeliveryPlaces(client, 'Okemini', 'Port Harcourt')).toEqual([])
+  expect(await searchSharedDeliveryPlaces(client, 'okemini', 'port harcourt')).toEqual([])
+  expect(client.rpc).toHaveBeenCalledOnce()
+})
+
+it('drops text-search cache when the Supabase client changes user sessions', async () => {
+  let authChanged!: (event: 'SIGNED_OUT' | 'SIGNED_IN') => void
+  const client = { ...clientFor([]), auth: { onAuthStateChange: vi.fn((callback: (event: 'SIGNED_OUT' | 'SIGNED_IN') => void) => {
+    authChanged = callback
+    return { data: { subscription: { unsubscribe: vi.fn() } } }
+  }) } } as unknown as SupabaseClient
+  await searchSharedDeliveryPlaces(client, 'Okemini', 'Port Harcourt')
+  authChanged('SIGNED_OUT')
+  await searchSharedDeliveryPlaces(client, 'Okemini', 'Port Harcourt')
+  expect(client.rpc).toHaveBeenCalledTimes(2)
+})

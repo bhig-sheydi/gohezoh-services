@@ -1,6 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { googleRoadMatrix } from '../_shared/google-road-matrix.ts'
-import { bestPerCompany, optimizeCommittedRoute, planRiderRoute, DEFAULT_POLICY, type Point, type Stop, type RiderCandidate } from '../_shared/rider-route-planner.ts'
+import { googleIdleRiderRoadMatrix, googleRoadMatrix, memoizeDeniedMatrixReservations } from '../_shared/google-road-matrix.ts'
+import { bestPerCompany, optimizeCommittedRoute, planRiderRoute, DEFAULT_POLICY, type Point, type Stop, type RiderCandidate, type RoadLeg } from '../_shared/rider-route-planner.ts'
 
 type Event = { event_id: string; request_id: string; rider_id: string | null; event_kind: string }
 type Job = { job_id: string; status: string; pickup_latitude: number | null; pickup_longitude: number | null;
@@ -34,9 +34,10 @@ Deno.serve(async (request) => {
     if (error) throw new Error(`${name}: ${error.message}`)
     return data
   }
-  const roads = (points: Point[]) => googleRoadMatrix(unique(points), googleKey,
-    async (elements) => Boolean(await rpc('reserve_google_route_matrix_elements',
+  const reserveRoadElements = memoizeDeniedMatrixReservations(async (elements: number) =>
+    Boolean(await rpc('reserve_google_route_matrix_elements',
       { p_elements: elements, p_daily_limit: dailyLimit })))
+  const roads = (points: Point[]) => googleRoadMatrix(unique(points), googleKey, reserveRoadElements)
   const replan = async (riderId: string) => {
     const context = await rpc('rider_route_context', { p_rider: riderId }) as Context | null
     if (!context) return
@@ -117,6 +118,8 @@ Deno.serve(async (request) => {
       p_stops: sequenced, p_estimate_source: 'road' })
   }
   const liveMatch = async (requestId: string) => {
+    // The direct delivery leg is shared by candidates for this order only.
+    const directLegCache = new Map<string, RoadLeg>()
     const { data: quote } = await db.from('delivery_quote_windows').select('deadline_at,status').eq('request_id', requestId).maybeSingle()
     if (!quote || quote.status !== 'matching') return
     const { data: delivery } = await db.from('service_requests')
@@ -150,7 +153,10 @@ Deno.serve(async (request) => {
             !stored.some((s) => s.job_id === j.job_id && s.kind === 'pickup')))) continue
       const stops = stored.map(stop)
       const origin = { latitude: candidate.latitude, longitude: candidate.longitude }
-      const matrix = await roads([origin, ...stops.map((s) => s.point), pickup, dropoff])
+      const matrix = active.length === 0 && stops.length === 0
+        ? await googleIdleRiderRoadMatrix(origin, pickup, dropoff, googleKey,
+          reserveRoadElements, fetch, directLegCache)
+        : await roads([origin, ...stops.map((s) => s.point), pickup, dropoff])
       if (!matrix) continue
       const rider: RiderCandidate = { riderId: candidate.rider_id, companyId: candidate.partner_id,
         position: origin, onDuty: true, loadState: candidate.load_state,

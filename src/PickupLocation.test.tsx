@@ -14,7 +14,10 @@ const match = { address: 'Eliozu Road', city: 'Port Harcourt', state: 'Rivers', 
   evidence: { latitude: 4.8661, longitude: 7.0219, accuracyMetres: null, capturedAt: 1000, source: 'search' }, qualityNote: '' }
 const client = (saved: unknown[] = []) => {
   const query = { select: () => query, eq: () => query, order: async () => ({ data: saved, error: null }) }
-  return { from: () => query } as unknown as SupabaseClient
+  return { from: () => query, rpc: () => {
+    const response = Promise.resolve({ data: [], error: null })
+    return Object.assign(response, { abortSignal: () => response })
+  } } as unknown as SupabaseClient
 }
 beforeEach(() => { vi.clearAllMocks(); vi.mocked(suggestAddresses).mockResolvedValue([match] as never); vi.mocked(suggestNearby).mockResolvedValue([]) })
 

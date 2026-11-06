@@ -4,7 +4,7 @@ declare
   v_id uuid;v_duplicate uuid;v_job public.durable_jobs%rowtype;v_processed integer;v_retried integer;v_dead integer;v_deleted integer;
   v_user uuid:=gen_random_uuid();v_customer uuid;v_service uuid;v_request uuid;v_expiry_request uuid;v_corridor uuid;v_deadline timestamptz;
 begin
-  if not exists(select 1 from cron.job where jobname='gohezoh-process-durable-jobs' and schedule='* * * * *') then
+  if not exists(select 1 from cron.job where jobname='gohezoh-process-durable-jobs' and schedule='10 seconds') then
     raise exception 'The durable job scheduler is not configured';
   end if;
   if not exists(select 1 from cron.job where jobname='gohezoh-prune-durable-jobs' and schedule='30 3 * * *') then

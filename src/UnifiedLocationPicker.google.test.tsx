@@ -56,6 +56,21 @@ it('allows Google search when the saved places are not the intended place', asyn
   await vi.waitFor(() => expect(googleAutocomplete).toHaveBeenCalledOnce())
 })
 
+it('does not burst into Google requests when saved-place search fails', async () => {
+  const client = { rpc: vi.fn(() => {
+    const result = Promise.resolve({ data: null, error: { message: 'rate limited' } })
+    return Object.assign(result, { abortSignal: () => result })
+  }) } as unknown as SupabaseClient
+  vi.mocked(googleAutocomplete).mockResolvedValue([])
+  render(<form><select name="pickup_city" defaultValue="Port Harcourt"><option>Port Harcourt</option></select>
+    <UnifiedLocationPicker kind="pickup" supabase={client} /></form>)
+  await userEvent.setup().type(screen.getByRole('searchbox', { name: 'Pickup place search' }), 'Orji Woko')
+  expect(await screen.findByRole('button', { name: 'Search more places' })).toBeVisible()
+  expect(googleAutocomplete).not.toHaveBeenCalled()
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Search more places' }))
+  await vi.waitFor(() => expect(googleAutocomplete).toHaveBeenCalledOnce())
+})
+
 it('shows multiple nearby saved places and uses only the one the customer selects', async () => {
   const second = { ...savedPlace, id: 'local-two', label: 'Neighbouring house', latitude: 4.882275, longitude: 7.009652, distance_metres: 11 }
   const client = sharedClient([{ ...savedPlace, distance_metres: 9 }, second])
@@ -112,6 +127,7 @@ it('resolves a named Nigerian place only after the customer selects its autocomp
     <UnifiedLocationPicker kind="pickup" supabase={{} as SupabaseClient} /></form>)
   await userEvent.setup().type(screen.getByRole('searchbox', { name: 'Pickup place search' }), 'Divine Benevolent')
   expect(document.querySelector('[name=pickup_latitude]')).toBeNull()
+  await userEvent.setup().click(await screen.findByRole('button', { name: 'Search more places' }))
   expect(await screen.findByText('Google Maps')).toBeVisible()
   await userEvent.setup().click(await screen.findByRole('button', { name: /Divine Benevolent Care Organisation/ }))
   expect(select).toHaveBeenCalledOnce()
