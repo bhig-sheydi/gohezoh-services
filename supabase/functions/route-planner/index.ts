@@ -1,5 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { googleIdleRiderRoadMatrix, googleRoadMatrix, memoizeDeniedMatrixReservations } from '../_shared/google-road-matrix.ts'
+import { selectRoadCheckCandidates } from '../_shared/route-match-economy.ts'
 import { bestPerCompany, optimizeCommittedRoute, planRiderRoute, DEFAULT_POLICY, type Point, type Stop, type RiderCandidate, type RoadLeg } from '../_shared/rider-route-planner.ts'
 
 type Event = { event_id: string; request_id: string; rider_id: string | null; event_kind: string }
@@ -34,6 +35,15 @@ Deno.serve(async (request) => {
     if (error) throw new Error(`${name}: ${error.message}`)
     return data
   }
+  let economyModePromise: Promise<boolean> | undefined
+  const getEconomyMode = () => economyModePromise ??= rpc('get_routing_economy_mode', {})
+    .then((value) => value === true)
+    .catch((error) => {
+      // A missing or temporarily unavailable setting must not stop a new
+      // delivery from finding a rider. Database reservation still bounds calls.
+      console.error('Could not read routing economy mode; continuing matching', error)
+      return false
+    })
   const reserveRoadElements = memoizeDeniedMatrixReservations(async (elements: number) =>
     Boolean(await rpc('reserve_google_route_matrix_elements',
       { p_elements: elements, p_daily_limit: dailyLimit })))
@@ -137,12 +147,14 @@ Deno.serve(async (request) => {
       p_partners: [...new Set(candidates.map((c) => c.partner_id))],
     }) as Array<{ partner_id: string; closes_at: string | null }>
     const closingByCompany = new Map(closingRows.map((row) => [row.partner_id, row.closes_at]))
+    const economyMode = await getEconomyMode()
     const proposals = []
-    const nearby = candidates.filter((c) => c.distance_metres <= 5000).slice(0, 3)
-    const enRoute = candidates.filter((c) => c.distance_metres > 5000).slice(0, 3)
-    for (const candidate of [...nearby, ...enRoute]) {
+    // Rule out known-ineligible riders before spending on Google road calls.
+    // Economy mode only narrows this optional new-job search; assigned-job
+    // replans above still get the full road matrix they need for custody.
+    const eligible = candidates.flatMap((candidate) => {
       const closingAt = closingByCompany.get(candidate.partner_id)
-      if (!closingAt || Date.parse(closingAt) - Date.now() <= 20 * 60_000) continue
+      if (!closingAt || Date.parse(closingAt) - Date.now() <= 20 * 60_000) return []
       const active = candidate.active_jobs ?? []
       const stored = (candidate.existing_stops ?? []).filter((s) => active.some((j) => j.job_id === s.job_id &&
         (s.kind === 'dropoff' || j.status === 'pickup_scheduled' || j.status === 'exception')))
@@ -150,8 +162,11 @@ Deno.serve(async (request) => {
         (active.length && !stored.length) ||
         active.some((j) => !stored.some((s) => s.job_id === j.job_id && s.kind === 'dropoff') ||
           ((j.status === 'pickup_scheduled' || j.status === 'exception') &&
-            !stored.some((s) => s.job_id === j.job_id && s.kind === 'pickup')))) continue
-      const stops = stored.map(stop)
+            !stored.some((s) => s.job_id === j.job_id && s.kind === 'pickup')))) return []
+      return [{ candidate, closingAt, active, stops: stored.map(stop), distance_metres: candidate.distance_metres }]
+    })
+    const selected = selectRoadCheckCandidates(eligible, economyMode, Math.floor(Date.now() / 120_000))
+    for (const { candidate, closingAt, active, stops } of selected) {
       const origin = { latitude: candidate.latitude, longitude: candidate.longitude }
       const matrix = active.length === 0 && stops.length === 0
         ? await googleIdleRiderRoadMatrix(origin, pickup, dropoff, googleKey,

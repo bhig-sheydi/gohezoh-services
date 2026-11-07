@@ -1,6 +1,7 @@
 .traffic-panel { display:grid; gap:17px; padding:22px; border:1px solid rgba(23,59,52,.13); border-radius:18px; color:var(--ink); background:var(--surface,rgba(255,255,252,.88)); }
 .traffic-panel-heading,.traffic-panel-actions,.traffic-alert-title { display:flex; align-items:center; justify-content:space-between; gap:12px; }
 .traffic-panel-heading h2 { margin:5px 0 0; font-size:23px; letter-spacing:-.04em; }
+.traffic-subheading { margin:0; font-size:16px; letter-spacing:-.025em; }
 .traffic-panel-actions { flex-wrap:wrap; justify-content:flex-end; }
 .traffic-panel-actions button { min-height:38px; }
 .traffic-phone-alerts { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:11px 14px; border:1px solid var(--line,#dfe8dc); border-radius:10px; background:var(--paper,#f4f6ef); }
@@ -29,3 +30,42 @@
 :root[data-theme='dark'] .traffic-alert { border-color:#b98a43; color:#fff1d8; background:#4a361d; }
 :root[data-theme='dark'] .traffic-alert-critical { border-color:#c75b4c; color:#ffe2dd; background:#53261f; }
 :root[data-theme='dark'] .traffic-alert-acknowledged { border-color:#4b5f52; color:var(--ink); background:#22382a; }
+.cost-monitor { display:grid; gap:14px; padding-top:22px; border-top:1px solid var(--line,#dfe8dc); }
+.cost-monitor-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
+.cost-monitor-heading h3 { margin:0 0 5px; font-size:18px; letter-spacing:-.035em; }
+.cost-monitor-heading p,.cost-monitor-period,.cost-monitor-quota { margin:0; color:var(--muted); font-size:13px; line-height:1.5; }
+.cost-monitor-period { font-size:12px; }
+.cost-monitor-status { display:inline-flex; align-items:center; flex:none; min-height:32px; padding:6px 10px; border:1px solid #b5c7af; border-radius:999px; color:#28452f; background:#e9f3e6; font-size:11px; font-weight:800; }
+.cost-monitor-status-unknown { border-color:#c9b483; color:#63480c; background:#fff4d8; }
+.cost-monitor-status-attention { border-color:#d6a55e; color:#68420b; background:#fff1d5; }
+.cost-monitor-status-over_budget { border-color:#d4756b; color:#7b211a; background:#fff0ec; }
+.cost-monitor-highlights { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
+.cost-monitor-highlights>div { display:grid; align-content:start; gap:7px; min-width:0; padding:15px; border:1px solid var(--line,#dfe8dc); border-radius:12px; background:var(--paper,#f4f6ef); }
+.cost-monitor-highlights span { color:var(--muted); font-size:12px; font-weight:700; }
+.cost-monitor-highlights strong { overflow-wrap:anywhere; font-size:clamp(18px,2vw,24px); line-height:1.15; }
+.cost-monitor-highlights small { color:var(--muted); font-size:11px; line-height:1.35; }
+.cost-monitor-action { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:14px 15px; border:1px solid var(--line,#dfe8dc); border-radius:12px; background:var(--paper,#f4f6ef); }
+.cost-monitor-action strong { font-size:13px; }.cost-monitor-action p { max-width:760px; margin:5px 0 0; color:var(--muted); font-size:12px; line-height:1.45; }
+.cost-monitor-action button { flex:none; }
+.cost-monitor-quota { padding:0 2px; }.cost-monitor-quota strong { color:var(--ink); }
+.cost-monitor-warnings,.cost-monitor-gaps { padding:12px 14px; border:1px solid #d6a55e; border-radius:11px; color:#68420b; background:#fff7e8; font-size:12px; line-height:1.5; }
+.cost-monitor-warnings { border-color:#d4756b; color:#7b211a; background:#fff0ec; }
+.cost-monitor-warnings strong,.cost-monitor-gaps strong { font-size:13px; }.cost-monitor-warnings ul,.cost-monitor-gaps ul { margin:6px 0 0; padding-left:19px; }
+.cost-monitor-details { padding:0 14px; border:1px solid var(--line,#dfe8dc); border-radius:11px; background:var(--paper,#f4f6ef); }
+.cost-monitor-details summary { padding:13px 0; cursor:pointer; font-size:13px; font-weight:750; }.cost-monitor-details[open] summary { border-bottom:1px solid var(--line,#dfe8dc); }
+.cost-monitor-details p { margin:12px 0; color:var(--muted); font-size:12px; line-height:1.5; }.cost-monitor-details h4 { margin:17px 0 8px; font-size:13px; }
+.cost-monitor-details dl { display:grid; gap:0; margin:10px 0; }.cost-monitor-details dl>div { display:flex; justify-content:space-between; gap:12px; padding:9px 0; border-bottom:1px solid var(--line,#dfe8dc); font-size:12px; }.cost-monitor-details dl>div:last-child { border-bottom:0; }
+.cost-monitor-details dt { color:var(--muted); }.cost-monitor-details dd { margin:0; font-weight:750; text-align:right; }
+.cost-monitor-form { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:13px 0 15px; align-items:end; }.cost-monitor-form label { display:grid; gap:6px; min-width:0; font-size:12px; font-weight:700; }
+.cost-monitor-form input,.cost-monitor-form select { width:100%; min-height:40px; padding:8px 10px; border:1px solid var(--line,#dfe8dc); border-radius:8px; color:var(--ink); background:var(--surface,#fff); font:inherit; font-weight:400; }
+.cost-monitor-form input:focus-visible,.cost-monitor-form select:focus-visible,.cost-monitor-details summary:focus-visible { outline:2px solid #779138; outline-offset:2px; }
+.cost-monitor-form .cost-monitor-note { grid-column:span 3; }.cost-monitor-form button { min-height:40px; }.cost-monitor-entry-notice { margin:0 0 14px!important; font-weight:700; }
+@media(max-width:900px) { .cost-monitor-form { grid-template-columns:repeat(2,minmax(0,1fr)); }.cost-monitor-form .cost-monitor-note { grid-column:span 1; } }
+@media(max-width:680px) { .cost-monitor-heading,.cost-monitor-action { align-items:stretch; flex-direction:column; }.cost-monitor-status { align-self:flex-start; }.cost-monitor-highlights { grid-template-columns:1fr; }.cost-monitor-action button { align-self:flex-start; }.cost-monitor-form { grid-template-columns:1fr; }.cost-monitor-details dl>div { flex-direction:column; gap:3px; }.cost-monitor-details dd { text-align:left; } }
+:root[data-theme='dark'] .cost-monitor { border-color:#4b5f52; }
+:root[data-theme='dark'] .cost-monitor-highlights>div,:root[data-theme='dark'] .cost-monitor-action,:root[data-theme='dark'] .cost-monitor-details { border-color:#4b5f52; background:#22382a; }
+:root[data-theme='dark'] .cost-monitor-status { border-color:#3c7a53; color:#e5f7ea; background:#1e5035; }
+:root[data-theme='dark'] .cost-monitor-status-unknown,:root[data-theme='dark'] .cost-monitor-status-attention,:root[data-theme='dark'] .cost-monitor-gaps { border-color:#b98a43; color:#fff1d8; background:#4a361d; }
+:root[data-theme='dark'] .cost-monitor-status-over_budget,:root[data-theme='dark'] .cost-monitor-warnings { border-color:#c75b4c; color:#ffe2dd; background:#53261f; }
+:root[data-theme='dark'] .cost-monitor-form input,:root[data-theme='dark'] .cost-monitor-form select { border-color:#5c7162; color:var(--ink); background:#1b2b23; color-scheme:dark; }
+:root[data-theme='dark'] .cost-monitor-details dl>div,:root[data-theme='dark'] .cost-monitor-details[open] summary { border-color:#4b5f52; }

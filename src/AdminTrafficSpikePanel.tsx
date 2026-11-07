@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { disableNativeAdminPush, getNativeAdminPushDeviceId, hasNativeAdminPush,
   listenNativeAdminPush, nativeAdminPushPreferred, requestNativeAdminPush,
   setNativeAdminPushPreferred } from './lib/native-admin-push'
+import AdminCostMonitor from './AdminCostMonitor'
 import './AdminTrafficSpikePanel.css'
 
 type TrafficMetric = {
@@ -44,7 +45,7 @@ function isTrafficSnapshot(value: unknown): value is TrafficSnapshot {
 function formatted(value: number | null | undefined) {
   return typeof value === 'number' && Number.isFinite(value)
     ? new Intl.NumberFormat('en-NG', { maximumFractionDigits: 1 }).format(value)
-    : '—'
+    : 'Unavailable'
 }
 
 function timestamp(value: string) {
@@ -82,6 +83,7 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
   const [phoneStatus, setPhoneStatus] = useState<'disabled' | 'requesting' | 'enabled' | 'unavailable'>('disabled')
   const [phoneError, setPhoneError] = useState('')
   const [checkedNow, setCheckedNow] = useState(0)
+  const [costRefreshKey, setCostRefreshKey] = useState(0)
   const requestInFlight = useRef(false)
   const audioContext = useRef<AudioContext | null>(null)
 
@@ -217,10 +219,10 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
 
   return <section className="traffic-panel" aria-labelledby="traffic-panel-title">
     <header className="traffic-panel-heading">
-      <div><p className="eyebrow">SERVICE HEALTH</p><h2 id="traffic-panel-title">Traffic spikes</h2></div>
+      <div><p className="eyebrow">SERVICE HEALTH</p><h2 id="traffic-panel-title">Traffic and spending</h2></div>
       <div className="traffic-panel-actions">
         <button type="button" className="secondary-button" aria-pressed={soundEnabled} onClick={() => void toggleSound()}>{soundEnabled ? 'Mute alarm' : 'Enable alarm'}</button>
-        <button type="button" className="secondary-button" onClick={() => void load()}>Refresh</button>
+        <button type="button" className="secondary-button" onClick={() => { void load(); setCostRefreshKey((value) => value + 1) }}>Refresh</button>
       </div>
     </header>
     {hasNativeAdminPush() && <div className="traffic-phone-alerts">
@@ -238,10 +240,11 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
     {phoneError && <p className="traffic-monitor-error" role="alert">{phoneError}</p>}
     {error && <p className="traffic-monitor-error" role="alert">Monitoring unavailable: {error}. Last successful figures may be stale.</p>}
     {stale && <p className="traffic-monitor-error" role="alert">Traffic readings are more than 3 minutes old. The sampler may be delayed.</p>}
-    {loading && !snapshot ? <p className="traffic-monitor-empty">Checking traffic…</p> : !snapshot ? <p className="traffic-monitor-empty">No traffic readings available.</p> : <>
+    <h3 className="traffic-subheading">Traffic spikes</h3>
+    {loading && !snapshot ? <p className="traffic-monitor-empty">Checking traffic...</p> : !snapshot ? <p className="traffic-monitor-empty">No traffic readings available.</p> : <>
       <div className={`traffic-health ${activeAlerts.length > 0 ? 'traffic-health-alert' : ''}`} role="status" aria-live="polite">
         <strong>{stale ? 'Monitoring is delayed' : activeAlerts.length > 0 ? `${activeAlerts.length} spike${activeAlerts.length === 1 ? '' : 's'} need attention` : 'No active spikes detected'}</strong>
-        <span>Last check: {timestamp(snapshot.checked_at)} · {formatted(snapshot.window_minutes)}-minute window</span>
+        <span>Last check: {timestamp(snapshot.checked_at)} | {formatted(snapshot.window_minutes)}-minute window</span>
       </div>
       <div className="traffic-metrics">
         {snapshot.metrics.map((metric) => <div className={`traffic-metric traffic-metric-${metric.status === 'critical' ? 'critical' : metric.status === 'warning' ? 'warning' : 'normal'}`} key={metric.key}>
@@ -254,12 +257,13 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
         {snapshot.alerts.length === 0 ? <p className="traffic-monitor-empty">No spikes recorded in this period.</p> : snapshot.alerts.map((alert) => <article className={`traffic-alert traffic-alert-${alert.severity === 'critical' ? 'critical' : 'warning'} ${alert.acknowledged_at || alert.resolved_at ? 'traffic-alert-acknowledged' : ''}`} key={alert.id}>
           <div><div className="traffic-alert-title"><strong>{alert.source.replaceAll('_', ' ')}</strong><span>{alert.resolved_at ? 'Resolved' : alert.acknowledged_at ? 'Acknowledged' : alert.severity === 'critical' ? 'Critical spike' : 'Spike'}</span></div>
             <p><b>Likely cause:</b> {alert.cause}</p>
-            <small>{formatted(alert.observed)} observed · {formatted(alert.baseline)} typical · alarm level {formatted(alert.threshold)} · {timestamp(alert.detected_at)}</small>
+            <small>{formatted(alert.observed)} observed | {formatted(alert.baseline)} typical | alarm level {formatted(alert.threshold)} | {timestamp(alert.detected_at)}</small>
           </div>
           {!alert.acknowledged_at && !alert.resolved_at && <button type="button" className="secondary-button" disabled={acknowledging === alert.id} onClick={() => void acknowledge(alert.id)}>Acknowledge</button>}
         </article>)}
       </div>
     </>}
+    <AdminCostMonitor supabase={supabase} refreshKey={costRefreshKey} />
     <p className="traffic-monitor-footnote">Browser sound works while this dashboard is open. Android background alerts require phone notifications and a network connection.</p>
   </section>
 }

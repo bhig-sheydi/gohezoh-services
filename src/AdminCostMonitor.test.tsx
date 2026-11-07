@@ -1,0 +1,88 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import AdminCostMonitor from './AdminCostMonitor'
+
+const snapshot = {
+  checked_at: new Date().toISOString(), period_start: '2026-11-07T00:00:00Z', period_end: '2026-11-08T00:00:00Z',
+  completed_paid_jobs: 1, completed_revenue_ngn: 2100, cancelled_retained_revenue_ngn: 0,
+  collected_revenue_ngn: 2100, partner_payable_ngn: 1575, other_direct_cost_ngn: 20,
+  customer_referral_ngn: 52.5, partner_referral_ngn: 39.38,
+  registration_referral_reserve_ngn: 52.5,
+  available_for_operations_ngn: 360.62, target_profit_ngn: 105, operating_budget_ngn: 255.62,
+  recorded_costs_ngn: 100, known_cost_lower_bound_ngn: 100,
+  estimated_operating_cost_ngn: null, remaining_operating_budget_ngn: null,
+  google_elements_today: 25, google_elements_daily_limit: 5000,
+  modeled_costs: { google_route_matrix_ngn: null, sms_ngn: null, paystack_ngn: null,
+    supabase_ngn: null, total_known_ngn: 0 },
+  margin_status: 'unknown', mode: 'normal', warnings: [],
+  data_gaps: ['Paystack fees are not connected or recorded.', 'Supabase charges are not connected or recorded.'],
+}
+
+function client(value: unknown = snapshot) {
+  let current = value
+  const rpc = vi.fn(async (name: string, params?: { p_mode?: string }) => {
+    if (name === 'admin_cost_monitor') return { data: current, error: null }
+    if (name === 'set_admin_cost_mode') {
+      current = { ...(current as object), mode: params?.p_mode }
+      return { data: { mode: params?.p_mode, changed_at: new Date().toISOString() }, error: null }
+    }
+    if (name === 'record_admin_operating_cost') return { data: { id: 'cost-1' }, error: null }
+    return { data: null, error: null }
+  })
+  return { supabase: { rpc } as unknown as SupabaseClient, rpc }
+}
+
+describe('super-admin spending monitor', () => {
+  afterEach(() => { vi.restoreAllMocks() })
+
+  it('shows unknown provider costs as unknown and the Google ceiling as a separate backstop', async () => {
+    const { supabase } = client()
+    render(<AdminCostMonitor supabase={supabase} refreshKey={0} />)
+    expect(await screen.findByText('Cost picture incomplete')).toBeInTheDocument()
+    expect(screen.getByText('Allowance for operating costs')).toBeInTheDocument()
+    expect(screen.getAllByText('Not yet known')).toHaveLength(2)
+    expect(screen.getByText(/25 of 5,000 default/).closest('p')).toHaveTextContent('separate emergency ceiling')
+    expect(screen.getByText(/Paystack fees are not connected/)).toBeInTheDocument()
+    await userEvent.click(screen.getByText('How this allowance is calculated'))
+    const lowerBound = screen.getByText('Known cost lower bound').closest('div')
+    expect(lowerBound).not.toBeNull()
+    expect(within(lowerBound!).getByText(/100\.00/)).toBeInTheDocument()
+    expect(screen.getByText(/its cost is unknown until a verified rate or bill is entered/)).toBeInTheDocument()
+  })
+
+  it('turns on reversible savings mode only after the server confirms it', async () => {
+    const { supabase, rpc } = client()
+    render(<AdminCostMonitor supabase={supabase} refreshKey={0} />)
+    const button = await screen.findByRole('button', { name: 'Reduce optional routing work' })
+    expect(button).toHaveAttribute('aria-pressed', 'false')
+    await userEvent.click(button)
+    await waitFor(() => expect(rpc).toHaveBeenCalledWith('set_admin_cost_mode', { p_mode: 'economy' }))
+    expect(await screen.findByRole('button', { name: 'Resume normal matching' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText(/GPS, paid deliveries, payments, refunds and tracking continue/)).toBeInTheDocument()
+  })
+
+  it('records a provider charge with a reference and does not treat it as a transfer', async () => {
+    const { supabase, rpc } = client()
+    render(<AdminCostMonitor supabase={supabase} refreshKey={0} />)
+    await screen.findByText('Cost picture incomplete')
+    await userEvent.click(screen.getByText('Record a provider charge'))
+    await userEvent.selectOptions(screen.getByLabelText('Provider'), 'paystack_payment')
+    await userEvent.type(screen.getByLabelText('Amount (NGN)'), '35.50')
+    await userEvent.type(screen.getByLabelText('Provider reference'), 'psk-invoice-100')
+    await userEvent.click(screen.getByRole('button', { name: 'Record charge' }))
+    await waitFor(() => expect(rpc).toHaveBeenCalledWith('record_admin_operating_cost', expect.objectContaining({
+      p_source: 'paystack_payment', p_amount_ngn: 35.5, p_reference: 'psk-invoice-100',
+    })))
+    expect(await screen.findByText(/Provider charge recorded/)).toBeInTheDocument()
+  })
+
+  it('reports an unavailable snapshot without showing a false healthy margin', async () => {
+    const { supabase } = client(null)
+    render(<AdminCostMonitor supabase={supabase} refreshKey={0} />)
+    expect(await screen.findByText(/The spending report was incomplete/)).toBeInTheDocument()
+    expect(screen.getByText('Spending figures are unavailable.')).toBeInTheDocument()
+    expect(screen.queryByText('Within the measured allowance')).not.toBeInTheDocument()
+  })
+})
