@@ -54,9 +54,14 @@ type CostSnapshot = {
   google_elements_daily_limit: number
   google_billable_elements_today?: number
   estimated_tracked_cost_ngn?: number
+  google_other_api_estimate_ngn?: number | null
+  google_other_api_counts_today?: Record<string, number>
+  estimated_margin_percent?: number | null
+  margin_warning?: string | null
   cost_settings?: CostSettings
   modeled_costs: {
     google_route_matrix_ngn: number | null
+    google_other_apis_ngn?: number | null
     sms_ngn: number | null
     paystack_ngn: number | null
     supabase_ngn: number | null
@@ -130,7 +135,9 @@ export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: S
   const [settings, setSettings] = useState<CostSettings | null>(null)
   const [settingsBusy, setSettingsBusy] = useState(false)
   const [settingsNotice, setSettingsNotice] = useState('')
+  const [fxBusy, setFxBusy] = useState(false)
   const [databaseBytes, setDatabaseBytes] = useState<number | null>(null)
+  const fxAutoAttempted = useRef(false)
   const requestInFlight = useRef(false)
 
   const load = useCallback(async () => {
@@ -226,6 +233,37 @@ export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: S
     } finally { setSettingsBusy(false) }
   }
 
+  const refreshExchangeRate = useCallback(async () => {
+    if (!settings || fxBusy) return
+    setFxBusy(true)
+    setSettingsNotice('')
+    try {
+      const response = await fetch('https://open.er-api.com/v6/latest/USD', { signal: AbortSignal.timeout(8000) })
+      if (!response.ok) throw new Error('Exchange-rate service is unavailable.')
+      const data = await response.json() as { result?: string; base_code?: string; rates?: { NGN?: number }; time_last_update_unix?: number }
+      const rate = data.rates?.NGN
+      if (data.result !== 'success' || data.base_code !== 'USD' || typeof rate !== 'number'
+        || !Number.isFinite(rate) || rate < 100 || rate > 100_000
+        || !data.time_last_update_unix || Math.abs(Date.now() - data.time_last_update_unix * 1000) > 4 * 86_400_000) {
+        throw new Error('The exchange-rate service returned an invalid or stale rate.')
+      }
+      const { error: rpcError } = await supabase.rpc('set_admin_cost_rate_settings', { p_settings: { ...settings, usd_to_ngn: rate } })
+      if (rpcError) throw rpcError
+      try { window.localStorage.setItem('kwik-fx-auto-day', todayUtc()) } catch { /* Private browsing may block storage. */ }
+      setSettingsNotice(`USD to NGN updated to ₦${rate.toFixed(2)} from the daily exchange-rate feed. This may differ from your card provider's rate.`)
+      await load()
+    } catch (cause) { setSettingsNotice(cause instanceof Error ? cause.message : 'Could not refresh the exchange rate.') }
+    finally { setFxBusy(false) }
+  }, [settings, fxBusy, supabase, load])
+
+  useEffect(() => {
+    if (!settings || fxAutoAttempted.current || import.meta.env.MODE === 'test') return
+    fxAutoAttempted.current = true
+    try { if (window.localStorage.getItem('kwik-fx-auto-day') === todayUtc()) return } catch { /* Try once anyway. */ }
+    const timer = window.setTimeout(() => { void refreshExchangeRate() }, 0)
+    return () => window.clearTimeout(timer)
+  }, [settings, refreshExchangeRate])
+
   const stale = snapshot ? checkedNow - new Date(snapshot.checked_at).getTime() > 900_000 : false
   const statusLabel = snapshot?.margin_status === 'over_budget' ? 'Known costs exceed the allowance'
     : snapshot?.margin_status === 'attention' ? 'Known costs need attention'
@@ -248,7 +286,8 @@ export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: S
         <div><span>Provider charges recorded</span><strong>{money(snapshot.recorded_costs_ngn)}</strong><small>Known spend only; unrecorded bills may raise the total</small></div>
         <div><span>Estimated room left</span><strong>{money(snapshot.remaining_operating_budget_ngn)}</strong><small>{snapshot.remaining_operating_budget_ngn === null ? 'Cannot confirm the 5% margin yet' : 'Estimate; reconcile with provider invoices'}</small></div>
       </div>
-      {snapshot.cost_settings && <p className="cost-monitor-quota">Estimated tracked provider costs today: <strong>{money(snapshot.estimated_tracked_cost_ngn)}</strong>. This is a partial forecast, not an invoice or confirmed profit. {snapshot.cost_settings.usd_to_ngn === null && 'Set USD to NGN below to include billable Google and paid Supabase costs. '}SMS usage, Supabase overages and other Google Maps SKUs are not included.</p>}
+      {snapshot.cost_settings && <p className="cost-monitor-quota">Estimated tracked provider costs today: <strong>{money(snapshot.estimated_tracked_cost_ngn)}</strong>. This is a partial forecast, not an invoice or confirmed profit. {snapshot.cost_settings.usd_to_ngn === null && 'Set USD to NGN below to include billable Google and paid Supabase costs. '}SMS usage, Supabase overages and untracked Google requests are not included.</p>}
+      {snapshot.margin_warning && <div className="cost-monitor-warnings" role="alert"><strong>Profit margin warning</strong><p>{snapshot.margin_warning}</p><p>Review provider usage and recorded invoices before deciding to reduce optional routing work.</p></div>}
       <div className="cost-monitor-action">
         <div><strong>{snapshot.mode === 'economy' ? 'Savings mode is on' : 'Normal matching is on'}</strong><p>Savings mode checks fewer optional road routes for new jobs. Matching may take longer. GPS, paid deliveries, payments, refunds and tracking continue.</p></div>
         <button type="button" className="secondary-button" aria-pressed={snapshot.mode === 'economy'} disabled={modeBusy || stale} onClick={() => void changeMode()}>{modeBusy ? 'Saving...' : snapshot.mode === 'economy' ? 'Resume normal matching' : 'Reduce optional routing work'}</button>
@@ -276,11 +315,12 @@ export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: S
         <dl>
           <div><dt>Provider charges entered</dt><dd>{money(snapshot.recorded_costs_ngn)}</dd></div>
           <div><dt>Google route estimate</dt><dd>{money(snapshot.modeled_costs.google_route_matrix_ngn)}</dd></div>
+          <div><dt>Other Google API estimate</dt><dd>{money(snapshot.modeled_costs.google_other_apis_ngn)}</dd></div>
           <div><dt>Paystack payment-fee estimate</dt><dd>{money(snapshot.modeled_costs.paystack_ngn)}</dd></div>
           <div><dt>Supabase daily base-plan estimate</dt><dd>{money(snapshot.modeled_costs.supabase_ngn)}</dd></div>
           <div><dt>Known cost lower bound</dt><dd>{money(snapshot.known_cost_lower_bound_ngn)}</dd></div>
         </dl>
-        <p>Estimates use the settings below and activity recorded by this app. Google route reservations may exceed billable usage. Paystack fees use successful Paystack bookings. Supabase overages, other Maps SKUs and SMS usage are not yet measured. Entered charges are invoices or fees; do not add estimates to them as if they were separate bills.</p>
+        <p>Estimates use the settings below and activity recorded by this app. Route Matrix reservations may exceed billable usage. Compute Routes counts saved road prices; browser Maps, Places and Geocoding counts are app-reported and may miss failed or unauthenticated requests. Google discounts above the first volume tier and usage from other projects are not modeled. Supabase overages and SMS usage are not yet measured. Entered charges are invoices or fees; do not add estimates to them as if they were separate bills.</p>
       </details>
       {settings && <details className="cost-monitor-details"><summary>Configure cost estimates</summary>
         <p>Choose your Supabase plan and the Google Routes SKU used by the app. Supabase sets its base subscription price from the plan. Google bills by request type; this app currently sends Essentials route checks. USD costs need an exchange rate. Compare forecasts with invoices.</p>
@@ -291,6 +331,7 @@ export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: S
           <label>Google free elements/month<input type="number" min="0" step="1" value={settings.google_free_monthly_elements} onChange={(event) => setSettings({ ...settings, google_free_monthly_elements: Number(event.target.value) })} /></label>
           <label>Google USD / 1,000 elements<input type="number" min="0" step="0.0001" value={settings.google_usd_per_1000} onChange={(event) => setSettings({ ...settings, google_usd_per_1000: Number(event.target.value) })} /></label>
           <label>USD to NGN<input type="number" min="0.0001" step="0.0001" placeholder="Set current rate" value={settings.usd_to_ngn ?? ''} onChange={(event) => setSettings({ ...settings, usd_to_ngn: event.target.value ? Number(event.target.value) : null })} /></label>
+          <button type="button" className="secondary-button" disabled={fxBusy || settingsBusy} onClick={() => void refreshExchangeRate()}>{fxBusy ? 'Updating rate...' : 'Update USD/NGN rate'}</button>
           <label>Paystack local fee %<input type="number" min="0" max="100" step="0.0001" value={settings.paystack_percent} onChange={(event) => setSettings({ ...settings, paystack_percent: Number(event.target.value) })} /></label>
           <label>Paystack flat fee NGN<input type="number" min="0" step="0.01" value={settings.paystack_flat_ngn} onChange={(event) => setSettings({ ...settings, paystack_flat_ngn: Number(event.target.value) })} /></label>
           <label>Flat-fee waiver below NGN<input type="number" min="0" step="0.01" value={settings.paystack_flat_waiver_below_ngn} onChange={(event) => setSettings({ ...settings, paystack_flat_waiver_below_ngn: Number(event.target.value) })} /></label>
@@ -299,6 +340,7 @@ export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: S
           <button type="submit" className="secondary-button" disabled={settingsBusy}>{settingsBusy ? 'Saving...' : 'Save cost assumptions'}</button>
         </form>
         {settingsNotice && <p role="status">{settingsNotice}</p>}
+        <p>Exchange-rate data by <a href="https://www.exchangerate-api.com" target="_blank" rel="noreferrer">Exchange Rate API</a>; updated daily. It is an estimate, not your bank's settlement rate.</p>
         <div className="cost-plan-rates">
           <strong>Supabase {settings.supabase_plan} plan: {settings.supabase_plan === 'enterprise' ? 'contract pricing' : `$${settings.supabase_monthly_usd}/month base`}</strong>
           {databaseBytes !== null && <p>Current project database: {(databaseBytes / 1_000_000_000).toFixed(2)} GB. {settings.supabase_plan === 'enterprise' ? 'Compare with your contract.' : `Included size: ${settings.supabase_plan === 'free' ? '0.5' : '8'} GB per project.`} {settings.supabase_plan === 'free' && databaseBytes > 500_000_000 ? 'Above the Free allowance; Supabase may restrict service rather than charge an overage. ' : ''}{diskOverageRunRateUsd !== null && `Database-size overage at this instant: $${diskOverageRunRateUsd.toFixed(2)}/month run rate. `}Supabase bills using its own cycle measurements; this snapshot is not an invoice.</p>}

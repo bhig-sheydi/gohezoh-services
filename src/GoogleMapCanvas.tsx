@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { googlePoint, loadGoogleMaps, type GoogleMapsApi } from './lib/google-maps'
+import { recordGoogleBrowserUsage } from './lib/google-usage'
 
 type Point = { latitude: number; longitude: number }
 export default function GoogleMapCanvas({ point, zoom, onChoose }: { point: Point; zoom: number; onChoose: (point: Point) => void }) {
@@ -14,6 +15,7 @@ export default function GoogleMapCanvas({ point, zoom, onChoose }: { point: Poin
     void loadGoogleMaps().then((google) => {
       if (!active || !element.current) return
       const map = new google.Map(element.current, { center: googlePoint(point), zoom, mapTypeControl: false, streetViewControl: false })
+      recordGoogleBrowserUsage('dynamic_maps')
       const pin = new google.Marker({ position: googlePoint(point), map })
       instance.current = map; marker.current = pin
       map.addListener('click', (event) => {

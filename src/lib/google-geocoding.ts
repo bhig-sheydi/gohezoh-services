@@ -1,5 +1,6 @@
 import type { AddressResult, AddressSuggestion, LocationEvidence, LocationPoint } from './geoapify-geocoding'
 import { loadGoogleMaps, googlePoint, type GooglePlace } from './google-maps'
+import { recordGoogleBrowserUsage } from './google-usage'
 
 const component = (parts: Array<{ types: string[]; long_name?: string; longText?: string }> | undefined, type: string) =>
   parts?.find((part) => part.types.includes(type))?.long_name ?? parts?.find((part) => part.types.includes(type))?.longText ?? ''
@@ -71,6 +72,7 @@ export async function googleAutocomplete(text: string, session: GoogleAutocomple
   const { suggestions } = await AutocompleteSuggestion.fetchAutocompleteSuggestions({
     input: text, includedRegionCodes: ['ng'], region: 'ng', sessionToken: session.token,
   })
+  recordGoogleBrowserUsage('autocomplete_requests')
   signal?.throwIfAborted()
   return (suggestions ?? []).flatMap(({ placePrediction }) => {
     if (!placePrediction?.placeId) return []
@@ -83,6 +85,7 @@ export async function googleAutocomplete(text: string, session: GoogleAutocomple
         // displayName and primaryType are Pro fields; these Essentials fields retain
         // the address and coordinates without upgrading the terminating session.
         await place.fetchFields({ fields: ['formattedAddress', 'location', 'addressComponents', 'types'] })
+        recordGoogleBrowserUsage('place_details')
         selectionSignal?.throwIfAborted()
         const types = place.types ?? placePrediction.types ?? []
         const primaryType = types.includes('route') ? 'route' : types.includes('locality') ? 'locality' :
@@ -102,6 +105,7 @@ async function places(text: string, point?: LocationPoint, maximum = 5): Promise
     const { Place } = await google.importLibrary('places')
     const { places: matches } = await Place.searchByText({ textQuery: text, fields: ['displayName', 'formattedAddress', 'location', 'addressComponents', 'primaryType', 'id'],
       maxResultCount: maximum, region: 'ng', ...(point ? { locationBias: { center: googlePoint(point), radius: 10000 } } : {}) })
+    recordGoogleBrowserUsage('places_text')
     return (matches ?? []).flatMap((item) => { try { return [fromPlace(item)] } catch { return [] } })
   })()
   placeFlights.set(key, task)
@@ -117,6 +121,7 @@ async function geocode(request: { location?: { lat: number; lng: number }; addre
     signal: AbortSignal.timeout(10_000),
   })
   if (!response.ok) throw new Error(`Google address lookup failed (${response.status}). You can enter the address manually.`)
+  recordGoogleBrowserUsage('geocoding')
   const payload = await response.json() as { results?: GeocodeV4[]; result?: GeocodeV4 }
   return (payload.results ?? (payload.result ? [payload.result] : [])).slice(0, 5).flatMap((item) => { try { return [fromGeocode(item)] } catch { return [] } })
 }
@@ -167,6 +172,7 @@ export async function googleClosestLandmark(point: LocationPoint): Promise<{ nam
     signal: AbortSignal.timeout(8_000),
   })
   if (!response.ok) throw new Error(`Google nearby search failed (${response.status}).`)
+  recordGoogleBrowserUsage('places_nearby')
   const payload = await response.json() as { places?: Array<{ displayName?: { text?: string }; formattedAddress?: string;
     location?: { latitude?: number; longitude?: number } }> }
   const nearby = (payload.places ?? []).flatMap((place) => {

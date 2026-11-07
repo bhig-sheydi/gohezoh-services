@@ -43,7 +43,7 @@ function client(value: unknown = snapshot) {
 }
 
 describe('super-admin spending monitor', () => {
-  afterEach(() => { vi.restoreAllMocks() })
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
   it('shows unknown provider costs as unknown and the Google ceiling as a separate backstop', async () => {
     const { supabase } = client()
@@ -59,7 +59,7 @@ describe('super-admin spending monitor', () => {
     const lowerBound = screen.getByText('Known cost lower bound').closest('div')
     expect(lowerBound).not.toBeNull()
     expect(within(lowerBound!).getByText(/100\.00/)).toBeInTheDocument()
-    expect(screen.getByText(/Google route reservations may exceed billable usage/)).toBeInTheDocument()
+    expect(screen.getByText(/Route Matrix reservations may exceed billable usage/)).toBeInTheDocument()
   })
 
   it('turns on reversible savings mode only after the server confirms it', async () => {
@@ -102,6 +102,20 @@ describe('super-admin spending monitor', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Save cost assumptions' }))
     await waitFor(() => expect(rpc).toHaveBeenCalledWith('set_admin_cost_rate_settings', expect.objectContaining({
       p_settings: expect.objectContaining({ supabase_plan: 'pro', supabase_monthly_usd: 25, usd_to_ngn: 1500 }),
+    })))
+  })
+
+  it('refreshes the indicative exchange rate and shows a red margin warning', async () => {
+    const { supabase, rpc } = client({ ...snapshot, margin_warning: 'Measured and modeled costs leave an estimated margin of 9.50%.' })
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({
+      result: 'success', base_code: 'USD', rates: { NGN: 1350 }, time_last_update_unix: Math.floor(Date.now() / 1000),
+    }) })))
+    render(<AdminCostMonitor supabase={supabase} refreshKey={0} />)
+    expect(await screen.findByText('Profit margin warning')).toBeInTheDocument()
+    await userEvent.click(screen.getByText('Configure cost estimates'))
+    await userEvent.click(screen.getByRole('button', { name: 'Update USD/NGN rate' }))
+    await waitFor(() => expect(rpc).toHaveBeenCalledWith('set_admin_cost_rate_settings', expect.objectContaining({
+      p_settings: expect.objectContaining({ usd_to_ngn: 1350 }),
     })))
   })
 

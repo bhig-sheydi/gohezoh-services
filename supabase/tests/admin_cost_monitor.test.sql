@@ -7,6 +7,7 @@ declare
   v_history bigint;v_day date:=(now() at time zone 'UTC')::date;
 begin
   if has_function_privilege('anon','public.admin_cost_monitor()','EXECUTE')
+     or has_function_privilege('anon','public.record_google_browser_usage(jsonb)','EXECUTE')
      or has_function_privilege('anon','public.admin_supabase_project_usage_snapshot()','EXECUTE')
      or has_function_privilege('anon','public.set_admin_cost_mode(text)','EXECUTE')
      or has_function_privilege('authenticated','public.get_routing_economy_mode()','EXECUTE')
@@ -42,6 +43,10 @@ begin
     and public.has_role(u.id,'admin') limit 1;
   if v_admin is null then raise exception 'No configured super admin for cost test'; end if;
   perform set_config('request.jwt.claim.sub',v_admin::text,true);
+  perform public.record_google_browser_usage('{"places_text":1}'::jsonb);
+  if (public.admin_cost_monitor()->'google_other_api_counts_today'->>'places_text')::bigint<1 then
+    raise exception 'Google browser usage was not included in cost monitoring';
+  end if;
   v_before:=public.admin_cost_monitor();
   if v_before->'cost_settings'->>'supabase_plan' not in ('free','pro','team','enterprise')
      or v_before->'modeled_costs'->>'paystack_ngn' is null then
