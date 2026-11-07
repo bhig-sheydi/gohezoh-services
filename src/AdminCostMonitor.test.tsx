@@ -17,6 +17,12 @@ const snapshot = {
   modeled_costs: { google_route_matrix_ngn: null, sms_ngn: null, paystack_ngn: null,
     supabase_ngn: null, total_known_ngn: 0 },
   margin_status: 'unknown', mode: 'normal', warnings: [],
+  estimated_tracked_cost_ngn: 31.5,
+  cost_settings: { supabase_plan: 'free', supabase_monthly_usd: 0,
+    google_route_sku: 'essentials', google_free_monthly_elements: 10000,
+    google_usd_per_1000: 5, usd_to_ngn: null, paystack_percent: 1.5,
+    paystack_flat_ngn: 100, paystack_flat_waiver_below_ngn: 2500,
+    paystack_fee_cap_ngn: 2000, sms_ngn_per_message: null },
   data_gaps: ['Paystack fees are not connected or recorded.', 'Supabase charges are not connected or recorded.'],
 }
 
@@ -29,6 +35,7 @@ function client(value: unknown = snapshot) {
       return { data: { mode: params?.p_mode, changed_at: new Date().toISOString() }, error: null }
     }
     if (name === 'record_admin_operating_cost') return { data: { id: 'cost-1' }, error: null }
+    if (name === 'set_admin_cost_rate_settings') return { data: params, error: null }
     return { data: null, error: null }
   })
   return { supabase: { rpc } as unknown as SupabaseClient, rpc }
@@ -42,7 +49,7 @@ describe('super-admin spending monitor', () => {
     render(<AdminCostMonitor supabase={supabase} refreshKey={0} />)
     expect(await screen.findByText('Cost picture incomplete')).toBeInTheDocument()
     expect(screen.getByText('Allowance for operating costs')).toBeInTheDocument()
-    expect(screen.getAllByText('Not yet known')).toHaveLength(2)
+    expect(screen.getAllByText('Not yet known').length).toBeGreaterThanOrEqual(2)
     expect(screen.getByText(/25 of 5,000 default/).closest('p')).toHaveTextContent('separate emergency ceiling')
     expect(screen.getByText('Cost data not connected yet')).toBeInTheDocument()
     await userEvent.click(screen.getByText('Cost data not connected yet'))
@@ -51,7 +58,7 @@ describe('super-admin spending monitor', () => {
     const lowerBound = screen.getByText('Known cost lower bound').closest('div')
     expect(lowerBound).not.toBeNull()
     expect(within(lowerBound!).getByText(/100\.00/)).toBeInTheDocument()
-    expect(screen.getByText(/its cost is unknown until a verified rate or bill is entered/)).toBeInTheDocument()
+    expect(screen.getByText(/Google route reservations may exceed billable usage/)).toBeInTheDocument()
   })
 
   it('turns on reversible savings mode only after the server confirms it', async () => {
@@ -78,6 +85,19 @@ describe('super-admin spending monitor', () => {
       p_source: 'paystack_payment', p_amount_ngn: 35.5, p_reference: 'psk-invoice-100',
     })))
     expect(await screen.findByText(/Provider charge recorded/)).toBeInTheDocument()
+  })
+
+  it('saves plan-aware cost assumptions for the super admin', async () => {
+    const { supabase, rpc } = client()
+    render(<AdminCostMonitor supabase={supabase} refreshKey={0} />)
+    await screen.findByText('Cost picture incomplete')
+    await userEvent.click(screen.getByText('Configure cost estimates'))
+    await userEvent.selectOptions(screen.getByLabelText('Supabase plan'), 'pro')
+    await userEvent.type(screen.getByLabelText('USD to NGN'), '1500')
+    await userEvent.click(screen.getByRole('button', { name: 'Save cost assumptions' }))
+    await waitFor(() => expect(rpc).toHaveBeenCalledWith('set_admin_cost_rate_settings', expect.objectContaining({
+      p_settings: expect.objectContaining({ supabase_plan: 'pro', supabase_monthly_usd: 25, usd_to_ngn: 1500 }),
+    })))
   })
 
   it('reports an unavailable snapshot without showing a false healthy margin', async () => {

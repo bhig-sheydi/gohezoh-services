@@ -2,7 +2,7 @@ begin;
 
 do $$
 declare
-  v_admin uuid;v_before jsonb;v_after jsonb;v_record jsonb;
+  v_admin uuid;v_before jsonb;v_after jsonb;v_record jsonb;v_saved jsonb;
   v_ref text:='sql-cost-monitor-'||gen_random_uuid()::text;
   v_history bigint;v_day date:=(now() at time zone 'UTC')::date;
 begin
@@ -38,6 +38,23 @@ begin
   if v_admin is null then raise exception 'No configured super admin for cost test'; end if;
   perform set_config('request.jwt.claim.sub',v_admin::text,true);
   v_before:=public.admin_cost_monitor();
+  if v_before->'cost_settings'->>'supabase_plan' not in ('free','pro','team','enterprise')
+     or v_before->'modeled_costs'->>'paystack_ngn' is null then
+    raise exception 'Cost plan settings or Paystack estimate missing';
+  end if;
+  begin
+    perform set_config('request.jwt.claim.sub',gen_random_uuid()::text,true);
+    perform public.set_admin_cost_rate_settings(v_before->'cost_settings');
+    raise exception 'Non-admin changed cost rate settings';
+  exception when insufficient_privilege then null; end;
+  perform set_config('request.jwt.claim.sub',v_admin::text,true);
+  v_saved:=public.set_admin_cost_rate_settings(v_before->'cost_settings' ||
+      jsonb_build_object('supabase_plan','pro','supabase_monthly_usd',25,'usd_to_ngn',1500));
+  v_after:=public.admin_cost_monitor();
+  if v_saved->>'supabase_plan'<>'pro'
+     or (v_after->'modeled_costs'->>'supabase_ngn')::numeric<=0 then
+    raise exception 'Saved plan did not affect the Supabase base-plan forecast';
+  end if;
   if (v_before->>'operating_budget_ngn')::numeric=0
      and (v_before->>'recorded_costs_ngn')::numeric=0
      and ((v_before->>'margin_status')<>'unknown'

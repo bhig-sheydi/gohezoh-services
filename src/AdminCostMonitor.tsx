@@ -5,6 +5,19 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 type CostSource = 'google_route_matrix' | 'paystack_payment' | 'sms_delivery' | 'supabase' | 'other'
 type CostMode = 'normal' | 'economy'
 type MarginStatus = 'unknown' | 'healthy' | 'attention' | 'over_budget'
+type CostSettings = {
+  supabase_plan: 'free' | 'pro' | 'team' | 'enterprise'
+  supabase_monthly_usd: number
+  google_route_sku: 'essentials' | 'pro' | 'enterprise'
+  google_free_monthly_elements: number
+  google_usd_per_1000: number
+  usd_to_ngn: number | null
+  paystack_percent: number
+  paystack_flat_ngn: number
+  paystack_flat_waiver_below_ngn: number
+  paystack_fee_cap_ngn: number
+  sms_ngn_per_message: number | null
+}
 
 type CostSnapshot = {
   checked_at: string
@@ -28,6 +41,9 @@ type CostSnapshot = {
   remaining_operating_budget_ngn: number | null
   google_elements_today: number
   google_elements_daily_limit: number
+  google_billable_elements_today?: number
+  estimated_tracked_cost_ngn?: number
+  cost_settings?: CostSettings
   modeled_costs: {
     google_route_matrix_ngn: number | null
     sms_ngn: number | null
@@ -100,6 +116,9 @@ export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: S
   const [reference, setReference] = useState('')
   const [note, setNote] = useState('')
   const [checkedNow, setCheckedNow] = useState(0)
+  const [settings, setSettings] = useState<CostSettings | null>(null)
+  const [settingsBusy, setSettingsBusy] = useState(false)
+  const [settingsNotice, setSettingsNotice] = useState('')
   const requestInFlight = useRef(false)
 
   const load = useCallback(async () => {
@@ -110,6 +129,7 @@ export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: S
       if (rpcError) throw rpcError
       if (!isCostSnapshot(data)) throw new Error('The spending report was incomplete.')
       setSnapshot(data)
+      if (data.cost_settings) setSettings(data.cost_settings)
       setError('')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The spending report is unavailable.')
@@ -177,6 +197,21 @@ export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: S
     }
   }
 
+  async function saveSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!settings || settingsBusy) return
+    setSettingsBusy(true)
+    setSettingsNotice('')
+    try {
+      const { error: rpcError } = await supabase.rpc('set_admin_cost_rate_settings', { p_settings: settings })
+      if (rpcError) throw rpcError
+      setSettingsNotice('Cost assumptions saved. Estimates refreshed.')
+      await load()
+    } catch (cause) {
+      setSettingsNotice(cause instanceof Error ? cause.message : 'Could not save cost assumptions.')
+    } finally { setSettingsBusy(false) }
+  }
+
   const stale = snapshot ? checkedNow - new Date(snapshot.checked_at).getTime() > 900_000 : false
   const statusLabel = snapshot?.margin_status === 'over_budget' ? 'Known costs exceed the allowance'
     : snapshot?.margin_status === 'attention' ? 'Known costs need attention'
@@ -196,6 +231,7 @@ export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: S
         <div><span>Provider charges recorded</span><strong>{money(snapshot.recorded_costs_ngn)}</strong><small>Known spend only; unrecorded bills may raise the total</small></div>
         <div><span>Estimated room left</span><strong>{money(snapshot.remaining_operating_budget_ngn)}</strong><small>{snapshot.remaining_operating_budget_ngn === null ? 'Cannot confirm the 5% margin yet' : 'Estimate; reconcile with provider invoices'}</small></div>
       </div>
+      {snapshot.cost_settings && <p className="cost-monitor-quota">Estimated tracked provider costs today: <strong>{money(snapshot.estimated_tracked_cost_ngn)}</strong>. This is a partial forecast, not an invoice or confirmed profit. {snapshot.cost_settings.usd_to_ngn === null && 'Set USD to NGN below to include billable Google and paid Supabase costs. '}SMS usage, Supabase overages and other Google Maps SKUs are not included.</p>}
       <div className="cost-monitor-action">
         <div><strong>{snapshot.mode === 'economy' ? 'Savings mode is on' : 'Normal matching is on'}</strong><p>Savings mode checks fewer optional road routes for new jobs. Matching may take longer. GPS, paid deliveries, payments, refunds and tracking continue.</p></div>
         <button type="button" className="secondary-button" aria-pressed={snapshot.mode === 'economy'} disabled={modeBusy || stale} onClick={() => void changeMode()}>{modeBusy ? 'Saving...' : snapshot.mode === 'economy' ? 'Resume normal matching' : 'Reduce optional routing work'}</button>
@@ -222,11 +258,31 @@ export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: S
         <h4>Cost evidence</h4>
         <dl>
           <div><dt>Provider charges entered</dt><dd>{money(snapshot.recorded_costs_ngn)}</dd></div>
-          <div><dt>Google route cost model</dt><dd>{money(snapshot.modeled_costs.google_route_matrix_ngn)}</dd></div>
+          <div><dt>Google route estimate</dt><dd>{money(snapshot.modeled_costs.google_route_matrix_ngn)}</dd></div>
+          <div><dt>Paystack payment-fee estimate</dt><dd>{money(snapshot.modeled_costs.paystack_ngn)}</dd></div>
+          <div><dt>Supabase daily base-plan estimate</dt><dd>{money(snapshot.modeled_costs.supabase_ngn)}</dd></div>
           <div><dt>Known cost lower bound</dt><dd>{money(snapshot.known_cost_lower_bound_ngn)}</dd></div>
         </dl>
-        <p>Entered charges are only the invoices or fees recorded here. Google route usage is counted, but its cost is unknown until a verified rate or bill is entered. Paystack, SMS and Supabase costs are also unknown until entered or connected.</p>
+        <p>Estimates use the settings below and activity recorded by this app. Google route reservations may exceed billable usage. Paystack fees use successful Paystack bookings. Supabase overages, other Maps SKUs and SMS usage are not yet measured. Entered charges are invoices or fees; do not add estimates to them as if they were separate bills.</p>
       </details>
+      {settings && <details className="cost-monitor-details"><summary>Configure cost estimates</summary>
+        <p>Choose your Supabase plan and the Google Routes SKU used by the app. Google bills by request type, not by a Free/Pro subscription; this app currently sends Essentials route checks. USD costs need an exchange rate. Published rates can change; compare forecasts with invoices.</p>
+        <form className="cost-monitor-form" onSubmit={(event) => void saveSettings(event)}>
+          <label>Supabase plan<select value={settings.supabase_plan} onChange={(event) => { const plan = event.target.value as CostSettings['supabase_plan']; setSettings({ ...settings, supabase_plan: plan, supabase_monthly_usd: plan === 'free' ? 0 : plan === 'pro' ? 25 : plan === 'team' ? 599 : settings.supabase_monthly_usd }) }}><option value="free">Free</option><option value="pro">Pro</option><option value="team">Team</option><option value="enterprise">Enterprise</option></select></label>
+          <label>Supabase base USD/month<input type="number" min="0" step="0.01" value={settings.supabase_monthly_usd} onChange={(event) => setSettings({ ...settings, supabase_monthly_usd: Number(event.target.value) })} /></label>
+          <label>Google Routes SKU<select value={settings.google_route_sku} onChange={(event) => { const sku = event.target.value as CostSettings['google_route_sku']; setSettings({ ...settings, google_route_sku: sku, google_free_monthly_elements: sku === 'enterprise' ? 1000 : sku === 'pro' ? 5000 : 10000, google_usd_per_1000: sku === 'enterprise' ? 15 : sku === 'pro' ? 10 : 5 }) }}><option value="essentials">Essentials</option><option value="pro">Pro</option><option value="enterprise">Enterprise</option></select></label>
+          <label>Google free elements/month<input type="number" min="0" step="1" value={settings.google_free_monthly_elements} onChange={(event) => setSettings({ ...settings, google_free_monthly_elements: Number(event.target.value) })} /></label>
+          <label>Google USD / 1,000 elements<input type="number" min="0" step="0.0001" value={settings.google_usd_per_1000} onChange={(event) => setSettings({ ...settings, google_usd_per_1000: Number(event.target.value) })} /></label>
+          <label>USD to NGN<input type="number" min="0.0001" step="0.0001" placeholder="Set current rate" value={settings.usd_to_ngn ?? ''} onChange={(event) => setSettings({ ...settings, usd_to_ngn: event.target.value ? Number(event.target.value) : null })} /></label>
+          <label>Paystack local fee %<input type="number" min="0" max="100" step="0.0001" value={settings.paystack_percent} onChange={(event) => setSettings({ ...settings, paystack_percent: Number(event.target.value) })} /></label>
+          <label>Paystack flat fee NGN<input type="number" min="0" step="0.01" value={settings.paystack_flat_ngn} onChange={(event) => setSettings({ ...settings, paystack_flat_ngn: Number(event.target.value) })} /></label>
+          <label>Flat-fee waiver below NGN<input type="number" min="0" step="0.01" value={settings.paystack_flat_waiver_below_ngn} onChange={(event) => setSettings({ ...settings, paystack_flat_waiver_below_ngn: Number(event.target.value) })} /></label>
+          <label>Paystack fee cap NGN<input type="number" min="0" step="0.01" value={settings.paystack_fee_cap_ngn} onChange={(event) => setSettings({ ...settings, paystack_fee_cap_ngn: Number(event.target.value) })} /></label>
+          <label>SMS NGN/message<input type="number" min="0" step="0.01" placeholder="Provider rate" value={settings.sms_ngn_per_message ?? ''} onChange={(event) => setSettings({ ...settings, sms_ngn_per_message: event.target.value ? Number(event.target.value) : null })} /></label>
+          <button type="submit" className="secondary-button" disabled={settingsBusy}>{settingsBusy ? 'Saving...' : 'Save cost assumptions'}</button>
+        </form>
+        {settingsNotice && <p role="status">{settingsNotice}</p>}
+      </details>}
       <details className="cost-monitor-details"><summary>Record a provider charge</summary>
         <p>Use an invoice or provider transaction reference once. This improves the day's cost picture; it does not move money.</p>
         <form className="cost-monitor-form" onSubmit={(event) => void recordCharge(event)}>
