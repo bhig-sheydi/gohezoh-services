@@ -30,6 +30,7 @@ function client(value: unknown = snapshot) {
   let current = value
   const rpc = vi.fn(async (name: string, params?: { p_mode?: string }) => {
     if (name === 'admin_cost_monitor') return { data: current, error: null }
+    if (name === 'admin_supabase_project_usage_snapshot') return { data: { database_bytes: 9_000_000_000 }, error: null }
     if (name === 'set_admin_cost_mode') {
       current = { ...(current as object), mode: params?.p_mode }
       return { data: { mode: params?.p_mode, changed_at: new Date().toISOString() }, error: null }
@@ -92,7 +93,11 @@ describe('super-admin spending monitor', () => {
     render(<AdminCostMonitor supabase={supabase} refreshKey={0} />)
     await screen.findByText('Cost picture incomplete')
     await userEvent.click(screen.getByText('Configure cost estimates'))
+    expect(screen.queryByLabelText('Supabase base USD/month')).not.toBeInTheDocument()
     await userEvent.selectOptions(screen.getByLabelText('Supabase plan'), 'pro')
+    expect(screen.getByText('Supabase pro plan: $25/month base')).toBeInTheDocument()
+    expect(screen.getByText('$0.09 / GB')).toBeInTheDocument()
+    expect(screen.getByText(/Database-size overage at this instant: \$0\.13\/month run rate/)).toBeInTheDocument()
     await userEvent.type(screen.getByLabelText('USD to NGN'), '1500')
     await userEvent.click(screen.getByRole('button', { name: 'Save cost assumptions' }))
     await waitFor(() => expect(rpc).toHaveBeenCalledWith('set_admin_cost_rate_settings', expect.objectContaining({

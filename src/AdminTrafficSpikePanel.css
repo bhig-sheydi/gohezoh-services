@@ -55,6 +55,7 @@
 .cost-monitor-details { padding:0 14px; border:1px solid var(--line,#dfe8dc); border-radius:11px; background:var(--paper,#f4f6ef); }
 .cost-monitor-details summary { padding:13px 0; cursor:pointer; font-size:13px; font-weight:750; }.cost-monitor-details[open] summary { border-bottom:1px solid var(--line,#dfe8dc); }
 .cost-monitor-details p { margin:12px 0; color:var(--muted); font-size:12px; line-height:1.5; }.cost-monitor-details h4 { margin:17px 0 8px; font-size:13px; }
+.cost-plan-rates { margin:14px 0; padding:14px; border:1px solid var(--line,#dfe8dc); border-radius:10px; background:var(--surface,#fff); font-size:12px; }.cost-plan-rates>strong { font-size:13px; }.cost-plan-rates a { font-weight:700; }.cost-rate-table-wrap { max-width:100%; overflow-x:auto; }.cost-rate-table-wrap table { width:100%; border-collapse:collapse; min-width:520px; }.cost-rate-table-wrap th,.cost-rate-table-wrap td { padding:8px; border-bottom:1px solid var(--line,#dfe8dc); text-align:left; }.cost-rate-table-wrap th { color:var(--muted); font-size:11px; }.cost-rate-table-wrap td:first-child { font-weight:700; }
 .cost-monitor-details dl { display:grid; gap:0; margin:10px 0; }.cost-monitor-details dl>div { display:flex; justify-content:space-between; gap:12px; padding:9px 0; border-bottom:1px solid var(--line,#dfe8dc); font-size:12px; }.cost-monitor-details dl>div:last-child { border-bottom:0; }
 .cost-monitor-details dt { color:var(--muted); }.cost-monitor-details dd { margin:0; font-weight:750; text-align:right; }
 .cost-monitor-form { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; margin:13px 0 15px; align-items:end; }.cost-monitor-form label { display:grid; gap:6px; min-width:0; font-size:12px; font-weight:700; }
@@ -65,6 +66,7 @@
 @media(max-width:680px) { .cost-monitor-heading,.cost-monitor-action { align-items:stretch; flex-direction:column; }.cost-monitor-status { align-self:flex-start; }.cost-monitor-highlights { grid-template-columns:1fr; }.cost-monitor-action button { align-self:flex-start; }.cost-monitor-form { grid-template-columns:1fr; }.cost-monitor-details dl>div { flex-direction:column; gap:3px; }.cost-monitor-details dd { text-align:left; } }
 :root[data-theme='dark'] .cost-monitor { border-color:#4b5f52; }
 :root[data-theme='dark'] .cost-monitor-highlights>div,:root[data-theme='dark'] .cost-monitor-action,:root[data-theme='dark'] .cost-monitor-details { border-color:#4b5f52; background:#22382a; }
+:root[data-theme='dark'] .cost-plan-rates { border-color:#4b5f52; background:#1b2b23; }
 :root[data-theme='dark'] .cost-monitor-status { border-color:#3c7a53; color:#e5f7ea; background:#1e5035; }
 :root[data-theme='dark'] .cost-monitor-status-unknown,:root[data-theme='dark'] .cost-monitor-status-attention,:root[data-theme='dark'] .cost-monitor-gaps { border-color:#b98a43; color:#fff1d8; background:#4a361d; }
 :root[data-theme='dark'] .cost-monitor-status-over_budget,:root[data-theme='dark'] .cost-monitor-warnings { border-color:#c75b4c; color:#ffe2dd; background:#53261f; }

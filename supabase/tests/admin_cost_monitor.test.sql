@@ -7,6 +7,7 @@ declare
   v_history bigint;v_day date:=(now() at time zone 'UTC')::date;
 begin
   if has_function_privilege('anon','public.admin_cost_monitor()','EXECUTE')
+     or has_function_privilege('anon','public.admin_supabase_project_usage_snapshot()','EXECUTE')
      or has_function_privilege('anon','public.set_admin_cost_mode(text)','EXECUTE')
      or has_function_privilege('authenticated','public.get_routing_economy_mode()','EXECUTE')
      or has_table_privilege('authenticated','public.admin_operating_costs','SELECT')
@@ -18,6 +19,10 @@ begin
   begin
     perform public.admin_cost_monitor();
     raise exception 'Non-admin read cost details';
+  exception when insufficient_privilege then null; end;
+  begin
+    perform public.admin_supabase_project_usage_snapshot();
+    raise exception 'Non-admin read database usage';
   exception when insufficient_privilege then null; end;
   begin
     perform public.set_admin_cost_mode('economy');
@@ -49,11 +54,15 @@ begin
   exception when insufficient_privilege then null; end;
   perform set_config('request.jwt.claim.sub',v_admin::text,true);
   v_saved:=public.set_admin_cost_rate_settings(v_before->'cost_settings' ||
-      jsonb_build_object('supabase_plan','pro','supabase_monthly_usd',25,'usd_to_ngn',1500));
+      jsonb_build_object('supabase_plan','pro','supabase_monthly_usd',999,'usd_to_ngn',1500));
   v_after:=public.admin_cost_monitor();
   if v_saved->>'supabase_plan'<>'pro'
+     or (v_saved->>'supabase_monthly_usd')::numeric<>25
      or (v_after->'modeled_costs'->>'supabase_ngn')::numeric<=0 then
     raise exception 'Saved plan did not affect the Supabase base-plan forecast';
+  end if;
+  if (public.admin_supabase_project_usage_snapshot()->>'database_bytes')::bigint<=0 then
+    raise exception 'Database size snapshot missing';
   end if;
   if (v_before->>'operating_budget_ngn')::numeric=0
      and (v_before->>'recorded_costs_ngn')::numeric=0

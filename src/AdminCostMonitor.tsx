@@ -18,6 +18,17 @@ type CostSettings = {
   paystack_fee_cap_ngn: number
   sms_ngn_per_message: number | null
 }
+const supabaseRates = [
+  { service: 'Database disk', free: '0.5 GB / project', paid: '8 GB / project', overage: '$0.125 / GB-month' },
+  { service: 'Uncached egress', free: '5 GB', paid: '250 GB', overage: '$0.09 / GB' },
+  { service: 'Cached egress', free: '5 GB', paid: '250 GB', overage: '$0.03 / GB' },
+  { service: 'Monthly active users', free: '50,000', paid: '100,000', overage: '$0.00325 / user' },
+  { service: 'File storage', free: '1 GB', paid: '100 GB', overage: '$0.0213 / GB-month' },
+  { service: 'Edge invocations', free: '500,000', paid: '2 million', overage: '$2 / million' },
+  { service: 'Realtime messages', free: '2 million', paid: '5 million', overage: '$2.50 / million' },
+  { service: 'Peak realtime connections', free: '200', paid: '500', overage: '$10 / 1,000' },
+  { service: 'Log ingest', free: '1 GB', paid: '20 GB', overage: '$0.50 / GB' },
+] as const
 
 type CostSnapshot = {
   checked_at: string
@@ -119,6 +130,7 @@ export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: S
   const [settings, setSettings] = useState<CostSettings | null>(null)
   const [settingsBusy, setSettingsBusy] = useState(false)
   const [settingsNotice, setSettingsNotice] = useState('')
+  const [databaseBytes, setDatabaseBytes] = useState<number | null>(null)
   const requestInFlight = useRef(false)
 
   const load = useCallback(async () => {
@@ -130,6 +142,8 @@ export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: S
       if (!isCostSnapshot(data)) throw new Error('The spending report was incomplete.')
       setSnapshot(data)
       if (data.cost_settings) setSettings(data.cost_settings)
+      const { data: usage } = await supabase.rpc('admin_supabase_project_usage_snapshot')
+      if (usage && typeof usage.database_bytes === 'number' && Number.isFinite(usage.database_bytes)) setDatabaseBytes(usage.database_bytes)
       setError('')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The spending report is unavailable.')
@@ -216,6 +230,9 @@ export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: S
   const statusLabel = snapshot?.margin_status === 'over_budget' ? 'Known costs exceed the allowance'
     : snapshot?.margin_status === 'attention' ? 'Known costs need attention'
       : snapshot?.margin_status === 'healthy' ? 'Within the measured allowance' : 'Cost picture incomplete'
+  const diskIncludedGb = settings?.supabase_plan === 'free' ? 0.5 : settings?.supabase_plan === 'enterprise' ? null : 8
+  const diskOverageRunRateUsd = databaseBytes !== null && diskIncludedGb !== null && settings && settings.supabase_plan !== 'free'
+    ? Math.max(0, databaseBytes / 1_000_000_000 - diskIncludedGb) * 0.125 : null
 
   return <div className="cost-monitor" aria-labelledby="cost-monitor-title">
     <div className="cost-monitor-heading">
@@ -266,10 +283,10 @@ export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: S
         <p>Estimates use the settings below and activity recorded by this app. Google route reservations may exceed billable usage. Paystack fees use successful Paystack bookings. Supabase overages, other Maps SKUs and SMS usage are not yet measured. Entered charges are invoices or fees; do not add estimates to them as if they were separate bills.</p>
       </details>
       {settings && <details className="cost-monitor-details"><summary>Configure cost estimates</summary>
-        <p>Choose your Supabase plan and the Google Routes SKU used by the app. Google bills by request type, not by a Free/Pro subscription; this app currently sends Essentials route checks. USD costs need an exchange rate. Published rates can change; compare forecasts with invoices.</p>
+        <p>Choose your Supabase plan and the Google Routes SKU used by the app. Supabase sets its base subscription price from the plan. Google bills by request type; this app currently sends Essentials route checks. USD costs need an exchange rate. Compare forecasts with invoices.</p>
         <form className="cost-monitor-form" onSubmit={(event) => void saveSettings(event)}>
-          <label>Supabase plan<select value={settings.supabase_plan} onChange={(event) => { const plan = event.target.value as CostSettings['supabase_plan']; setSettings({ ...settings, supabase_plan: plan, supabase_monthly_usd: plan === 'free' ? 0 : plan === 'pro' ? 25 : plan === 'team' ? 599 : settings.supabase_monthly_usd }) }}><option value="free">Free</option><option value="pro">Pro</option><option value="team">Team</option><option value="enterprise">Enterprise</option></select></label>
-          <label>Supabase base USD/month<input type="number" min="0" step="0.01" value={settings.supabase_monthly_usd} onChange={(event) => setSettings({ ...settings, supabase_monthly_usd: Number(event.target.value) })} /></label>
+          <label>Supabase plan<select value={settings.supabase_plan} onChange={(event) => { const plan = event.target.value as CostSettings['supabase_plan']; setSettings({ ...settings, supabase_plan: plan, supabase_monthly_usd: plan === 'free' ? 0 : plan === 'pro' ? 25 : plan === 'team' ? 599 : 0 }) }}><option value="free">Free</option><option value="pro">Pro</option><option value="team">Team</option><option value="enterprise">Enterprise</option></select></label>
+          {settings.supabase_plan === 'enterprise' && <label>Enterprise contract USD/month<input type="number" min="0" step="0.01" value={settings.supabase_monthly_usd} onChange={(event) => setSettings({ ...settings, supabase_monthly_usd: Number(event.target.value) })} /></label>}
           <label>Google Routes SKU<select value={settings.google_route_sku} onChange={(event) => { const sku = event.target.value as CostSettings['google_route_sku']; setSettings({ ...settings, google_route_sku: sku, google_free_monthly_elements: sku === 'enterprise' ? 1000 : sku === 'pro' ? 5000 : 10000, google_usd_per_1000: sku === 'enterprise' ? 15 : sku === 'pro' ? 10 : 5 }) }}><option value="essentials">Essentials</option><option value="pro">Pro</option><option value="enterprise">Enterprise</option></select></label>
           <label>Google free elements/month<input type="number" min="0" step="1" value={settings.google_free_monthly_elements} onChange={(event) => setSettings({ ...settings, google_free_monthly_elements: Number(event.target.value) })} /></label>
           <label>Google USD / 1,000 elements<input type="number" min="0" step="0.0001" value={settings.google_usd_per_1000} onChange={(event) => setSettings({ ...settings, google_usd_per_1000: Number(event.target.value) })} /></label>
@@ -282,6 +299,13 @@ export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: S
           <button type="submit" className="secondary-button" disabled={settingsBusy}>{settingsBusy ? 'Saving...' : 'Save cost assumptions'}</button>
         </form>
         {settingsNotice && <p role="status">{settingsNotice}</p>}
+        <div className="cost-plan-rates">
+          <strong>Supabase {settings.supabase_plan} plan: {settings.supabase_plan === 'enterprise' ? 'contract pricing' : `$${settings.supabase_monthly_usd}/month base`}</strong>
+          {databaseBytes !== null && <p>Current project database: {(databaseBytes / 1_000_000_000).toFixed(2)} GB. {settings.supabase_plan === 'enterprise' ? 'Compare with your contract.' : `Included size: ${settings.supabase_plan === 'free' ? '0.5' : '8'} GB per project.`} {settings.supabase_plan === 'free' && databaseBytes > 500_000_000 ? 'Above the Free allowance; Supabase may restrict service rather than charge an overage. ' : ''}{diskOverageRunRateUsd !== null && `Database-size overage at this instant: $${diskOverageRunRateUsd.toFixed(2)}/month run rate. `}Supabase bills using its own cycle measurements; this snapshot is not an invoice.</p>}
+          <div className="cost-rate-table-wrap"><table><thead><tr><th>Supabase service</th><th>Included</th><th>After included usage</th></tr></thead><tbody>{supabaseRates.map((item) => <tr key={item.service}><td>{item.service}</td><td>{settings.supabase_plan === 'enterprise' ? 'Contract' : settings.supabase_plan === 'free' ? item.free : item.paid}</td><td>{settings.supabase_plan === 'enterprise' ? 'Contract' : settings.supabase_plan === 'free' ? 'No paid overage; service limits may apply' : item.overage}</td></tr>)}</tbody></table></div>
+          <p>Usage is billed across your Supabase organization and billing cycle. The app cannot read authoritative egress, Auth, Edge, Realtime, storage or invoice totals from the database. This table shows published rates, not charges already incurred. Compute and optional add-ons cost extra; the base subscription is not a complete invoice.</p>
+          <a href="https://supabase.com/dashboard/org/_/usage" target="_blank" rel="noreferrer">Open Supabase organization usage</a>
+        </div>
       </details>}
       <details className="cost-monitor-details"><summary>Record a provider charge</summary>
         <p>Use an invoice or provider transaction reference once. This improves the day's cost picture; it does not move money.</p>
