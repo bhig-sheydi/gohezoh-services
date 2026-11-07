@@ -204,7 +204,7 @@ export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: S
       {snapshot.warnings.length > 0 && <div className="cost-monitor-warnings" role="alert"><strong>Needs attention</strong><ul>{snapshot.warnings.map((warning, index) => <li key={`${index}:${warning}`}>{warning}</li>)}</ul></div>}
       {snapshot.data_gaps.length > 0 && <div className="cost-monitor-gaps"><strong>What is still missing</strong><ul>{snapshot.data_gaps.map((gap, index) => <li key={`${index}:${gap}`}>{gap}</li>)}</ul></div>}
       <details className="cost-monitor-details"><summary>How this allowance is calculated</summary>
-        <p>Only collected charges from completed paid rides and retained cancellation fees count here. Unpaid bookings do not fund operating costs.</p>
+        <p>Only collected charges from completed paid rides and retained cancellation fees count here. Unpaid bookings do not fund operating costs. A provider charge may fall on a different day from its delivery, so this daily view is an attention signal rather than exact per-job profit.</p>
         <dl>
           <div><dt>Completed paid rides</dt><dd>{number(snapshot.completed_paid_jobs)} | {money(snapshot.completed_revenue_ngn)}</dd></div>
           <div><dt>Retained cancellation fees</dt><dd>{money(snapshot.cancelled_retained_revenue_ngn)}</dd></div>
