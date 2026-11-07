@@ -202,7 +202,7 @@ export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: S
       </div>
       <p className="cost-monitor-quota">Google route elements reserved: <strong>{number(snapshot.google_elements_today)} of {number(snapshot.google_elements_daily_limit)} default</strong> today. This separate emergency ceiling can still pause new route checks; it is not the margin budget. The worker limit may differ if reconfigured.</p>
       {snapshot.warnings.length > 0 && <div className="cost-monitor-warnings" role="alert"><strong>Needs attention</strong><ul>{snapshot.warnings.map((warning, index) => <li key={`${index}:${warning}`}>{warning}</li>)}</ul></div>}
-      {snapshot.data_gaps.length > 0 && <div className="cost-monitor-gaps"><strong>What is still missing</strong><ul>{snapshot.data_gaps.map((gap, index) => <li key={`${index}:${gap}`}>{gap}</li>)}</ul></div>}
+      {snapshot.data_gaps.length > 0 && <details className="cost-monitor-gaps"><summary>Cost data not connected yet</summary><p>Provider bills are not imported automatically. The amount above includes only charges entered here; it is not today's total bill.</p><ul>{snapshot.data_gaps.map((gap, index) => <li key={`${index}:${gap}`}>{gap}</li>)}</ul></details>}
       <details className="cost-monitor-details"><summary>How this allowance is calculated</summary>
         <p>Only collected charges from completed paid rides and retained cancellation fees count here. Unpaid bookings do not fund operating costs. A provider charge may fall on a different day from its delivery, so this daily view is an attention signal rather than exact per-job profit.</p>
         <dl>

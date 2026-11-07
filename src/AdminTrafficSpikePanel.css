@@ -51,6 +51,7 @@
 .cost-monitor-warnings,.cost-monitor-gaps { padding:12px 14px; border:1px solid #d6a55e; border-radius:11px; color:#68420b; background:#fff7e8; font-size:12px; line-height:1.5; }
 .cost-monitor-warnings { border-color:#d4756b; color:#7b211a; background:#fff0ec; }
 .cost-monitor-warnings strong,.cost-monitor-gaps strong { font-size:13px; }.cost-monitor-warnings ul,.cost-monitor-gaps ul { margin:6px 0 0; padding-left:19px; }
+.cost-monitor-gaps summary { cursor:pointer; font-size:13px; font-weight:750; }.cost-monitor-gaps p { margin:8px 0; }.cost-monitor-gaps summary:focus-visible { outline:2px solid #779138; outline-offset:2px; }
 .cost-monitor-details { padding:0 14px; border:1px solid var(--line,#dfe8dc); border-radius:11px; background:var(--paper,#f4f6ef); }
 .cost-monitor-details summary { padding:13px 0; cursor:pointer; font-size:13px; font-weight:750; }.cost-monitor-details[open] summary { border-bottom:1px solid var(--line,#dfe8dc); }
 .cost-monitor-details p { margin:12px 0; color:var(--muted); font-size:12px; line-height:1.5; }.cost-monitor-details h4 { margin:17px 0 8px; font-size:13px; }
