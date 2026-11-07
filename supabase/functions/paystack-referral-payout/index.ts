@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { availableBalanceNgn, createRecipient, initiateTransfer, listBanks, resolveAccount, transferMatches, verifyTransfer } from '../_shared/paystack-payout.ts'
+import { availableBalanceNgn, createRecipient, initiateTransfer, listBanks, paystackTransferCharges, resolveAccount, transferMatches, verifyTransfer, warnPaystackFeeMismatch } from '../_shared/paystack-payout.ts'
 import { isUuid } from '../_shared/uuid.ts'
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' }
@@ -26,6 +26,19 @@ Deno.serve(async (request) => {
       if (error) return json({ error: error.message }, 403)
       return json({ ...data, testMode: secret.startsWith('sk_test_') })
     }
+    if (body.action === 'quote') {
+      const { data, error } = await client.rpc('my_referral_payout_state')
+      if (error) return json({ error: error.message }, 403)
+      const availableNgn = Math.floor(Number(data.available_ngn))
+      if (!Number.isSafeInteger(availableNgn) || availableNgn < 0) throw new Error('Invalid referral earnings balance')
+      if (availableNgn < 60) return json({ availableNgn, netAmountNgn: 0, transferFeeNgn: 0,
+        stampDutyNgn: 0, grossDebitNgn: 0, remainderNgn: availableNgn, testMode: secret.startsWith('sk_test_') })
+      const { data: quote, error: quoteError } = await client.rpc('quote_paystack_withdrawal', { p_gross_limit_ngn: availableNgn })
+      if (quoteError) throw quoteError
+      return json({ availableNgn, netAmountNgn: Number(quote.net_amount_ngn), transferFeeNgn: Number(quote.transfer_fee_ngn),
+        stampDutyNgn: Number(quote.stamp_duty_ngn), grossDebitNgn: Number(quote.gross_amount_ngn),
+        remainderNgn: Number(quote.remainder_ngn), testMode: secret.startsWith('sk_test_') })
+    }
     if (body.action === 'resolve' || body.action === 'save-account') {
       if (!/^\d{3,8}$/.test(body.bankCode ?? '') || !/^\d{10}$/.test(body.accountNumber ?? '')) return json({ error: 'Choose a bank and enter a ten-digit account number' }, 400)
       const { error: limitError } = await admin.rpc('authorize_referral_bank_check', { p_user: user.id })
@@ -48,7 +61,10 @@ Deno.serve(async (request) => {
       const { data: existing, error: lookupError } = await admin.from('customer_referral_withdrawals').select('id')
         .eq('user_id', user.id).eq('idempotency_key', body.idempotencyKey).maybeSingle()
       if (lookupError) throw lookupError
-      if (!existing && await availableBalanceNgn(secret) < Number(body.amountNgn))
+      let charges: ReturnType<typeof paystackTransferCharges>
+      try { charges = paystackTransferCharges(Number(body.amountNgn)) }
+      catch (error) { return json({ error: (error as Error).message }, 400) }
+      if (!existing && await availableBalanceNgn(secret) < charges.totalDebitNgn)
         return json({ error: 'Withdrawal is waiting for funds to reach the Paystack payout balance' }, 409)
       const { data: reserved, error: reserveError } = await client.rpc('request_referral_withdrawal', {
         p_amount_ngn: body.amountNgn, p_idempotency_key: body.idempotencyKey })
@@ -56,23 +72,29 @@ Deno.serve(async (request) => {
       const id = reserved.withdrawal_id as string
       const { data: claim, error: claimError } = await admin.rpc('claim_referral_transfer', { p_id: id })
       if (claimError) throw claimError
+      let resultStatus = String(claim.status)
       if (claim.status === 'reserved') {
         try {
           const recipient = await createRecipient(claim.bank_code, claim.account_number, claim.account_name, secret)
-          const transfer = await initiateTransfer(recipient, Number(claim.amount_ngn), claim.reference, secret)
+          const transfer = await initiateTransfer(recipient, Number(claim.transfer_amount_ngn), claim.reference, secret)
           const { error } = await admin.rpc('finish_referral_transfer', { p_id: id, p_provider_id: transfer.id,
-            p_reference: claim.reference, p_status: 'queued', p_amount_ngn: claim.amount_ngn,
+            p_reference: claim.reference, p_status: 'queued', p_amount_ngn: claim.transfer_amount_ngn,
             p_bank_code: claim.bank_code, p_account_number: claim.account_number })
           if (error) throw error
+          resultStatus = 'queued'
         } catch (error) {
           console.error('Uncertain Paystack referral transfer initiation', error)
           const { error: unknownError } = await admin.rpc('finish_referral_transfer', { p_id: id, p_provider_id: null,
-            p_reference: claim.reference, p_status: 'unknown', p_amount_ngn: claim.amount_ngn,
+            p_reference: claim.reference, p_status: 'unknown', p_amount_ngn: claim.transfer_amount_ngn,
             p_bank_code: claim.bank_code, p_account_number: claim.account_number })
           if (unknownError) throw unknownError
+          resultStatus = 'unknown'
         }
       }
-      return json({ withdrawalId: id, status: claim.status === 'reserved' ? 'queued' : claim.status, testMode: secret.startsWith('sk_test_') })
+      return json({ withdrawalId: id, status: resultStatus,
+        amountNgn: Number(claim.transfer_amount_ngn), transferFeeNgn: Number(claim.transfer_fee_ngn),
+        stampDutyNgn: Number(claim.stamp_duty_ngn), grossDebitNgn: Number(claim.amount_ngn),
+        testMode: secret.startsWith('sk_test_') })
     }
     if (body.action === 'status') {
       if (!isUuid(body.withdrawalId)) return json({ error: 'Invalid withdrawal' }, 400)
@@ -80,16 +102,21 @@ Deno.serve(async (request) => {
       if (listError || !mine?.withdrawals?.some((row: { id: string }) => row.id === body.withdrawalId)) return json({ error: 'Withdrawal not found' }, 404)
       const { data: claim, error: claimError } = await admin.rpc('claim_referral_transfer', { p_id: body.withdrawalId })
       if (claimError) throw claimError
-      if (['successful', 'failed', 'reserved'].includes(claim.status)) return json({ status: claim.status })
+      if (['successful', 'failed', 'reserved'].includes(claim.status)) return json({ status: claim.status,
+        amountNgn: Number(claim.transfer_amount_ngn), transferFeeNgn: Number(claim.transfer_fee_ngn),
+        stampDutyNgn: Number(claim.stamp_duty_ngn), grossDebitNgn: Number(claim.amount_ngn) })
       const verified = await verifyTransfer(claim.reference, secret)
-      if (!transferMatches(verified, { reference: claim.reference, amount_ngn: Number(claim.amount_ngn),
+      if (!transferMatches(verified, { reference: claim.reference, amount_ngn: Number(claim.transfer_amount_ngn),
         bank_code: claim.bank_code, account_number: claim.account_number })) throw new Error('Paystack transfer mismatch')
+      warnPaystackFeeMismatch(verified, Number(claim.transfer_fee_ngn))
       const terminal = verified.status === 'success' ? 'successful' : ['failed', 'reversed'].includes(verified.status) ? 'failed' : 'queued'
       const { error } = await admin.rpc('finish_referral_transfer', { p_id: body.withdrawalId, p_provider_id: verified.id,
-        p_reference: claim.reference, p_status: terminal, p_amount_ngn: claim.amount_ngn,
+        p_reference: claim.reference, p_status: terminal, p_amount_ngn: claim.transfer_amount_ngn,
         p_bank_code: claim.bank_code, p_account_number: claim.account_number })
       if (error) throw error
-      return json({ status: terminal })
+      return json({ status: terminal, amountNgn: Number(claim.transfer_amount_ngn),
+        transferFeeNgn: Number(claim.transfer_fee_ngn), stampDutyNgn: Number(claim.stamp_duty_ngn),
+        grossDebitNgn: Number(claim.amount_ngn) })
     }
     return json({ error: 'Invalid action' }, 400)
   } catch (error) {

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { getSupabaseClient } from './lib/supabase'
+import { parseWithdrawalQuote, type WithdrawalQuote } from './lib/withdrawalQuote'
+import WithdrawalFeePreview from './WithdrawalFeePreview'
 import './partner-company-welcome.css'
 
 type Company = { partner_id: string; partner_name: string; ceo_name: string; logo_path: string | null; earnings_ngn: number }
@@ -46,6 +48,9 @@ export default function PartnerCompanyWelcome({ supabase, onError, onNotice, sho
   const [resolvedAccount, setResolvedAccount] = useState<ResolvedAccount | null>(null)
   const [accountBusy, setAccountBusy] = useState(false)
   const [confirmingWithdrawal, setConfirmingWithdrawal] = useState(false)
+  const [withdrawQuote, setWithdrawQuote] = useState<WithdrawalQuote | null>(null)
+  const [quotingWithdrawal, setQuotingWithdrawal] = useState(false)
+  const [chargesAccepted, setChargesAccepted] = useState(false)
   const [withdrawal, setWithdrawal] = useState<Withdrawal | null>(null)
   const [testMode, setTestMode] = useState(false)
   const [verificationTestMode, setVerificationTestMode] = useState(false)
@@ -124,19 +129,39 @@ export default function PartnerCompanyWelcome({ supabase, onError, onNotice, sho
     setAccountBusy(false)
   }
 
+  async function openWithdrawalPreview() {
+    if (!company || !account || !payables || quotingWithdrawal || withdrawing) return
+    const amountNgn = Math.floor(Number(payables.available_ngn))
+    if (amountNgn <= 0) return
+    setQuotingWithdrawal(true)
+    setWithdrawQuote(null)
+    setChargesAccepted(false)
+    const { data, error } = await supabase.functions.invoke('paystack-payout', { body: { action: 'quote', partnerId: company.partner_id, amountNgn } })
+    if (error) onError(await payoutErrorMessage(error))
+    else {
+      const quote = parseWithdrawalQuote(data, amountNgn)
+      if (!quote) onError('Could not calculate the bank charges. Please try again.')
+      else { setWithdrawQuote(quote); setConfirmingWithdrawal(true) }
+    }
+    setQuotingWithdrawal(false)
+  }
+
   async function requestWithdrawal() {
-    if (!company || !account || !payables || withdrawing || Number(payables.available_ngn) <= 0) return
+    if (!company || !account || !payables || !withdrawQuote || !chargesAccepted || withdrawing
+      || withdrawQuote.grossDebitNgn + withdrawQuote.remainderNgn !== Math.floor(Number(payables.available_ngn))) return
     setWithdrawing(true)
     const idempotencyKey = withdrawalKey.current ?? crypto.randomUUID()
     withdrawalKey.current = idempotencyKey
     const { data, error } = await supabase.functions.invoke('paystack-payout', { body: {
-      action: 'withdraw', partnerId: company.partner_id, amountNgn: Math.floor(Number(payables.available_ngn)), idempotencyKey,
+      action: 'withdraw', partnerId: company.partner_id, amountNgn: withdrawQuote.netAmountNgn, idempotencyKey,
     } })
     if (error) onError(await payoutErrorMessage(error))
     else if (data?.withdrawalId) {
       setWithdrawal(data as Withdrawal)
       if (data?.testMode) setTestMode(true)
       setConfirmingWithdrawal(false)
+      setWithdrawQuote(null)
+      setChargesAccepted(false)
       withdrawalKey.current = null
       onNotice('Withdrawal submitted. Check its status below.')
       await refreshPayables(company.partner_id)
@@ -210,9 +235,9 @@ export default function PartnerCompanyWelcome({ supabase, onError, onNotice, sho
           {account ? <><span>Verified payout account</span><strong>{account.accountName}</strong><small>{account.bankName} ·•••• {account.accountLast4}</small></> : <small>Add a bank account before withdrawing.</small>}
           {!confirmingWithdrawal && <button type="button" className="secondary-button" onClick={() => void openAccountEditor()}>{account ? 'Change bank account' : 'Add bank account'}</button>}
         </div>
-        {!confirmingWithdrawal ? <button type="button" className="primary-button" disabled={withdrawing || !account || Number(payables.available_ngn) < 1 || (testMode && !verificationTestMode)} onClick={() => setConfirmingWithdrawal(true)}>Withdraw</button> : <div className="partner-payout-confirm" role="group" aria-label="Confirm withdrawal"><p>Send {formatNaira(Math.floor(Number(payables.available_ngn)))} to {account?.accountName} at {account?.bankName} ending {account?.accountLast4}?</p><button type="button" className="primary-button" disabled={withdrawing} onClick={() => void requestWithdrawal()}>{withdrawing ? 'Submitting...' : 'Confirm withdrawal'}</button><button type="button" className="secondary-button" disabled={withdrawing} onClick={() => setConfirmingWithdrawal(false)}>Cancel</button></div>}
+        {!confirmingWithdrawal ? <><small>Bank transfer charges will be deducted from your earnings. You will see the exact amount before confirming.</small><button type="button" className="primary-button" disabled={withdrawing || quotingWithdrawal || !account || Number(payables.available_ngn) < 1 || (testMode && !verificationTestMode)} onClick={() => void openWithdrawalPreview()}>{quotingWithdrawal ? 'Calculating charges...' : 'Withdraw'}</button></> : <div className="partner-payout-confirm" role="group" aria-label="Confirm withdrawal"><p>Send to {account?.accountName} at {account?.bankName} ending {account?.accountLast4}</p>{withdrawQuote && <WithdrawalFeePreview quote={withdrawQuote} />}<label className="withdrawal-charges-ack"><input type="checkbox" checked={chargesAccepted} onChange={(event) => setChargesAccepted(event.target.checked)} disabled={withdrawing} /> I understand these charges will be deducted from my earnings.</label><button type="button" className="primary-button" disabled={withdrawing || !chargesAccepted || !withdrawQuote || withdrawQuote.grossDebitNgn + withdrawQuote.remainderNgn !== Math.floor(Number(payables.available_ngn))} onClick={() => void requestWithdrawal()}>{withdrawing ? 'Submitting...' : 'Confirm withdrawal'}</button><button type="button" className="secondary-button" disabled={withdrawing} onClick={() => { setConfirmingWithdrawal(false); setWithdrawQuote(null); setChargesAccepted(false) }}>Cancel</button></div>}
         {testMode && !verificationTestMode && <small>Bank verification is available. Withdrawals remain off until live transfers are ready.</small>}
-        {withdrawal && <div className="partner-payout-status" role="status"><span>Latest withdrawal</span><strong>{formatWithdrawalStatus(withdrawal.status)}</strong><small>{formatNaira(withdrawal.amountNgn)}{withdrawal.transferReference ? ` · ${withdrawal.transferReference}` : ''}</small>{!['successful','failed'].includes(withdrawal.status) && <button type="button" className="secondary-button" onClick={() => void checkWithdrawal()}>Check status</button>}</div>}
+        {withdrawal && <div className="partner-payout-status" role="status"><span>Latest withdrawal</span><strong>{formatWithdrawalStatus(withdrawal.status)}</strong><small>To bank: {formatNaira(withdrawal.amountNgn)}{withdrawal.transferReference ? ` · ${withdrawal.transferReference}` : ''}</small>{!['successful','failed'].includes(withdrawal.status) && <button type="button" className="secondary-button" onClick={() => void checkWithdrawal()}>Check status</button>}</div>}
         <small>Paid delivery earnings become withdrawable after the recipient's code or booking customer's confirmation completes delivery.</small>
       </div>}
     </div>}

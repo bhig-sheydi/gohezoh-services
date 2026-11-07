@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { availableBalanceNgn, createRecipient, initiateTransfer, listBanks, resolveAccount, transferMatches, verifyTransfer, PaystackApiError, type Bank, type Transfer } from '../_shared/paystack-payout.ts'
+import { availableBalanceNgn, createRecipient, initiateTransfer, listBanks, paystackTransferCharges, resolveAccount, transferMatches, verifyTransfer, warnPaystackFeeMismatch, PaystackApiError, type Bank, type Transfer } from '../_shared/paystack-payout.ts'
 import { findNigerianTransferByReference, getNigerianTransfer, transferMatchesReservation } from '../_shared/flutterwave-payout.ts'
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -10,7 +10,8 @@ const uuid = (value: unknown): value is string => typeof value === 'string'
 const bankCode = (value: unknown): value is string => typeof value === 'string' && /^\d{3,8}$/.test(value)
 const accountNumber = (value: unknown): value is string => typeof value === 'string' && /^\d{10}$/.test(value)
 type Attempt = { status: string; withdrawal_id: string; reference: string; provider_transfer_id?: number | null;
-  amount_ngn: number; currency: string; bank_code: string; account_number: string; account_name: string }
+  amount_ngn: number; transfer_amount_ngn: number; transfer_fee_ngn: number; stamp_duty_ngn: number;
+  currency: string; bank_code: string; account_number: string; account_name: string }
 type Body = { action?: string; partnerId?: string; bankCode?: string; accountNumber?: string; accountName?: string;
   amountNgn?: number; idempotencyKey?: string; withdrawalId?: string }
 
@@ -53,7 +54,9 @@ async function reconcile(admin: SupabaseClient, withdrawalId: string, secret: st
   if (attempt.provider_transfer_id) transfer = await verifyTransfer(attempt.reference.toLowerCase(), secret)
   else transfer = await verifyTransfer(attempt.reference.toLowerCase(), secret).catch((error) => { if (error instanceof PaystackApiError && error.status === 404) return null; throw error })
   if (!transfer) return attempt.status
-  if (!transferMatches(transfer, { ...attempt, reference: attempt.reference.toLowerCase() })) throw new Error('Paystack transfer does not match the reserved payout')
+  if (!transferMatches(transfer, { ...attempt, amount_ngn: source?.provider === 'paystack' ? attempt.transfer_amount_ngn : attempt.amount_ngn,
+    reference: attempt.reference.toLowerCase() })) throw new Error('Paystack transfer does not match the reserved payout')
+  warnPaystackFeeMismatch(transfer, Number(attempt.transfer_fee_ngn))
   if (['success', 'failed', 'reversed'].includes(transfer.status)) {
     const { data, error: finishError } = await admin.rpc('finish_partner_withdrawal_transfer', {
       p_withdrawal_id: withdrawalId, p_provider_transfer_id: transfer.id,
@@ -114,6 +117,21 @@ Deno.serve(async (request) => {
         verifiedAt: data.verified_at,
       } : null, testMode, verificationTestMode })
     }
+    if (body.action === 'quote') {
+      const { data, error } = await userClient.rpc('get_my_partner_payables')
+      if (error) throw error
+      const row = (data as Array<{ partner_id: string; available_ngn: number }> | null)?.find((item) => item.partner_id === partnerId)
+      if (!row) return json({ error: 'Company earnings are unavailable' }, 403)
+      const availableNgn = Math.floor(Number(row.available_ngn))
+      if (!Number.isSafeInteger(availableNgn) || availableNgn < 0) throw new Error('Invalid company earnings balance')
+      if (availableNgn < 60) return json({ availableNgn, netAmountNgn: 0, transferFeeNgn: 0,
+        stampDutyNgn: 0, grossDebitNgn: 0, remainderNgn: availableNgn, testMode })
+      const { data: quote, error: quoteError } = await userClient.rpc('quote_paystack_withdrawal', { p_gross_limit_ngn: availableNgn })
+      if (quoteError) throw quoteError
+      return json({ availableNgn, netAmountNgn: Number(quote.net_amount_ngn), transferFeeNgn: Number(quote.transfer_fee_ngn),
+        stampDutyNgn: Number(quote.stamp_duty_ngn), grossDebitNgn: Number(quote.gross_amount_ngn),
+        remainderNgn: Number(quote.remainder_ngn), testMode })
+    }
     if (body.action === 'resolve' || body.action === 'save-account') {
       if (!bankCode(body.bankCode) || !accountNumber(body.accountNumber))
         return json({ error: 'Choose a bank and enter a ten-digit account number' }, 400)
@@ -146,7 +164,10 @@ Deno.serve(async (request) => {
       const { data: existing, error: lookupError } = await admin.from('partner_withdrawals').select('id')
         .eq('partner_id', partnerId).eq('idempotency_key', body.idempotencyKey).maybeSingle()
       if (lookupError) throw lookupError
-      if (!existing && await availableBalanceNgn(secret) < Number(body.amountNgn))
+      let charges: ReturnType<typeof paystackTransferCharges>
+      try { charges = paystackTransferCharges(Number(body.amountNgn)) }
+      catch (error) { return json({ error: (error as Error).message }, 400) }
+      if (!existing && await availableBalanceNgn(secret) < charges.totalDebitNgn)
         return json({ error: 'Withdrawal is waiting for funds to reach the Paystack payout balance' }, 409)
       const { data: reserved, error: reserveError } = await userClient.rpc('request_partner_withdrawal', {
         p_partner_id: partnerId, p_amount_ngn: body.amountNgn, p_idempotency_key: body.idempotencyKey,
@@ -160,7 +181,7 @@ Deno.serve(async (request) => {
         let providerReference: string | null = null
         try {
           const recipient = await createRecipient(claim.bank_code, claim.account_number, claim.account_name, secret)
-          const transfer = await initiateTransfer(recipient, Number(claim.amount_ngn), String(claim.reference).toLowerCase(), secret)
+          const transfer = await initiateTransfer(recipient, Number(claim.transfer_amount_ngn), String(claim.reference).toLowerCase(), secret)
           transferId = transfer.id
           providerReference = transfer.reference
           const { error: recordError } = await admin.rpc('record_partner_withdrawal_transfer_attempt', {
@@ -175,7 +196,9 @@ Deno.serve(async (request) => {
             p_provider_reference: providerReference,
           })
           if (unknownError) console.error('Could not record uncertain Paystack payout outcome', unknownError)
-          return json({ withdrawalId, status: 'unknown', amountNgn: Number(reserved.amount_ngn), testMode })
+          return json({ withdrawalId, status: 'unknown', amountNgn: Number(claim.transfer_amount_ngn),
+            transferFeeNgn: Number(claim.transfer_fee_ngn), stampDutyNgn: Number(claim.stamp_duty_ngn),
+            grossDebitNgn: Number(claim.amount_ngn), testMode })
         }
       }
       let status = String(claim.status)
@@ -183,18 +206,22 @@ Deno.serve(async (request) => {
         console.error('Paystack payout verification unavailable', error)
         status = claim.account_number ? 'queued' : status
       }
-      return json({ withdrawalId, status, amountNgn: Number(reserved.amount_ngn), testMode })
+      return json({ withdrawalId, status, amountNgn: Number(claim.transfer_amount_ngn),
+        transferFeeNgn: Number(claim.transfer_fee_ngn), stampDutyNgn: Number(claim.stamp_duty_ngn),
+        grossDebitNgn: Number(claim.amount_ngn), testMode })
     }
     if (body.action === 'status') {
       if (!uuid(body.withdrawalId)) return json({ error: 'Choose a withdrawal to check' }, 400)
-      const { data: mine, error: listError } = await admin.from('partner_withdrawals').select('id,status,amount_ngn')
+      const { data: mine, error: listError } = await admin.from('partner_withdrawals').select('id,status,amount_ngn,transfer_amount_ngn,transfer_fee_ngn,stamp_duty_ngn')
         .eq('id', body.withdrawalId).eq('partner_id', partnerId).maybeSingle()
       if (listError || !mine)
         return json({ error: 'Withdrawal not found for this company' }, 404)
       let status: string
       try { status = await reconcile(admin, body.withdrawalId, secret) }
       catch (error) { console.error('Paystack transfer status unavailable', error); status = mine.status ?? 'unknown' }
-      return json({ withdrawalId: body.withdrawalId, status, amountNgn: Number(mine.amount_ngn), testMode })
+      return json({ withdrawalId: body.withdrawalId, status, amountNgn: Number(mine.transfer_amount_ngn),
+        transferFeeNgn: Number(mine.transfer_fee_ngn), stampDutyNgn: Number(mine.stamp_duty_ngn),
+        grossDebitNgn: Number(mine.amount_ngn), testMode })
     }
     return json({ error: 'Invalid payout action' }, 400)
   } catch (error) {

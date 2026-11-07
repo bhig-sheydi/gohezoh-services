@@ -5,6 +5,37 @@ const headers = (secret: string) => ({ Authorization: `Bearer ${secret}`, 'Conte
 export class PaystackApiError extends Error {
   constructor(message: string, readonly status: number) { super(message); this.name = 'PaystackApiError' }
 }
+
+// Paystack charges the merchant balance for the transfer amount plus these NGN
+// charges. The recipient's bank receives `netNgn`; the withdrawer's earnings
+// must be reserved for `totalDebitNgn` before the transfer is initiated.
+export function paystackTransferCharges(netNgn: number) {
+  if (!Number.isSafeInteger(netNgn) || netNgn < 50 || netNgn > 10_000_000)
+    throw new Error('Paystack transfer amount must be between ₦50 and ₦10,000,000')
+  const transferFeeNgn = netNgn <= 5_000 ? 10 : netNgn <= 50_000 ? 25 : 50
+  const stampDutyNgn = netNgn >= 10_000 ? 50 : 0
+  return { netNgn, transferFeeNgn, stampDutyNgn, totalDebitNgn: netNgn + transferFeeNgn + stampDutyNgn }
+}
+
+// Return the largest amount that can arrive in the bank after all charges are
+// covered by the supplied earnings balance. Check each fee band separately:
+// the charge jumps at ₦5,001, ₦10,000 and ₦50,001.
+export function maxPaystackNetFromBalance(balanceNgn: number): number {
+  if (!Number.isFinite(balanceNgn) || balanceNgn < 60) return 0
+  const whole = Math.floor(balanceNgn)
+  const bands = [
+    { min: 50, max: 5_000, charge: 10 },
+    { min: 5_001, max: 9_999, charge: 25 },
+    { min: 10_000, max: 50_000, charge: 75 },
+    { min: 50_001, max: 10_000_000, charge: 100 },
+  ]
+  let net = 0
+  for (const band of bands) {
+    const candidate = Math.min(band.max, whole - band.charge)
+    if (candidate >= band.min) net = Math.max(net, candidate)
+  }
+  return net
+}
 async function call(path: string, secret: string, init: RequestInit = {}, fetcher: Fetcher = fetch): Promise<unknown> {
   if (!secret) throw new Error('Paystack payout is not configured')
   const response = await fetcher(`${api}${path}`, { ...init, headers: headers(secret), signal: AbortSignal.timeout(10000) })
@@ -54,20 +85,33 @@ export async function createRecipient(bankCode: string, accountNumber: string, a
     throw new Error('Paystack recipient does not match verified bank account')
   return String(data.recipient_code)
 }
-export type Transfer = { id: number; reference: string; status: string; amountNgn: number; currency: string; bankCode: string; accountNumber: string }
+export type Transfer = { id: number; reference: string; status: string; amountNgn: number; currency: string;
+  bankCode: string; accountNumber: string; feeChargedNgn: number | null }
 function parseTransfer(value: unknown): Transfer {
   const row = value as Record<string, unknown>
   const recipient = row?.recipient as Record<string, unknown> | undefined
   const details = recipient?.details as Record<string, unknown> | undefined
   const transfer = { id: Number(row?.id), reference: String(row?.reference ?? ''), status: String(row?.status ?? '').toLowerCase(),
     amountNgn: Number(row?.amount) / 100, currency: String(row?.currency ?? ''), bankCode: String(details?.bank_code ?? ''),
-    accountNumber: String(details?.account_number ?? '') }
+    accountNumber: String(details?.account_number ?? ''),
+    feeChargedNgn: Number.isSafeInteger(row?.fee_charged) && Number(row.fee_charged) >= 0
+      ? Number(row.fee_charged) / 100 : null }
   if (!Number.isSafeInteger(transfer.id) || transfer.id <= 0 || !transfer.reference || !Number.isSafeInteger(transfer.amountNgn)
     || transfer.amountNgn <= 0 || transfer.currency !== 'NGN') throw new Error('Invalid Paystack transfer')
   return transfer
 }
+// Paystack's documented `fee_charged` can be zero in test mode and does not
+// reliably include the separately billed stamp duty. A mismatch is an audit
+// event; it must never increase the amount already accepted by the withdrawer.
+export function warnPaystackFeeMismatch(transfer: Transfer, quotedFeeNgn: number): void {
+  if (transfer.status !== 'success' || transfer.feeChargedNgn === null || transfer.feeChargedNgn === 0) return
+  if (transfer.feeChargedNgn !== quotedFeeNgn)
+    console.warn('Paystack transfer fee differs from withdrawal quote; reconcile the difference', {
+      reference: transfer.reference, quotedFeeNgn, reportedFeeNgn: transfer.feeChargedNgn,
+    })
+}
 export async function initiateTransfer(recipient: string, amountNgn: number, reference: string, secret: string, fetcher: Fetcher = fetch) {
-  if (!/^RCP_[A-Za-z0-9]+$/.test(recipient) || !Number.isSafeInteger(amountNgn) || amountNgn <= 0
+  if (!/^RCP_[A-Za-z0-9]+$/.test(recipient) || !Number.isSafeInteger(amountNgn) || amountNgn < 50 || amountNgn > 10_000_000
     || !/^[a-z0-9_-]{16,50}$/.test(reference)) throw new Error('Invalid transfer request')
   const data = await call('/transfer', secret, { method: 'POST', body: JSON.stringify({
     source: 'balance', amount: amountNgn * 100, recipient, reference, currency: 'NGN', reason: 'Kwik-Parsel earnings',

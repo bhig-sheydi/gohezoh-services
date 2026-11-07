@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { createNigerianTransfer, findNigerianTransferByReference, FlutterwaveApiError, getNigerianTransfer,
+import { findNigerianTransferByReference, FlutterwaveApiError, getNigerianTransfer,
   listNigerianBanks, resolveNigerianAccount, transferMatchesReservation, type Bank } from '../_shared/flutterwave-payout.ts'
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -23,11 +23,14 @@ async function banks(secret: string) {
 }
 
 async function reconcile(admin: ReturnType<typeof createClient>, withdrawalId: string, secret: string) {
+  const { data: source, error: sourceError } = await admin.from('partner_withdrawals').select('provider').eq('id', withdrawalId).maybeSingle()
+  if (sourceError) throw sourceError
+  if (source?.provider !== 'flutterwave') throw new Error('Not a legacy Flutterwave transfer')
   const { data: raw, error } = await admin.rpc('get_partner_withdrawal_transfer_attempt', { p_withdrawal_id: withdrawalId })
   if (error) throw error
   const attempt = raw as Attempt
   if (['successful', 'failed', 'manual'].includes(attempt.status)) return attempt.status
-  let transfer: Transfer | null = null
+  let transfer: Awaited<ReturnType<typeof getNigerianTransfer>> | null = null
   if (attempt.provider_transfer_id) transfer = await getNigerianTransfer(Number(attempt.provider_transfer_id), secret)
   else transfer = await findNigerianTransferByReference(attempt.reference, secret)
   if (!transfer) return attempt.status
@@ -116,55 +119,15 @@ Deno.serve(async (request) => {
         accountLast4: data.account_last4, verifiedAt: new Date().toISOString() }, testMode, verificationTestMode })
     }
     if (body.action === 'withdraw') {
-      if (testMode && !verificationTestMode)
-        return json({ error: 'Bank verification is available, but withdrawals are disabled until live transfers are configured.' }, 503)
-      if (!testMode && Deno.env.get('FLUTTERWAVE_LIVE_PAYOUTS_ENABLED') !== 'true')
-        return json({ error: 'Live withdrawals are not enabled yet. Contact support.' }, 503)
-      if (!Number.isSafeInteger(body.amountNgn) || Number(body.amountNgn) <= 0 || !uuid(body.idempotencyKey))
-        return json({ error: 'Enter a valid whole-naira withdrawal amount' }, 400)
-      const { data: reserved, error: reserveError } = await userClient.rpc('request_partner_withdrawal', {
-        p_partner_id: partnerId, p_amount_ngn: body.amountNgn, p_idempotency_key: body.idempotencyKey,
-      })
-      if (reserveError) return json({ error: reserveError.message }, 400)
-      const withdrawalId = String(reserved.withdrawal_id)
-      const { data: claim, error: claimError } = await admin.rpc('claim_partner_withdrawal_transfer', { p_withdrawal_id: withdrawalId })
-      if (claimError) throw claimError
-      if (claim.account_number) {
-        let transferId: number | null = null
-        let providerReference: string | null = null
-        try {
-          const transfer = await createNigerianTransfer({ bankCode: claim.bank_code, accountNumber: claim.account_number,
-            accountName: claim.account_name, amountNgn: Number(claim.amount_ngn), reference: claim.reference, secret })
-          transferId = transfer.id
-          providerReference = transfer.reference
-          const { error: recordError } = await admin.rpc('record_partner_withdrawal_transfer_attempt', {
-            p_withdrawal_id: withdrawalId, p_provider_transfer_id: transfer.id, p_status: 'queued',
-            p_provider_reference: transfer.reference,
-          })
-          if (recordError) throw recordError
-        } catch (error) {
-          console.error('Flutterwave payout initiation outcome is uncertain', error)
-          const { error: unknownError } = await admin.rpc('record_partner_withdrawal_transfer_attempt', {
-            p_withdrawal_id: withdrawalId, p_provider_transfer_id: transferId, p_status: 'unknown',
-            p_provider_reference: providerReference,
-          })
-          if (unknownError) console.error('Could not record uncertain Flutterwave payout outcome', unknownError)
-          return json({ withdrawalId, status: 'unknown', amountNgn: Number(reserved.amount_ngn), testMode })
-        }
-      }
-      let status = String(claim.status)
-      try { status = await reconcile(admin, withdrawalId, secret) } catch (error) {
-        console.error('Flutterwave payout verification unavailable', error)
-        status = claim.account_number ? 'queued' : status
-      }
-      return json({ withdrawalId, status, amountNgn: Number(reserved.amount_ngn), testMode })
+      return json({ error: 'New company withdrawals use Paystack. This endpoint only checks older Flutterwave transfers.' }, 410)
     }
     if (body.action === 'status') {
       if (!uuid(body.withdrawalId)) return json({ error: 'Choose a withdrawal to check' }, 400)
-      const { data: mine, error: listError } = await admin.from('partner_withdrawals').select('id,status,amount_ngn')
+      const { data: mine, error: listError } = await admin.from('partner_withdrawals').select('id,status,amount_ngn,provider')
         .eq('id', body.withdrawalId).eq('partner_id', partnerId).maybeSingle()
       if (listError || !mine)
         return json({ error: 'Withdrawal not found for this company' }, 404)
+      if (mine.provider !== 'flutterwave') return json({ error: 'Use Paystack to check this withdrawal' }, 410)
       let status: string
       try { status = await reconcile(admin, body.withdrawalId, secret) }
       catch (error) { console.error('Flutterwave transfer status unavailable', error); status = mine.status ?? 'unknown' }

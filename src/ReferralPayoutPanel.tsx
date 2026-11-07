@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { parseWithdrawalQuote, type WithdrawalQuote } from './lib/withdrawalQuote'
+import WithdrawalFeePreview from './WithdrawalFeePreview'
 
 type Bank = { code: string; name: string }
 type State = { available_ngn: number; testMode?: boolean; account: null | { bank_name: string; account_name: string; account_last4: string }; withdrawals: Array<{ id: string; amount_ngn: number; status: string }> }
@@ -13,6 +15,9 @@ export default function ReferralPayoutPanel({ supabase, onError, onNotice }: { s
   const [name, setName] = useState('')
   const [editing, setEditing] = useState(false)
   const [confirming, setConfirming] = useState(false)
+  const [quote, setQuote] = useState<WithdrawalQuote | null>(null)
+  const [quoting, setQuoting] = useState(false)
+  const [chargesAccepted, setChargesAccepted] = useState(false)
   const [busy, setBusy] = useState(false)
   const [key, setKey] = useState<string | null>(null)
   const invoke = useCallback(async (body: Record<string, unknown>) => {
@@ -32,15 +37,31 @@ export default function ReferralPayoutPanel({ supabase, onError, onNotice }: { s
   async function save() {
     setBusy(true)
     const data = await invoke({ action: 'save-account', bankCode, accountNumber: number, accountName: name })
-    if (data) { setEditing(false); setName(''); setNumber(''); onNotice('Payout account verified.'); await load() }
+    if (data) { setEditing(false); setConfirming(false); setQuote(null); setName(''); setNumber(''); onNotice('Payout account verified.'); await load() }
     setBusy(false)
   }
+  async function openWithdrawalPreview() {
+    if (!state?.account || quoting || busy) return
+    const amountNgn = Math.floor(Number(state.available_ngn))
+    if (amountNgn <= 0) return
+    setQuoting(true)
+    setQuote(null)
+    setChargesAccepted(false)
+    const data = await invoke({ action: 'quote', amountNgn })
+    if (data) {
+      const next = parseWithdrawalQuote(data, amountNgn)
+      if (!next) onError('Could not calculate the bank charges. Please try again.')
+      else { setQuote(next); setConfirming(true) }
+    }
+    setQuoting(false)
+  }
   async function withdraw() {
-    const amountNgn = Math.floor(Number(state?.available_ngn ?? 0))
+    if (!state?.account || !quote || !chargesAccepted || busy
+      || quote.grossDebitNgn + quote.remainderNgn !== Math.floor(Number(state.available_ngn))) return
     const idempotencyKey = key ?? crypto.randomUUID()
     setKey(idempotencyKey); setBusy(true)
-    const data = await invoke({ action: 'withdraw', amountNgn, idempotencyKey })
-    if (data) { setKey(null); setConfirming(false); onNotice(data.testMode ? 'Test withdrawal submitted.' : 'Withdrawal submitted.'); await load() }
+    const data = await invoke({ action: 'withdraw', amountNgn: quote.netAmountNgn, idempotencyKey })
+    if (data) { setKey(null); setConfirming(false); setQuote(null); setChargesAccepted(false); onNotice(data.testMode ? 'Test withdrawal submitted.' : 'Withdrawal submitted.'); await load() }
     setBusy(false)
   }
   async function check(withdrawalId: string) { setBusy(true); await invoke({ action: 'status', withdrawalId }); await load(); setBusy(false) }
@@ -53,7 +74,7 @@ export default function ReferralPayoutPanel({ supabase, onError, onNotice }: { s
       <label className="field"><span>Account number</span><input inputMode="numeric" maxLength={10} value={number} onChange={(event) => { setNumber(event.target.value.replace(/\D/g, '').slice(0, 10)); setName('') }} /></label>
       {name && <p role="status">Verified account name: <strong>{name}</strong></p>}
       <div><button type="button" className="secondary-button" disabled={busy || !bankCode || number.length !== 10 || !!name} onClick={() => void verify()}>Verify account</button> {name && <button type="button" className="primary-button" disabled={busy} onClick={() => void save()}>Save account</button>} <button type="button" className="secondary-button" onClick={() => setEditing(false)}>Cancel</button></div></div>}
-    {state?.account && Math.floor(Number(state.available_ngn)) > 0 && !editing && (confirming ? <div><p>Withdraw {money(Math.floor(Number(state.available_ngn)))} to {state.account.account_name}?</p><button type="button" className="primary-button" disabled={busy} onClick={() => void withdraw()}>{busy ? 'Submitting…' : 'Confirm withdrawal'}</button> <button type="button" className="secondary-button" onClick={() => setConfirming(false)}>Cancel</button></div> : <button type="button" className="primary-button" onClick={() => setConfirming(true)}>Withdraw</button>)}
-    {!!state?.withdrawals?.length && <div className="commission-plan-list">{state.withdrawals.map((row) => <div key={row.id} className="commission-plan-row"><span>{money(Number(row.amount_ngn))} · {row.status}</span>{!['successful', 'failed'].includes(row.status) && <button type="button" className="secondary-button" disabled={busy} onClick={() => void check(row.id)}>Check status</button>}</div>)}</div>}
+    {state?.account && Math.floor(Number(state.available_ngn)) > 0 && !editing && (confirming ? <div className="referral-payout-confirm" role="group" aria-label="Confirm withdrawal"><p>Send to {state.account.account_name} at {state.account.bank_name} ending {state.account.account_last4}</p>{quote && <WithdrawalFeePreview quote={quote} />}<label className="withdrawal-charges-ack"><input type="checkbox" checked={chargesAccepted} onChange={(event) => setChargesAccepted(event.target.checked)} disabled={busy} /> I understand these charges will be deducted from my earnings.</label><div className="referral-payout-confirm-actions"><button type="button" className="primary-button" disabled={busy || !chargesAccepted || !quote || quote.grossDebitNgn + quote.remainderNgn !== Math.floor(Number(state.available_ngn))} onClick={() => void withdraw()}>{busy ? 'Submitting…' : 'Confirm withdrawal'}</button><button type="button" className="secondary-button" disabled={busy} onClick={() => { setConfirming(false); setQuote(null); setChargesAccepted(false) }}>Cancel</button></div></div> : <><small>Bank transfer charges will be deducted from your earnings. You will see the exact amount before confirming.</small><button type="button" className="primary-button" disabled={quoting || busy} onClick={() => void openWithdrawalPreview()}>{quoting ? 'Calculating charges...' : 'Withdraw'}</button></>)}
+    {!!state?.withdrawals?.length && <div className="commission-plan-list">{state.withdrawals.map((row) => <div key={row.id} className="commission-plan-row"><span>To bank: {money(Number(row.amount_ngn))} · {row.status}</span>{!['successful', 'failed'].includes(row.status) && <button type="button" className="secondary-button" disabled={busy} onClick={() => void check(row.id)}>Check status</button>}</div>)}</div>}
   </section>
 }

@@ -11,6 +11,7 @@ declare
   v_request_unpaid uuid := gen_random_uuid(); v_order_unpaid uuid := gen_random_uuid();
   v_job_unpaid uuid := gen_random_uuid(); v_key uuid := gen_random_uuid();
   v_first jsonb; v_retry jsonb; v_claim jsonb; v_second jsonb;
+  v_ref_first jsonb;v_ref_retry jsonb;v_ref_claim jsonb;v_ref_key uuid:=gen_random_uuid();
   v_available numeric; v_pending numeric; v_i integer;
 begin
   select id into v_service from public.services where code='SRV-0001';
@@ -87,7 +88,15 @@ begin
   if v_first->>'withdrawal_id'<>v_retry->>'withdrawal_id'
      or (select count(*) from public.partner_settlements where withdrawal_id=(v_first->>'withdrawal_id')::uuid)<>2 then
     raise exception 'Withdrawal idempotency failed'; end if;
-  if (select available_ngn from public.get_my_partner_payables() where partner_id=v_partner)<>2500 then
+  if not exists(select 1 from public.list_my_partner_withdrawals(v_partner) w
+    where w.withdrawal_id=(v_first->>'withdrawal_id')::uuid
+      and w.amount_ngn=10075 and w.transfer_amount_ngn=10000
+      and w.transfer_fee_ngn=25 and w.stamp_duty_ngn=50) then
+    raise exception 'Company withdrawal history omitted its fee breakdown'; end if;
+  if (v_first->>'amount_ngn')::numeric<>10075 or (v_first->>'transfer_amount_ngn')::numeric<>10000
+    or (v_first->>'transfer_fee_ngn')::numeric<>25 or (v_first->>'stamp_duty_ngn')::numeric<>50 then
+    raise exception 'Withdrawal fee breakdown is wrong: %',v_first; end if;
+  if (select available_ngn from public.get_my_partner_payables() where partner_id=v_partner)<>2425 then
     raise exception 'Withdrawal did not reserve the company fee'; end if;
   begin
     perform public.request_partner_withdrawal(v_partner,3000,gen_random_uuid());
@@ -133,16 +142,16 @@ begin
     raise exception 'Provider-verified transfer did not settle reserved jobs'; end if;
   perform set_config('request.jwt.claim.sub',v_manager::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_manager,'role','authenticated')::text,true);
-  v_second:=public.request_partner_withdrawal(v_partner,2500,gen_random_uuid());
+  v_second:=public.request_partner_withdrawal(v_partner,2415,gen_random_uuid());
   perform set_config('request.jwt.claims',jsonb_build_object('role','service_role')::text,true);
   v_claim:=public.claim_partner_withdrawal_transfer((v_second->>'withdrawal_id')::uuid);
   perform public.finish_partner_withdrawal_transfer((v_second->>'withdrawal_id')::uuid,12346,
-    v_claim->>'reference',v_claim->>'reference'||'_FLW1','FAILED',2500,'NGN','044','0987654321');
+    v_claim->>'reference',v_claim->>'reference'||'_FLW1','FAILED',2415,'NGN','044','0987654321');
   perform set_config('request.jwt.claim.sub',v_manager::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_manager,'role','authenticated')::text,true);
-  if (select available_ngn from public.get_my_partner_payables() where partner_id=v_partner)<>2500 then
+  if (select available_ngn from public.get_my_partner_payables() where partner_id=v_partner)<>2425 then
     raise exception 'Provider-confirmed failed transfer did not release reservation'; end if;
-  v_second:=public.request_partner_withdrawal(v_partner,2500,gen_random_uuid());
+  v_second:=public.request_partner_withdrawal(v_partner,2415,gen_random_uuid());
   perform set_config('request.jwt.claims',jsonb_build_object('role','service_role')::text,true);
   perform public.claim_partner_withdrawal_transfer((v_second->>'withdrawal_id')::uuid);
   perform public.record_partner_withdrawal_transfer_attempt((v_second->>'withdrawal_id')::uuid,
@@ -153,5 +162,45 @@ begin
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_manager,'role','authenticated')::text,true);
   if (select available_ngn from public.get_my_partner_payables() where partner_id=v_partner)<>0 then
     raise exception 'Unknown provider result released funds prematurely'; end if;
+
+  -- Referral withdrawal uses the same NET amount / GROSS debit contract.
+  perform set_config('request.jwt.claims',jsonb_build_object('role','service_role')::text,true);
+  insert into public.customer_referral_members(user_id,code,display_name)
+    values(v_customer_user,'KP'||upper(substr(replace(v_customer_user::text,'-',''),1,10)),
+      'Referral Test User');
+  insert into public.customer_referral_earnings(job_id,side,referrer_user_id,
+    eligible_charge_ngn,commission_base_ngn,earned_ngn,completed_at)
+    values(v_job,'customer',v_customer_user,10000,10000,250,now());
+  perform public.save_referral_payout_account(v_customer_user,'044','Verified Bank',
+    '1234567890','Referral Test User');
+  perform set_config('request.jwt.claim.sub',v_customer_user::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_customer_user,'role','authenticated')::text,true);
+  v_ref_first:=public.request_referral_withdrawal(240,v_ref_key);
+  v_ref_retry:=public.request_referral_withdrawal(240,v_ref_key);
+  if v_ref_first->>'withdrawal_id'<>v_ref_retry->>'withdrawal_id'
+    or (v_ref_first->>'amount_ngn')::numeric<>250
+    or (v_ref_first->>'transfer_amount_ngn')::numeric<>240
+    or (v_ref_first->>'transfer_fee_ngn')::numeric<>10
+    or (public.my_referral_payout_state()->>'available_ngn')::numeric<>0 then
+    raise exception 'Referral fee or idempotent reservation is wrong'; end if;
+  if not exists(select 1 from jsonb_array_elements(public.my_referral_payout_state()->'withdrawals') w
+    where (w->>'transfer_amount_ngn')::numeric=240
+      and (w->>'transfer_fee_ngn')::numeric=10) then
+    raise exception 'Referral withdrawal history omitted its fee breakdown'; end if;
+  begin
+    perform public.request_referral_withdrawal(239,v_ref_key);
+    raise exception 'Referral key reused for another net amount';
+  exception when check_violation then null; end;
+  perform set_config('request.jwt.claims',jsonb_build_object('role','service_role')::text,true);
+  v_ref_claim:=public.claim_referral_transfer((v_ref_first->>'withdrawal_id')::uuid);
+  if (v_ref_claim->>'transfer_amount_ngn')::numeric<>240 then
+    raise exception 'Referral claim did not return net amount'; end if;
+  begin
+    perform public.finish_referral_transfer((v_ref_first->>'withdrawal_id')::uuid,5533,
+      v_ref_claim->>'reference','successful',250,'044','1234567890');
+    raise exception 'Referral provider gross amount was accepted as net';
+  exception when check_violation then null; end;
+  perform public.finish_referral_transfer((v_ref_first->>'withdrawal_id')::uuid,5533,
+    v_ref_claim->>'reference','successful',240,'044','1234567890');
 end $$;
 rollback;

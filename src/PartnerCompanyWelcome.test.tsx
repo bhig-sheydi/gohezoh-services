@@ -21,7 +21,8 @@ describe('company welcome', () => {
     const createSignedUrl = vi.fn(async () => ({ data: { signedUrl: 'https://example.test/logo' }, error: null }))
     const invoke = vi.fn(async (_name: string, args: { body: { action: string } }) => args.body.action === 'account'
       ? { data: { account: { bankName: 'Access Bank', accountLast4: '7890', accountName: 'Swift Movers', verifiedAt: '2026-10-15T00:00:00Z' } }, error: null }
-      : args.body.action === 'withdraw' ? { data: { withdrawalId: 'withdrawal-1', status: 'queued', amountNgn: 5000 }, error: null }
+      : args.body.action === 'quote' ? { data: { netAmountNgn: 4990, transferFeeNgn: 10, stampDutyNgn: 0, grossDebitNgn: 5000, remainderNgn: 0 }, error: null }
+      : args.body.action === 'withdraw' ? { data: { withdrawalId: 'withdrawal-1', status: 'queued', amountNgn: 4990 }, error: null }
       : { data: {}, error: null })
     const supabase = { rpc, functions: { invoke }, storage: { from: () => ({ upload, remove, createSignedUrl }) } } as unknown as ReturnType<typeof getSupabaseClient>
     const onError = vi.fn(), onNotice = vi.fn()
@@ -32,9 +33,14 @@ describe('company welcome', () => {
     expect(screen.getByText('Available to withdraw')).toBeInTheDocument()
     expect(screen.getByText('Paid deliveries awaiting confirmation')).toBeInTheDocument()
     await user.click(await screen.findByRole('button', { name: 'Withdraw' }))
-    expect(screen.getByText(/ending 7890/)).toBeInTheDocument()
+    expect(await screen.findByText(/ending 7890/)).toBeInTheDocument()
+    expect(screen.getByText('Earnings deducted')).toBeInTheDocument()
+    expect(screen.getByText('Paystack transfer fee')).toBeInTheDocument()
+    expect(screen.getByText('You receive at your bank')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Confirm withdrawal' })).toBeDisabled()
+    await user.click(screen.getByRole('checkbox', { name: /I understand these charges/ }))
     await user.click(screen.getByRole('button', { name: 'Confirm withdrawal' }))
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith('paystack-payout', { body: expect.objectContaining({ action: 'withdraw', partnerId: 'company-1', amountNgn: 5000 }) }))
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('paystack-payout', { body: expect.objectContaining({ action: 'withdraw', partnerId: 'company-1', amountNgn: 4990 }) }))
     expect(onNotice).toHaveBeenCalledWith('Withdrawal submitted. Check its status below.')
     expect(rpc).toHaveBeenCalledWith('my_partner_company_welcome', {
       p_day_start: new Date(2026, 9, 15).toISOString(),

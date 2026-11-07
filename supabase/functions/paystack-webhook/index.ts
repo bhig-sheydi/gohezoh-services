@@ -1,6 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { paymentMatches, verifyPaystackPayment } from '../_shared/paystack.ts'
-import { transferMatches, verifyTransfer } from '../_shared/paystack-payout.ts'
+import { transferMatches, verifyTransfer, warnPaystackFeeMismatch } from '../_shared/paystack-payout.ts'
 
 Deno.serve(async (request) => {
   if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 })
@@ -29,10 +29,11 @@ Deno.serve(async (request) => {
         if (!withdrawal) return Response.json({ received: true })
         const { data: expected, error: expectedError } = await admin.rpc('claim_referral_transfer', { p_id: withdrawal.id })
         if (expectedError) throw expectedError
-        if (!transferMatches(transfer, { reference, amount_ngn: Number(expected.amount_ngn), bank_code: expected.bank_code,
+        if (!transferMatches(transfer, { reference, amount_ngn: Number(expected.transfer_amount_ngn), bank_code: expected.bank_code,
           account_number: expected.account_number })) throw new Error('Referral transfer mismatch')
+        warnPaystackFeeMismatch(transfer, Number(expected.transfer_fee_ngn))
         const { error } = await admin.rpc('finish_referral_transfer', { p_id: withdrawal.id, p_provider_id: transfer.id,
-          p_reference: reference, p_status: status === 'SUCCESSFUL' ? 'successful' : 'failed', p_amount_ngn: expected.amount_ngn,
+          p_reference: reference, p_status: status === 'SUCCESSFUL' ? 'successful' : 'failed', p_amount_ngn: expected.transfer_amount_ngn,
           p_bank_code: expected.bank_code, p_account_number: expected.account_number })
         if (error) throw error
       } else if (reference.startsWith('kwp-payout-')) {
@@ -41,7 +42,9 @@ Deno.serve(async (request) => {
         if (!withdrawal || withdrawal.provider !== 'paystack') return Response.json({ received: true })
         const { data: expected, error: expectedError } = await admin.rpc('get_partner_withdrawal_transfer_attempt', { p_withdrawal_id: withdrawal.id })
         if (expectedError) throw expectedError
-        if (!transferMatches(transfer, { ...expected, reference })) throw new Error('Company transfer mismatch')
+        if (!transferMatches(transfer, { ...expected, amount_ngn: Number(expected.transfer_amount_ngn), reference }))
+          throw new Error('Company transfer mismatch')
+        warnPaystackFeeMismatch(transfer, Number(expected.transfer_fee_ngn))
         const { error } = await admin.rpc('finish_partner_withdrawal_transfer', { p_withdrawal_id: withdrawal.id,
           p_provider_transfer_id: transfer.id, p_reference: expected.reference, p_provider_reference: reference,
           p_status: status, p_amount_ngn: transfer.amountNgn, p_currency: transfer.currency,

@@ -1,0 +1,12 @@
+.withdrawal-fee-preview { display:grid; gap:10px; padding:14px; border:1px solid var(--line); border-radius:12px; background:var(--surface,#fff); color:var(--ink); }
+.withdrawal-fee-preview h3 { margin:0; font-size:16px; color:var(--ink); }
+.withdrawal-fee-preview dl { display:grid; gap:6px; margin:0; }
+.withdrawal-fee-preview dl > div { display:flex; align-items:baseline; justify-content:space-between; gap:12px; }
+.withdrawal-fee-preview dt { color:var(--muted); font-size:13px; }
+.withdrawal-fee-preview dd { margin:0; color:var(--ink); font-size:14px; font-weight:700; text-align:right; font-variant-numeric:tabular-nums; }
+.withdrawal-fee-preview .withdrawal-fee-net { padding-top:9px; border-top:1px solid var(--line); }
+.withdrawal-fee-preview .withdrawal-fee-net dt,.withdrawal-fee-preview .withdrawal-fee-net dd { color:var(--ink); font-size:16px; font-weight:800; }
+.withdrawal-fee-preview p { margin:0; color:var(--muted); font-size:12px; line-height:1.45; }
+:root[data-theme='dark'] .withdrawal-fee-preview { background:#20352c; border-color:#4d6659; }
+.withdrawal-charges-ack { display:flex; align-items:flex-start; gap:9px; color:var(--ink); font-size:13px; line-height:1.45; cursor:pointer; }
+.withdrawal-charges-ack input { flex:none; width:18px; height:18px; margin:0; accent-color:#147d4b; cursor:pointer; }
