@@ -10,6 +10,7 @@ type Bank = { code: string; name: string }
 type PayoutAccount = { bankName: string; accountLast4: string; accountName: string; verifiedAt: string }
 type ResolvedAccount = { bankCode: string; bankName: string; accountNumber: string; accountName: string }
 type Withdrawal = { withdrawalId: string; status: 'reserved' | 'initiating' | 'queued' | 'successful' | 'failed' | 'unknown'; amountNgn: number; transferReference?: string }
+type CancellationCompensation = { job_id: string; job_number: string; rider_name: string; amount_ngn: number }
 type Props = { supabase: ReturnType<typeof getSupabaseClient>; onError: (message: string) => void; onNotice: (message: string) => void; showPayout?: boolean; canEditLogo?: boolean }
 
 async function payoutErrorMessage(error: { message: string; context?: unknown }) {
@@ -39,6 +40,7 @@ export default function PartnerCompanyWelcome({ supabase, onError, onNotice, sho
   const [now, setNow] = useState(() => new Date())
   const [busy, setBusy] = useState(false)
   const [payables, setPayables] = useState<Payables | null>(null)
+  const [cancellationCompensation, setCancellationCompensation] = useState<CancellationCompensation[]>([])
   const [withdrawing, setWithdrawing] = useState(false)
   const [account, setAccount] = useState<PayoutAccount | null>(null)
   const [banks, setBanks] = useState<Bank[]>([])
@@ -64,12 +66,15 @@ export default function PartnerCompanyWelcome({ supabase, onError, onNotice, sho
     if (payablesLoading.current) return
     payablesLoading.current = true
     try {
-      const [{ data, error }, withdrawalResult] = await Promise.all([
+      const [{ data, error }, withdrawalResult, compensationResult] = await Promise.all([
         supabase.rpc('get_my_partner_payables'),
         (partnerId ?? companyId.current) ? supabase.rpc('list_my_partner_withdrawals', { p_partner_id: partnerId ?? companyId.current }) : Promise.resolve({ data: [], error: null }),
+        (partnerId ?? companyId.current) ? supabase.rpc('list_my_partner_cancellation_compensation', { p_partner_id: partnerId ?? companyId.current }) : Promise.resolve({ data: [], error: null }),
       ])
       if (error) { onError(error.message); return }
       if (withdrawalResult.error) onError(withdrawalResult.error.message)
+      if (compensationResult.error) onError(compensationResult.error.message)
+      setCancellationCompensation((compensationResult.data as CancellationCompensation[] | null) ?? [])
       const rows = (data as Payables[] | null) ?? []
       setPayables(rows.find((item) => item.partner_id === (partnerId ?? companyId.current)) ?? null)
       const latest = (withdrawalResult.data as Array<{ withdrawal_id: string; status: string; amount_ngn: number }> | null)?.[0]
@@ -231,6 +236,7 @@ export default function PartnerCompanyWelcome({ supabase, onError, onNotice, sho
         <div><span>Available to withdraw</span><strong>{formatNaira(payables.available_ngn)}</strong></div>
         <div><span>Paid deliveries awaiting confirmation</span><strong>{formatNaira(payables.pending_delivery_ngn)}</strong></div>
         {Number(payables.withdrawal_pending_ngn) > 0 && <p>Transfer in progress: {formatNaira(payables.withdrawal_pending_ngn)}</p>}
+        {cancellationCompensation.length > 0 && <details className="partner-cancellation-compensation"><summary>Rider cancellation compensation</summary><ul>{cancellationCompensation.map((item) => <li key={item.job_id}>{item.rider_name} · {item.job_number} · {formatNaira(item.amount_ngn)}</li>)}</ul></details>}
         <div className="partner-payout-destination">
           {account ? <><span>Verified payout account</span><strong>{account.accountName}</strong><small>{account.bankName} ·•••• {account.accountLast4}</small></> : <small>Add a bank account before withdrawing.</small>}
           {!confirmingWithdrawal && <button type="button" className="secondary-button" onClick={() => void openAccountEditor()}>{account ? 'Change bank account' : 'Add bank account'}</button>}

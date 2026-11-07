@@ -1006,6 +1006,22 @@ describe('partner assignment and delivery screens', () => {
     expect(screen.getByText('To Chidi')).toBeInTheDocument()
   })
 
+  it('offers paid cancellation before pickup and shows the retained charge', async () => {
+    mockState.roles = ['customer']
+    mockState.customerRequests = [{ id: 'request-1', request_number: 'REQ-0001', status: 'converted', pickup_city: 'Lagos', delivery_city: 'Lagos', recipient_name: 'Ada', created_at: '2026-10-20T10:00:00Z' }]
+    mockState.customerOrders = [{ service_request_id: 'request-1', order_number: 'ORD-0001', customer_price: 2100, currency: 'NGN', jobs: { id: 'job-1', job_number: 'JOB-0001', status: 'partner_assigned', job_status_history: [], job_parcels: [] } }]
+    mockState.invoke.mockResolvedValue({ data: { status: 'pending', refund_amount_ngn: 1100 }, error: null })
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: /Tracking/ }))
+    await user.click(await screen.findByRole('button', { name: /Track parcel REQ-0001/ }))
+    expect(screen.getByText(/cancellation costs ₦1,000/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Cancel paid booking' }))
+    await waitFor(() => expect(mockState.invoke).toHaveBeenCalledWith('cancel-paid-booking', { body: { job_id: 'job-1' } }))
+    confirm.mockRestore()
+  })
+
   it('shows delivery exception alerts to internal staff and lets them mark an alert reviewed', async () => {
     mockState.roles = ['operations']
     mockState.notifications = [{ id: 'exception-alert-1', job_id: 'job-1', event_type: 'job_exception_escalated', title: 'Delivery exception needs review', body: 'Job JOB-0001 has been marked as an exception.', created_at: '2026-10-13T10:00:00Z', read_at: null, payload: { job_number: 'JOB-0001' } }]

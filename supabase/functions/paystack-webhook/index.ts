@@ -12,8 +12,39 @@ Deno.serve(async (request) => {
   if (!/^[a-f0-9]{128}$/i.test(signature)) return new Response('Invalid signature', { status: 401 })
   const signed = Uint8Array.from(signature.match(/../g)!, (pair) => Number.parseInt(pair, 16))
   if (!await crypto.subtle.verify('HMAC', key, signed, new TextEncoder().encode(raw))) return new Response('Invalid signature', { status: 401 })
-  let event: { event?: string; data?: { reference?: string } }
+  let event: { event?: string; data?: { reference?: string; refund_reference?: string; transaction_reference?: string } }
   try { event = JSON.parse(raw) } catch { return new Response('Invalid event', { status: 400 }) }
+  if ((event.event ?? '').startsWith('refund.')) {
+    try {
+      const admin = createClient(Deno.env.get('SUPABASE_URL') ?? '', Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '', { auth: { persistSession: false } })
+      const reference = event.data?.refund_reference ?? event.data?.reference
+      const paymentReference = event.data?.transaction_reference
+      let query = admin.from('paid_booking_cancellations').select('refund_reference,provider_transaction_id,refund_amount_ngn')
+      if (reference) query = query.eq('refund_reference', reference)
+      else if (paymentReference) query = query.eq('payment_reference', paymentReference)
+      else return Response.json({ received: true })
+      const { data: cancellation, error: lookupError } = await query.maybeSingle()
+      if (lookupError) throw lookupError
+      if (!cancellation) return Response.json({ received: true })
+      const response = await fetch(`https://api.paystack.co/refund?reference=${encodeURIComponent(cancellation.refund_reference)}`,
+        { headers: { Authorization: `Bearer ${secret}` }, signal: AbortSignal.timeout(10000) })
+      const body = await response.json() as { status?: boolean; data?: Array<{ id?: number; reference?: string; transaction?: number; amount?: number; currency?: string; status?: string }> }
+      if (!response.ok || !body.status) throw new Error('Refund verification unavailable')
+      const refund = body.data?.find((item) => item.reference === cancellation.refund_reference)
+      if (!refund || Number(refund.transaction) !== Number(cancellation.provider_transaction_id)
+        || Number(refund.amount) !== Math.round(Number(cancellation.refund_amount_ngn) * 100)
+        || refund.currency !== 'NGN') throw new Error('Refund verification mismatch')
+      const status = refund.status === 'needs-attention' ? 'needs_attention' : refund.status
+      if (!['pending','processing','needs_attention','processed','failed'].includes(status ?? '')) return Response.json({ received: true })
+      const { error } = await admin.rpc('finish_paid_bike_refund', { p_reference: cancellation.refund_reference,
+        p_status: status, p_provider_refund_id: refund.id ?? null })
+      if (error) throw error
+      return Response.json({ received: true })
+    } catch (error) {
+      console.error('Paystack refund webhook processing failed', error)
+      return new Response('Verification unavailable', { status: 503 })
+    }
+  }
   if (!['charge.success', 'transfer.success', 'transfer.failed', 'transfer.reversed'].includes(event.event ?? '') || !event.data?.reference)
     return Response.json({ received: true })
   try {

@@ -197,7 +197,8 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
         {hold.test_mode && <p className="customer-payment-test-warning">TEST MODE — this account does not accept real payment. Do not send money.</p>}
         {active && <><strong className="customer-payment-timer">{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')} left</strong>
           {hold.account_number && hold.bank_name ? <div className="customer-payment-account"><span>{hold.bank_name}</span><strong>{hold.account_number}</strong><button type="button" onClick={() => void copyAccount(hold.account_number!)}>Copy account</button>{copyMessage && <small role="status">{copyMessage}</small>}</div> : <><p>Preparing your temporary bank account…</p><button type="button" disabled={busy === requestId} onClick={() => void retryAccount(requestId)}>Check account status</button></>}
-          <p>Transfer the exact amount now. Your rider waits until payment is confirmed.</p></>}
+          <p>Transfer the exact amount now. Your rider waits until payment is confirmed.</p>
+          {hold.provider === 'paystack' && <small>Cancel before parcel pickup: ₦1,000 is kept; the rest is refunded. ₦300 of the charge compensates the rider through their company.</small>}</>}
         {hold.status === 'paid' && <p>Payment confirmed. Keep your phone nearby while your company rider is confirmed.</p>}
         {hold.status === 'review' && <p>A payment arrived after the booking window or needs review. Please contact support; do not pay again yet.</p>}
         {(hold.status === 'expired' || (!active && hold.status !== 'paid' && hold.status !== 'review')) && <p>The rider is no longer reserved. Please book another delivery. If you transferred money, contact support before paying again.</p>}

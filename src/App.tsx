@@ -1092,8 +1092,33 @@ function DeliveryTimeline({ request }: { request: DeliveryRequest }) {
   </div>
 }
 
-function CustomerDeliveryCard({ request, confirmationStatus, expanded, onToggle, supabase, onError, onRefresh }: { request: DeliveryRequest; confirmationStatus?: string; expanded: boolean; onToggle: () => void; supabase: ReturnType<typeof getSupabaseClient>; onError: (message: string) => void; onRefresh: () => void }) {
+function CustomerDeliveryCard({ request, confirmationStatus, expanded, onToggle, supabase, onError, onNotice, onRefresh }: { request: DeliveryRequest; confirmationStatus?: string; expanded: boolean; onToggle: () => void; supabase: ReturnType<typeof getSupabaseClient>; onError: (message: string) => void; onNotice: (message: string) => void; onRefresh: () => void }) {
   const [confirmationBusy, setConfirmationBusy] = useState(false)
+  const [cancellationBusy, setCancellationBusy] = useState(false)
+  const [cancellation, setCancellation] = useState<{ status: string; retained_ngn: number; refund_amount_ngn: number } | null>(null)
+  useEffect(() => {
+    if (!expanded || !request.job_id || request.job_status !== 'cancelled') return
+    let active = true
+    void supabase.rpc('list_my_paid_bike_cancellations', { p_job_ids: [request.job_id] }).then(({ data }) => {
+      if (active) setCancellation(Array.isArray(data) ? data[0] ?? null : null)
+    })
+    return () => { active = false }
+  }, [expanded, request.job_id, request.job_status, supabase])
+  async function cancelPaidBooking(retry = false) {
+    if (!request.job_id || cancellationBusy || (!retry && !window.confirm('Cancel this paid booking before pickup? ₦1,000 will be kept and the rest refunded.'))) return
+    setCancellationBusy(true)
+    const { data, error } = await supabase.functions.invoke('cancel-paid-booking', { body: { job_id: request.job_id } })
+    if (error) {
+      let message = error.message
+      if (error.context instanceof Response) {
+        try { const body = await error.context.clone().json(); if (typeof body?.error === 'string') message = body.error } catch { /* Use the transport message. */ }
+      }
+      onError(message)
+    }
+    else onNotice(`Booking cancelled. Your ₦${Number(data.refund_amount_ngn).toLocaleString('en-NG')} refund is ${data.status === 'processed' ? 'processed' : ['failed','needs_attention'].includes(data.status) ? 'awaiting support' : 'being processed'}.`)
+    onRefresh()
+    setCancellationBusy(false)
+  }
   async function answerDeliveryConfirmation(approve: boolean) {
     if (!request.job_id || confirmationBusy) return
     setConfirmationBusy(true)
@@ -1115,6 +1140,10 @@ function CustomerDeliveryCard({ request, confirmationStatus, expanded, onToggle,
     </button>
     {expanded && <div className="customer-delivery-details">
       <p className="customer-delivery-recipient">To {request.recipient_name}</p>
+      {request.job_id && ['order_confirmed','partner_assigned','pickup_scheduled'].includes(request.job_status ?? '')
+        && (request.payments ?? []).some((payment) => payment.status === 'received')
+        && <div className="customer-cancellation"><p>Before pickup, cancellation costs ₦1,000. The rest of your payment will be refunded.</p><button type="button" className="secondary-button finance-cancel" disabled={cancellationBusy} onClick={() => void cancelPaidBooking()}>{cancellationBusy ? 'Cancelling…' : 'Cancel paid booking'}</button></div>}
+      {request.job_status === 'cancelled' && cancellation && <div className="customer-cancellation" role="status"><p>₦{Number(cancellation.retained_ngn).toLocaleString('en-NG')} cancellation charge · ₦{Number(cancellation.refund_amount_ngn).toLocaleString('en-NG')} refund {cancellation.status.replaceAll('_',' ')}{['failed','needs_attention'].includes(cancellation.status) ? '. Contact support with your order number.' : ''}</p>{['requested','pending','processing'].includes(cancellation.status) && <button type="button" className="secondary-button" disabled={cancellationBusy} onClick={() => void cancelPaidBooking(true)}>{cancellationBusy ? 'Checking…' : 'Check refund status'}</button>}</div>}
       {['no_nearby', 'no_bids'].includes(request.dispatch_match_status ?? '') && <button className="secondary-button" type="button" onClick={async () => { const { error } = await supabase.rpc('retry_my_dispatch', { p_request: request.id }); if (error) onError(error.message); else onRefresh() }}>Try matching again</button>}
       {request.order_number && <div className="request-references"><span>Order <strong>{request.order_number}</strong></span>{request.job_number && <span>Job <strong>{request.job_number}</strong></span>}{request.job_status && <span className={`job-status-label status-${request.job_status}`}>{formatStatus(request.job_status)}</span>}</div>}
       {request.pickup_code && <div className="customer-pickup-code"><span>Pickup code for {request.job_number}</span><strong>{request.pickup_code}</strong><small>Give this code to the assigned rider only when handing over your parcel.</small></div>}
@@ -1285,7 +1314,7 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
           groups.set(date, group)
           return groups
         }, new Map<string, DeliveryRequest[]>())).map(([date, group]) => <section className="customer-delivery-group" key={date} aria-label={`Deliveries on ${date}`}>
-          <h3>{date}</h3><div className="customer-delivery-grid">{group.map((request) => <CustomerDeliveryCard key={request.id} request={request} confirmationStatus={request.job_id ? confirmationStatuses[request.job_id] ?? request.sender_confirmation_status : undefined} expanded={expandedRequestId === request.id} onToggle={() => setExpandedRequestId(expandedRequestId === request.id ? null : request.id)} supabase={supabase} onError={onError} onRefresh={onRefresh} />)}</div>
+          <h3>{date}</h3><div className="customer-delivery-grid">{group.map((request) => <CustomerDeliveryCard key={request.id} request={request} confirmationStatus={request.job_id ? confirmationStatuses[request.job_id] ?? request.sender_confirmation_status : undefined} expanded={expandedRequestId === request.id} onToggle={() => setExpandedRequestId(expandedRequestId === request.id ? null : request.id)} supabase={supabase} onError={onError} onNotice={onNotice} onRefresh={onRefresh} />)}</div>
         </section>)}</div>
         {hasOlderRequests && <button className="secondary-button" type="button" onClick={onLoadOlder}>Load older deliveries</button>}
       </>}
