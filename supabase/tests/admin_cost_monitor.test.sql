@@ -38,6 +38,12 @@ begin
   if v_admin is null then raise exception 'No configured super admin for cost test'; end if;
   perform set_config('request.jwt.claim.sub',v_admin::text,true);
   v_before:=public.admin_cost_monitor();
+  if (v_before->>'operating_budget_ngn')::numeric=0
+     and (v_before->>'recorded_costs_ngn')::numeric=0
+     and ((v_before->>'margin_status')<>'unknown'
+       or v_before->'warnings' ? 'Entered provider charges have reached 80% of today''s operating allowance.') then
+    raise exception 'Zero spending against zero allowance produced a false alert';
+  end if;
   if jsonb_typeof(v_before->'warnings')<>'array'
      or jsonb_typeof(v_before->'data_gaps')<>'array'
      or v_before->>'estimated_operating_cost_ngn' is not null
