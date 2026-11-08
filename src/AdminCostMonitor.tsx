@@ -51,11 +51,12 @@ type CostSnapshot = {
   estimated_operating_cost_ngn: number | null
   remaining_operating_budget_ngn: number | null
   google_elements_today: number
-  google_elements_daily_limit: number
+  google_elements_daily_limit: number | null
   google_billable_elements_today?: number
   estimated_tracked_cost_ngn?: number
   google_other_api_estimate_ngn?: number | null
   google_other_api_counts_today?: Record<string, number>
+  supabase_overage_daily_estimate_ngn?: number | null
   estimated_margin_percent?: number | null
   margin_warning?: string | null
   cost_settings?: CostSettings
@@ -89,7 +90,7 @@ function isCostSnapshot(value: unknown): value is CostSnapshot {
     row.customer_referral_ngn, row.partner_referral_ngn,
     row.registration_referral_reserve_ngn, row.available_for_operations_ngn, row.target_profit_ngn,
     row.operating_budget_ngn, row.recorded_costs_ngn, row.known_cost_lower_bound_ngn,
-    row.google_elements_today, row.google_elements_daily_limit]
+    row.google_elements_today]
   return typeof row.checked_at === 'string' && typeof row.period_start === 'string' &&
     typeof row.period_end === 'string' && numbers.every((number) => typeof number === 'number' && Number.isFinite(number)) &&
     (row.mode === 'normal' || row.mode === 'economy') &&
@@ -137,6 +138,7 @@ export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: S
   const [settingsNotice, setSettingsNotice] = useState('')
   const [fxBusy, setFxBusy] = useState(false)
   const [databaseBytes, setDatabaseBytes] = useState<number | null>(null)
+  const [supabaseUsage, setSupabaseUsage] = useState<{ storage_bytes: number; signed_in_users_lower_bound: number; daily_overage_estimate_ngn: number | null; checked_at: string } | null>(null)
   const fxAutoAttempted = useRef(false)
   const requestInFlight = useRef(false)
 
@@ -151,6 +153,7 @@ export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: S
       if (data.cost_settings) setSettings(data.cost_settings)
       const { data: usage } = await supabase.rpc('admin_supabase_project_usage_snapshot')
       if (usage && typeof usage.database_bytes === 'number' && Number.isFinite(usage.database_bytes)) setDatabaseBytes(usage.database_bytes)
+      if (usage && typeof usage.storage_bytes === 'number' && typeof usage.signed_in_users_lower_bound === 'number') setSupabaseUsage(usage)
       setError('')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The spending report is unavailable.')
@@ -271,6 +274,14 @@ export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: S
   const diskIncludedGb = settings?.supabase_plan === 'free' ? 0.5 : settings?.supabase_plan === 'enterprise' ? null : 8
   const diskOverageRunRateUsd = databaseBytes !== null && diskIncludedGb !== null && settings && settings.supabase_plan !== 'free'
     ? Math.max(0, databaseBytes / 1_000_000_000 - diskIncludedGb) * 0.125 : null
+  const supabaseQuotaWarnings = settings && supabaseUsage && settings.supabase_plan !== 'enterprise' ? [
+    databaseBytes !== null && databaseBytes >= (settings.supabase_plan === 'free' ? 0.5 : 8) * 800_000_000
+      ? 'Database disk is above 80% of the selected plan allowance.' : null,
+    supabaseUsage.storage_bytes >= (settings.supabase_plan === 'free' ? 1 : 100) * 800_000_000
+      ? 'Stored files are above 80% of the selected plan allowance.' : null,
+    supabaseUsage.signed_in_users_lower_bound >= (settings.supabase_plan === 'free' ? 50_000 : 100_000) * 0.8
+      ? 'Signed-in users are above 80% of the selected plan allowance.' : null,
+  ].filter((warning): warning is string => warning !== null) : []
 
   return <div className="cost-monitor" aria-labelledby="cost-monitor-title">
     <div className="cost-monitor-heading">
@@ -286,8 +297,9 @@ export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: S
         <div><span>Provider charges recorded</span><strong>{money(snapshot.recorded_costs_ngn)}</strong><small>Known spend only; unrecorded bills may raise the total</small></div>
         <div><span>Estimated room left</span><strong>{money(snapshot.remaining_operating_budget_ngn)}</strong><small>{snapshot.remaining_operating_budget_ngn === null ? 'Cannot confirm the 5% margin yet' : 'Estimate; reconcile with provider invoices'}</small></div>
       </div>
-      {snapshot.cost_settings && <p className="cost-monitor-quota">Estimated tracked provider costs today: <strong>{money(snapshot.estimated_tracked_cost_ngn)}</strong>. This is a partial forecast, not an invoice or confirmed profit. {snapshot.cost_settings.usd_to_ngn === null && 'Set USD to NGN below to include billable Google and paid Supabase costs. '}SMS usage, Supabase overages and untracked Google requests are not included.</p>}
+      {snapshot.cost_settings && <p className="cost-monitor-quota">Estimated tracked provider costs today: <strong>{money(snapshot.estimated_tracked_cost_ngn)}</strong>. This is a partial forecast, not an invoice or confirmed profit. {snapshot.cost_settings.usd_to_ngn === null && 'Set USD to NGN below to include billable Google and paid Supabase costs. '}Supabase egress, Edge invocations, Realtime and untracked Google requests are not yet measured.</p>}
       {snapshot.margin_warning && <div className="cost-monitor-warnings" role="alert"><strong>Profit margin warning</strong><p>{snapshot.margin_warning}</p><p>Review provider usage and recorded invoices before deciding to reduce optional routing work.</p></div>}
+      {supabaseQuotaWarnings.length > 0 && <div className="cost-monitor-warnings" role="alert"><strong>Supabase allowance warning</strong><ul>{supabaseQuotaWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></div>}
       <div className="cost-monitor-action">
         <div><strong>{snapshot.mode === 'economy' ? 'Savings mode is on' : 'Normal matching is on'}</strong><p>Savings mode checks fewer optional road routes for new jobs. Matching may take longer. GPS, paid deliveries, payments, refunds and tracking continue.</p></div>
         <button type="button" className="secondary-button" aria-pressed={snapshot.mode === 'economy'} disabled={modeBusy || stale} onClick={() => void changeMode()}>{modeBusy ? 'Saving...' : snapshot.mode === 'economy' ? 'Resume normal matching' : 'Reduce optional routing work'}</button>
@@ -317,7 +329,7 @@ export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: S
           <div><dt>Google route estimate</dt><dd>{money(snapshot.modeled_costs.google_route_matrix_ngn)}</dd></div>
           <div><dt>Other Google API estimate</dt><dd>{money(snapshot.modeled_costs.google_other_apis_ngn)}</dd></div>
           <div><dt>Paystack payment-fee estimate</dt><dd>{money(snapshot.modeled_costs.paystack_ngn)}</dd></div>
-          <div><dt>Supabase daily base-plan estimate</dt><dd>{money(snapshot.modeled_costs.supabase_ngn)}</dd></div>
+          <div><dt>Supabase daily base and measured overage estimate</dt><dd>{money(snapshot.modeled_costs.supabase_ngn)}</dd></div>
           <div><dt>Known cost lower bound</dt><dd>{money(snapshot.known_cost_lower_bound_ngn)}</dd></div>
         </dl>
         <p>Estimates use the settings below and activity recorded by this app. Route Matrix reservations may exceed billable usage. Compute Routes counts saved road prices; browser Maps, Places and Geocoding counts are app-reported and may miss failed or unauthenticated requests. Google discounts above the first volume tier and usage from other projects are not modeled. Supabase overages and SMS usage are not yet measured. Entered charges are invoices or fees; do not add estimates to them as if they were separate bills.</p>
@@ -344,6 +356,7 @@ export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: S
         <div className="cost-plan-rates">
           <strong>Supabase {settings.supabase_plan} plan: {settings.supabase_plan === 'enterprise' ? 'contract pricing' : `$${settings.supabase_monthly_usd}/month base`}</strong>
           {databaseBytes !== null && <p>Current project database: {(databaseBytes / 1_000_000_000).toFixed(2)} GB. {settings.supabase_plan === 'enterprise' ? 'Compare with your contract.' : `Included size: ${settings.supabase_plan === 'free' ? '0.5' : '8'} GB per project.`} {settings.supabase_plan === 'free' && databaseBytes > 500_000_000 ? 'Above the Free allowance; Supabase may restrict service rather than charge an overage. ' : ''}{diskOverageRunRateUsd !== null && `Database-size overage at this instant: $${diskOverageRunRateUsd.toFixed(2)}/month run rate. `}Supabase bills using its own cycle measurements; this snapshot is not an invoice.</p>}
+          {supabaseUsage && <p>Observed this project: {(supabaseUsage.storage_bytes / 1_000_000_000).toFixed(2)} GB stored files and {number(supabaseUsage.signed_in_users_lower_bound)} users signed in this UTC month. {settings.supabase_plan === 'free' ? 'Free has included quotas but no paid overages; service restrictions can apply.' : `Estimated database, storage and active-user overage: ${money(supabaseUsage.daily_overage_estimate_ngn)} per day.`} This excludes other projects in the organization and token refreshes; Supabase uses its own billing cycle.</p>}
           <div className="cost-rate-table-wrap"><table><thead><tr><th>Supabase service</th><th>Included</th><th>After included usage</th></tr></thead><tbody>{supabaseRates.map((item) => <tr key={item.service}><td>{item.service}</td><td>{settings.supabase_plan === 'enterprise' ? 'Contract' : settings.supabase_plan === 'free' ? item.free : item.paid}</td><td>{settings.supabase_plan === 'enterprise' ? 'Contract' : settings.supabase_plan === 'free' ? 'No paid overage; service limits may apply' : item.overage}</td></tr>)}</tbody></table></div>
           <p>Usage is billed across your Supabase organization and billing cycle. The app cannot read authoritative egress, Auth, Edge, Realtime, storage or invoice totals from the database. This table shows published rates, not charges already incurred. Compute and optional add-ons cost extra; the base subscription is not a complete invoice.</p>
           <a href="https://supabase.com/dashboard/org/_/usage" target="_blank" rel="noreferrer">Open Supabase organization usage</a>

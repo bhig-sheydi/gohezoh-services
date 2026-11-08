@@ -33,6 +33,9 @@ type TrafficSnapshot = {
   window_minutes: number
   metrics: TrafficMetric[]
   alerts: TrafficAlert[]
+  alerts_total?: number
+  active_alerts_total?: number
+  alerts_page?: number
 }
 
 function isTrafficSnapshot(value: unknown): value is TrafficSnapshot {
@@ -84,6 +87,7 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
   const [phoneError, setPhoneError] = useState('')
   const [checkedNow, setCheckedNow] = useState(0)
   const [costRefreshKey, setCostRefreshKey] = useState(0)
+  const [alertPage, setAlertPage] = useState(1)
   const requestInFlight = useRef(false)
   const audioContext = useRef<AudioContext | null>(null)
 
@@ -91,7 +95,8 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
     if (requestInFlight.current || document.visibilityState === 'hidden') return
     requestInFlight.current = true
     try {
-      const { data, error: rpcError } = await supabase.rpc('admin_traffic_spike_snapshot')
+      const { data, error: rpcError } = await supabase.rpc('admin_traffic_spike_snapshot_page',
+        { p_page: alertPage, p_page_size: 8 })
       if (rpcError) throw rpcError
       if (!isTrafficSnapshot(data)) throw new Error('Monitoring returned an invalid response.')
       setSnapshot(data)
@@ -103,7 +108,7 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
       setLoading(false)
       setCheckedNow(Date.now())
     }
-  }, [supabase])
+  }, [supabase, alertPage])
 
   useEffect(() => {
     const initial = window.setTimeout(() => void load(), 0)
@@ -170,17 +175,19 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
   }
 
   const activeAlerts = snapshot?.alerts.filter((alert) => !alert.acknowledged_at && !alert.resolved_at) ?? []
+  const activeAlertCount = snapshot?.active_alerts_total ?? activeAlerts.length
+  const alertPageCount = Math.max(1, Math.ceil((snapshot?.alerts_total ?? snapshot?.alerts.length ?? 0) / 8))
   const stale = snapshot ? checkedNow - new Date(snapshot.checked_at).getTime() > 180_000 : false
-  const activeAlertIds = activeAlerts.map((alert) => alert.id).sort().join(',')
+  const activeAlertIds = `${activeAlertCount}:${activeAlerts.map((alert) => alert.id).sort().join(',')}`
   useEffect(() => {
-    if (!soundEnabled || !activeAlertIds || error || stale) return
+    if (!soundEnabled || activeAlertCount === 0 || error || stale) return
     const ring = () => {
       if (document.visibilityState === 'visible' && audioContext.current) alarmTone(audioContext.current)
     }
     ring()
     const timer = window.setInterval(ring, 30_000)
     return () => window.clearInterval(timer)
-  }, [soundEnabled, activeAlertIds, error, stale])
+  }, [soundEnabled, activeAlertIds, activeAlertCount, error, stale])
 
   async function toggleSound() {
     if (soundEnabled) {
@@ -208,6 +215,7 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
       setSnapshot((current) => current && ({
         ...current,
         alerts: current.alerts.map((alert) => alert.id === id ? { ...alert, acknowledged_at: new Date().toISOString() } : alert),
+        active_alerts_total: Math.max(0,(current.active_alerts_total ?? current.alerts.filter((item) => !item.acknowledged_at && !item.resolved_at).length)-1),
       }))
       setError('')
     } catch (cause) {
@@ -242,8 +250,8 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
     {stale && <p className="traffic-monitor-error" role="alert">Traffic readings are more than 3 minutes old. The sampler may be delayed.</p>}
     <h3 className="traffic-subheading">Traffic spikes</h3>
     {loading && !snapshot ? <p className="traffic-monitor-empty">Checking traffic...</p> : !snapshot ? <p className="traffic-monitor-empty">No traffic readings available.</p> : <>
-      <div className={`traffic-health ${activeAlerts.length > 0 ? 'traffic-health-alert' : ''}`} role="status" aria-live="polite">
-        <strong>{stale ? 'Monitoring is delayed' : activeAlerts.length > 0 ? `${activeAlerts.length} spike${activeAlerts.length === 1 ? '' : 's'} need attention` : 'No active spikes detected'}</strong>
+      <div className={`traffic-health ${activeAlertCount > 0 ? 'traffic-health-alert' : ''}`} role="status" aria-live="polite">
+        <strong>{stale ? 'Monitoring is delayed' : activeAlertCount > 0 ? `${activeAlertCount} spike${activeAlertCount === 1 ? '' : 's'} need attention` : 'No active spikes detected'}</strong>
         <span>Last check: {timestamp(snapshot.checked_at)} | {formatted(snapshot.window_minutes)}-minute window</span>
       </div>
       <div className="traffic-metrics">
@@ -261,6 +269,11 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
           </div>
           {!alert.acknowledged_at && !alert.resolved_at && <button type="button" className="secondary-button" disabled={acknowledging === alert.id} onClick={() => void acknowledge(alert.id)}>Acknowledge</button>}
         </article>)}
+        {alertPageCount > 1 && <nav className="traffic-alert-pagination" aria-label="Spike alert pages">
+          <button type="button" className="secondary-button" disabled={alertPage <= 1} onClick={() => setAlertPage((page) => page-1)}>Previous</button>
+          <span>Page {alertPage} of {alertPageCount}</span>
+          <button type="button" className="secondary-button" disabled={alertPage >= alertPageCount} onClick={() => setAlertPage((page) => page+1)}>Next</button>
+        </nav>}
       </div>
     </>}
     <AdminCostMonitor supabase={supabase} refreshKey={costRefreshKey} />

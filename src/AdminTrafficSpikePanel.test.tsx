@@ -17,7 +17,7 @@ const snapshot = {
 
 function client(value: unknown = snapshot) {
   const rpc = vi.fn(async (name: string) => {
-    if (name === 'admin_traffic_spike_snapshot') return { data: value, error: null }
+    if (name === 'admin_traffic_spike_snapshot_page') return { data: value, error: null }
     if (name === 'admin_spike_push_configuration') return { data: { enabled: true }, error: null }
     return { data: null, error: null }
   })
@@ -44,6 +44,22 @@ describe('super-admin traffic monitor', () => {
     render(<AdminTrafficSpikePanel supabase={supabase} />)
     expect(await screen.findByText('No active spikes detected')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Acknowledge' })).not.toBeInTheDocument()
+  })
+
+  it('shows one server page of alerts and requests the next page', async () => {
+    const first = { ...snapshot, alerts_total: 9, active_alerts_total: 1, alerts_page: 1 }
+    const rpc = vi.fn(async (name: string, args?: { p_page?: number }) => {
+      if (name === 'admin_traffic_spike_snapshot_page') return { data: args?.p_page === 2
+        ? { ...first, alerts_page: 2, alerts: [{ ...alert, id: 'second', cause: 'Second page cause' }] }
+        : first, error: null }
+      if (name === 'admin_spike_push_configuration') return { data: { enabled: true }, error: null }
+      return { data: null, error: null }
+    })
+    render(<AdminTrafficSpikePanel supabase={{ rpc } as unknown as SupabaseClient} />)
+    expect(await screen.findByText('Page 1 of 2')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Next' }))
+    expect(await screen.findByText('Second page cause')).toBeInTheDocument()
+    expect(rpc).toHaveBeenCalledWith('admin_traffic_spike_snapshot_page', { p_page: 2, p_page_size: 8 })
   })
 
   it('rings only after the admin enables browser audio for an active spike', async () => {

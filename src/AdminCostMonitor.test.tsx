@@ -13,7 +13,7 @@ const snapshot = {
   available_for_operations_ngn: 360.62, target_profit_ngn: 105, operating_budget_ngn: 255.62,
   recorded_costs_ngn: 100, known_cost_lower_bound_ngn: 100,
   estimated_operating_cost_ngn: null, remaining_operating_budget_ngn: null,
-  google_elements_today: 25, google_elements_daily_limit: 5000,
+  google_elements_today: 25, google_elements_daily_limit: null,
   modeled_costs: { google_route_matrix_ngn: null, sms_ngn: null, paystack_ngn: null,
     supabase_ngn: null, total_known_ngn: 0 },
   margin_status: 'unknown', mode: 'normal', warnings: [],
