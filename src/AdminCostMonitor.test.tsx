@@ -45,13 +45,13 @@ function client(value: unknown = snapshot) {
 describe('super-admin spending monitor', () => {
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
-  it('shows unknown provider costs as unknown and the Google ceiling as a separate backstop', async () => {
+  it('shows unknown provider costs as unknown and the monthly Google allowance', async () => {
     const { supabase } = client()
     render(<AdminCostMonitor supabase={supabase} refreshKey={0} />)
     expect(await screen.findByText('Cost picture incomplete')).toBeInTheDocument()
     expect(screen.getByText('Allowance for operating costs')).toBeInTheDocument()
     expect(screen.getAllByText('Not yet known').length).toBeGreaterThanOrEqual(2)
-    expect(screen.getByText(/25 of 5,000 default/).closest('p')).toHaveTextContent('separate emergency ceiling')
+    expect(screen.getByText(/25 elements reserved today/).closest('p')).toHaveTextContent('free allowance resets monthly')
     expect(screen.getByText('Cost data not connected yet')).toBeInTheDocument()
     await userEvent.click(screen.getByText('Cost data not connected yet'))
     expect(screen.getByText(/Paystack fees are not connected/)).toBeVisible()

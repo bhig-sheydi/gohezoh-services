@@ -1,5 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
-import { googleIdleRiderRoadMatrix, googleRoadMatrix, memoizeDeniedMatrixReservations } from '../_shared/google-road-matrix.ts'
+import { googleIdleRiderRoadMatrix, googleRoadMatrix } from '../_shared/google-road-matrix.ts'
 import { selectRoadCheckCandidates } from '../_shared/route-match-economy.ts'
 import { bestPerCompany, optimizeCommittedRoute, planRiderRoute, DEFAULT_POLICY, type Point, type Stop, type RiderCandidate, type RoadLeg } from '../_shared/rider-route-planner.ts'
 
@@ -26,8 +26,7 @@ Deno.serve(async (request) => {
   const url = Deno.env.get('SUPABASE_URL')
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
   const googleKey = Deno.env.get('GOOGLE_ROUTES_API_KEY')
-  const dailyLimit = Number(Deno.env.get('GOOGLE_ROUTE_MATRIX_DAILY_LIMIT') ?? '5000')
-  if (!url || !serviceKey || !googleKey || !Number.isInteger(dailyLimit) || dailyLimit < 1 || dailyLimit > 1_000_000)
+  if (!url || !serviceKey || !googleKey)
     return Response.json({ error: 'Routing is not configured' }, { status: 503 })
   const db = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } })
   const rpc = async (name: string, args: Record<string, unknown>) => {
@@ -44,9 +43,9 @@ Deno.serve(async (request) => {
       console.error('Could not read routing economy mode; continuing matching', error)
       return false
     })
-  const reserveRoadElements = memoizeDeniedMatrixReservations(async (elements: number) =>
-    Boolean(await rpc('reserve_google_route_matrix_elements',
-      { p_elements: elements, p_daily_limit: dailyLimit })))
+  const reserveRoadElements = async (elements: number) =>
+    Boolean(await rpc('reserve_google_route_matrix_elements_budgeted',
+      { p_elements: elements }))
   const roads = (points: Point[]) => googleRoadMatrix(unique(points), googleKey, reserveRoadElements)
   const replan = async (riderId: string) => {
     const context = await rpc('rider_route_context', { p_rider: riderId }) as Context | null
