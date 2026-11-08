@@ -397,16 +397,16 @@ function App() {
 
   async function signOut() {
     if (roles.includes('admin') && hasNativeAdminPush()) {
+      setNativeAdminPushPreferred(false)
+      disableNativeAdminPush()
       const deviceId = getNativeAdminPushDeviceId(false)
       if (deviceId) {
         const controller = new AbortController()
         const timer = window.setTimeout(() => controller.abort(), 4000)
-        try { await supabase.rpc('admin_unregister_spike_push_device', { p_device_id: deviceId }).abortSignal(controller.signal) }
-        catch { /* Deleting the native token below still stops this phone receiving alerts. */ }
+        try { await supabase.rpc('admin_unregister_alarm_device', { p_device_id: deviceId }).abortSignal(controller.signal) }
+        catch { /* Native polling is already stopped on this phone. */ }
         finally { window.clearTimeout(timer) }
       }
-      setNativeAdminPushPreferred(false)
-      disableNativeAdminPush()
     }
     await supabase.auth.signOut()
   }

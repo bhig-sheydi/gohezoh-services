@@ -452,6 +452,7 @@ verify_jwt = false
 # Protected by a dedicated server-only secret, including scheduled calls.
 verify_jwt = false
 
-[functions.admin-spike-push]
-# Cron uses a dedicated secret; no public JWT can drain the push queue.
+[functions.admin-alarm-poll]
+# Android supplies a per-phone random credential; the function checks its
+# digest and the user's current Super Admin role in the database.
 verify_jwt = false

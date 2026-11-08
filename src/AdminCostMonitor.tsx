@@ -70,6 +70,9 @@ type CostSnapshot = {
   }
   margin_status: MarginStatus
   mode: CostMode
+  effective_mode?: CostMode
+  automatic_economy?: boolean
+  economy_reason?: string | null
   warnings: string[]
   data_gaps: string[]
 }
@@ -120,7 +123,9 @@ function time(value: string) {
 
 function todayUtc() { return new Date().toISOString().slice(0, 10) }
 
-export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: SupabaseClient; refreshKey: number }) {
+export default function AdminCostMonitor({ supabase, refreshKey, onMarginAlarm }: {
+  supabase: SupabaseClient; refreshKey: number; onMarginAlarm?: (active: boolean) => void
+}) {
   const [snapshot, setSnapshot] = useState<CostSnapshot | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -150,19 +155,22 @@ export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: S
       if (rpcError) throw rpcError
       if (!isCostSnapshot(data)) throw new Error('The spending report was incomplete.')
       setSnapshot(data)
+      onMarginAlarm?.(typeof data.estimated_margin_percent === 'number' &&
+        data.collected_revenue_ngn > 0 && data.estimated_margin_percent <= 10)
       if (data.cost_settings) setSettings(data.cost_settings)
       const { data: usage } = await supabase.rpc('admin_supabase_project_usage_snapshot')
       if (usage && typeof usage.database_bytes === 'number' && Number.isFinite(usage.database_bytes)) setDatabaseBytes(usage.database_bytes)
       if (usage && typeof usage.storage_bytes === 'number' && typeof usage.signed_in_users_lower_bound === 'number') setSupabaseUsage(usage)
       setError('')
     } catch (cause) {
+      onMarginAlarm?.(false)
       setError(cause instanceof Error ? cause.message : 'The spending report is unavailable.')
     } finally {
       requestInFlight.current = false
       setLoading(false)
       setCheckedNow(Date.now())
     }
-  }, [supabase])
+  }, [supabase, onMarginAlarm])
 
   useEffect(() => {
     const initial = window.setTimeout(() => void load(), 0)
@@ -301,10 +309,12 @@ export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: S
       {snapshot.margin_warning && <div className="cost-monitor-warnings" role="alert"><strong>Profit margin warning</strong><p>{snapshot.margin_warning}</p><p>Review provider usage and recorded invoices before deciding to reduce optional routing work.</p></div>}
       {supabaseQuotaWarnings.length > 0 && <div className="cost-monitor-warnings" role="alert"><strong>Supabase allowance warning</strong><ul>{supabaseQuotaWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul></div>}
       <div className="cost-monitor-action">
-        <div><strong>{snapshot.mode === 'economy' ? 'Savings mode is on' : 'Normal matching is on'}</strong><p>Savings mode checks fewer optional road routes for new jobs. Matching may take longer. GPS, paid deliveries, payments, refunds and tracking continue.</p></div>
-        <button type="button" className="secondary-button" aria-pressed={snapshot.mode === 'economy'} disabled={modeBusy || stale} onClick={() => void changeMode()}>{modeBusy ? 'Saving...' : snapshot.mode === 'economy' ? 'Resume normal matching' : 'Reduce optional routing work'}</button>
+        <div><strong>{snapshot.mode === 'economy' ? 'Manual savings mode is on'
+          : snapshot.automatic_economy ? 'Automatic savings mode is on' : 'Normal matching is on'}</strong>
+          <p>{snapshot.automatic_economy ? 'Estimated margin reached 10%; optional road checks are reduced automatically. ' : ''}Savings mode checks fewer optional road routes for new jobs. Matching may take longer. GPS, paid deliveries, payments, refunds and tracking continue.</p></div>
+        <button type="button" className="secondary-button" aria-pressed={snapshot.mode === 'economy'} disabled={modeBusy || stale} onClick={() => void changeMode()}>{modeBusy ? 'Saving...' : snapshot.mode === 'economy' ? 'Turn off manual savings' : 'Reduce optional routing work'}</button>
       </div>
-      <p className="cost-monitor-quota">Google Route Matrix: <strong>{number(snapshot.google_elements_today)} elements reserved today</strong>. The {number(snapshot.cost_settings?.google_free_monthly_elements ?? 10000)}-element free allowance resets monthly. After that, optional road checks use today's earned operating budget; the 5% profit target remains protected. Provider quotas can still limit requests.</p>
+      <p className="cost-monitor-quota">Google Route Matrix: <strong>{number(snapshot.google_elements_today)} elements reserved today</strong>. The {number(snapshot.cost_settings?.google_free_monthly_elements ?? 10000)}-element modeled free allowance resets monthly. After that, optional road checks are limited by today's estimated operating budget. Other provider charges can still reduce the actual margin.</p>
       {snapshot.warnings.length > 0 && <div className="cost-monitor-warnings" role="alert"><strong>Needs attention</strong><ul>{snapshot.warnings.map((warning, index) => <li key={`${index}:${warning}`}>{warning}</li>)}</ul></div>}
       {snapshot.data_gaps.length > 0 && <details className="cost-monitor-gaps"><summary>Cost data not connected yet</summary><p>Provider bills are not imported automatically. The amount above includes only charges entered here; it is not today's total bill.</p><ul>{snapshot.data_gaps.map((gap, index) => <li key={`${index}:${gap}`}>{gap}</li>)}</ul></details>}
       <details className="cost-monitor-details"><summary>How this allowance is calculated</summary>
@@ -340,8 +350,8 @@ export default function AdminCostMonitor({ supabase, refreshKey }: { supabase: S
           <label>Supabase plan<select value={settings.supabase_plan} onChange={(event) => { const plan = event.target.value as CostSettings['supabase_plan']; setSettings({ ...settings, supabase_plan: plan, supabase_monthly_usd: plan === 'free' ? 0 : plan === 'pro' ? 25 : plan === 'team' ? 599 : 0 }) }}><option value="free">Free</option><option value="pro">Pro</option><option value="team">Team</option><option value="enterprise">Enterprise</option></select></label>
           {settings.supabase_plan === 'enterprise' && <label>Enterprise contract USD/month<input type="number" min="0" step="0.01" value={settings.supabase_monthly_usd} onChange={(event) => setSettings({ ...settings, supabase_monthly_usd: Number(event.target.value) })} /></label>}
           <label>Google Routes SKU<select value={settings.google_route_sku} onChange={(event) => { const sku = event.target.value as CostSettings['google_route_sku']; setSettings({ ...settings, google_route_sku: sku, google_free_monthly_elements: sku === 'enterprise' ? 1000 : sku === 'pro' ? 5000 : 10000, google_usd_per_1000: sku === 'enterprise' ? 15 : sku === 'pro' ? 10 : 5 }) }}><option value="essentials">Essentials</option><option value="pro">Pro</option><option value="enterprise">Enterprise</option></select></label>
-          <label>Google free elements/month<input type="number" min="0" step="1" value={settings.google_free_monthly_elements} onChange={(event) => setSettings({ ...settings, google_free_monthly_elements: Number(event.target.value) })} /></label>
-          <label>Google USD / 1,000 elements<input type="number" min="0" step="0.0001" value={settings.google_usd_per_1000} onChange={(event) => setSettings({ ...settings, google_usd_per_1000: Number(event.target.value) })} /></label>
+          <label>Google free elements/month<input type="number" min="0" max={settings.google_route_sku === 'essentials' ? 10000 : settings.google_route_sku === 'pro' ? 5000 : 1000} step="1" value={settings.google_free_monthly_elements} onChange={(event) => setSettings({ ...settings, google_free_monthly_elements: Number(event.target.value) })} /></label>
+          <label>Google USD / 1,000 elements<input type="number" min={settings.google_route_sku === 'essentials' ? 5 : settings.google_route_sku === 'pro' ? 10 : 15} step="0.0001" value={settings.google_usd_per_1000} onChange={(event) => setSettings({ ...settings, google_usd_per_1000: Number(event.target.value) })} /></label>
           <label>USD to NGN<input type="number" min="0.0001" step="0.0001" placeholder="Set current rate" value={settings.usd_to_ngn ?? ''} onChange={(event) => setSettings({ ...settings, usd_to_ngn: event.target.value ? Number(event.target.value) : null })} /></label>
           <button type="button" className="secondary-button" disabled={fxBusy || settingsBusy} onClick={() => void refreshExchangeRate()}>{fxBusy ? 'Updating rate...' : 'Update USD/NGN rate'}</button>
           <label>Paystack local fee %<input type="number" min="0" max="100" step="0.0001" value={settings.paystack_percent} onChange={(event) => setSettings({ ...settings, paystack_percent: Number(event.target.value) })} /></label>

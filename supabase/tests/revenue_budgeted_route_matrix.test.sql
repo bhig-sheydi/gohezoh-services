@@ -13,7 +13,13 @@ begin
     from public.google_route_matrix_daily_budget where budget_day=v_day;
   v_before:=coalesce(v_before,0);
   -- A free monthly allowance must continue to work beyond the former daily cap.
-  update public.admin_cost_rate_settings set google_free_monthly_elements=10000000 where id=1;
+  -- Reset this transaction's month so a live project's prior usage cannot
+  -- make the test depend on its billing history.
+  update public.google_route_matrix_daily_budget set elements_reserved=0
+    where budget_day>=date_trunc('month',v_day::timestamp)::date and budget_day<=v_day;
+  update public.admin_cost_rate_settings set google_route_sku='essentials',
+    google_free_monthly_elements=10000,google_usd_per_1000=5 where id=1;
+  v_before:=0;
   if not public.reserve_google_route_matrix_elements_budgeted(2) then
     raise exception 'Free monthly route allowance was rejected';
   end if;

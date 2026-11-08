@@ -1,9 +1,10 @@
-const deviceKey = 'kwik-parsel-admin-push-device-id'
-const preferenceKey = 'kwik-parsel-admin-push-enabled'
+const deviceKey = 'kwik-parsel-admin-alarm-device-id'
+const preferenceKey = 'kwik-parsel-admin-alarm-enabled'
 
 export type NativeAdminPushState = {
-  status: 'token' | 'disabled' | 'unavailable' | 'error'
-  token?: string
+  status: 'credentials' | 'enabled' | 'disabled' | 'unavailable' | 'error'
+  deviceId?: string
+  deviceSecret?: string
   message: string
 }
 
@@ -18,33 +19,41 @@ export function nativeAdminPushPreferred(): boolean {
 
 export function setNativeAdminPushPreferred(enabled: boolean): void {
   try { window.localStorage.setItem(preferenceKey, enabled ? '1' : '0') }
-  catch { /* Notifications still work during this session. */ }
+  catch { /* Native status still works during this session. */ }
 }
 
-export function getNativeAdminPushDeviceId(create = true): string | null {
+export function getNativeAdminPushDeviceId(create = false): string | null {
   try {
     const current = window.localStorage.getItem(deviceKey)
     if (current && /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(current)) return current
-    if (!create) return null
-    const deviceId = crypto.randomUUID()
-    window.localStorage.setItem(deviceKey, deviceId)
-    return deviceId
-  } catch { return null }
+  } catch { /* Browser storage can be unavailable. */ }
+  return create ? crypto.randomUUID() : null
+}
+
+export function rememberNativeAdminPushDeviceId(deviceId: string): void {
+  if (!/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i.test(deviceId)) return
+  try { window.localStorage.setItem(deviceKey, deviceId) } catch { /* Native retains its own identity. */ }
 }
 
 export function requestNativeAdminPush(enable: boolean): void {
-  window.KwikParselNative?.postMessage(JSON.stringify({ type: enable ? 'admin:enable-push' : 'admin:push-status' }))
+  window.KwikParselNative?.postMessage(JSON.stringify({ type: enable ? 'admin:enable-poll' : 'admin:poll-status' }))
+}
+
+export function confirmNativeAdminPushRegistration(): void {
+  window.KwikParselNative?.postMessage(JSON.stringify({ type: 'admin:poll-registered' }))
 }
 
 export function disableNativeAdminPush(): void {
-  window.KwikParselNative?.postMessage(JSON.stringify({ type: 'admin:disable-push' }))
+  window.KwikParselNative?.postMessage(JSON.stringify({ type: 'admin:disable-poll' }))
 }
 
 export function listenNativeAdminPush(callback: (state: NativeAdminPushState) => void): () => void {
   const listener = (event: Event) => {
     const value = (event as CustomEvent).detail as Partial<NativeAdminPushState> & { type?: string }
-    if (value?.type !== 'admin:push-state' || !['token', 'disabled', 'unavailable', 'error'].includes(value.status ?? '')) return
-    callback({ status: value.status as NativeAdminPushState['status'], token: value.token,
+    if (value?.type !== 'admin:poll-state' || !['credentials', 'enabled', 'disabled', 'unavailable', 'error'].includes(value.status ?? '')) return
+    callback({ status: value.status as NativeAdminPushState['status'],
+      deviceId: typeof value.deviceId === 'string' ? value.deviceId : undefined,
+      deviceSecret: typeof value.deviceSecret === 'string' ? value.deviceSecret : undefined,
       message: typeof value.message === 'string' ? value.message : 'Phone alerts are unavailable.' })
   }
   window.addEventListener('kwik-parsel:admin-push', listener)

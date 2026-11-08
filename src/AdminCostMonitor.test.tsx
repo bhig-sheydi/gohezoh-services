@@ -45,6 +45,20 @@ function client(value: unknown = snapshot) {
 describe('super-admin spending monitor', () => {
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
+  it('signals the browser alarm only when a revenue-backed margin reaches 10%', async () => {
+    const onMarginAlarm = vi.fn()
+    const { supabase } = client({ ...snapshot, estimated_margin_percent: 10 })
+    render(<AdminCostMonitor supabase={supabase} refreshKey={0} onMarginAlarm={onMarginAlarm} />)
+    await waitFor(() => expect(onMarginAlarm).toHaveBeenCalledWith(true))
+  })
+
+  it('does not signal a margin alarm without collected revenue', async () => {
+    const onMarginAlarm = vi.fn()
+    const { supabase } = client({ ...snapshot, collected_revenue_ngn: 0, estimated_margin_percent: 0 })
+    render(<AdminCostMonitor supabase={supabase} refreshKey={0} onMarginAlarm={onMarginAlarm} />)
+    await waitFor(() => expect(onMarginAlarm).toHaveBeenCalledWith(false))
+  })
+
   it('shows unknown provider costs as unknown and the monthly Google allowance', async () => {
     const { supabase } = client()
     render(<AdminCostMonitor supabase={supabase} refreshKey={0} />)
@@ -69,8 +83,17 @@ describe('super-admin spending monitor', () => {
     expect(button).toHaveAttribute('aria-pressed', 'false')
     await userEvent.click(button)
     await waitFor(() => expect(rpc).toHaveBeenCalledWith('set_admin_cost_mode', { p_mode: 'economy' }))
-    expect(await screen.findByRole('button', { name: 'Resume normal matching' })).toHaveAttribute('aria-pressed', 'true')
+    expect(await screen.findByRole('button', { name: 'Turn off manual savings' })).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByText(/GPS, paid deliveries, payments, refunds and tracking continue/)).toBeInTheDocument()
+  })
+
+  it('shows an automatic 10% slowdown without pretending the manual toggle controls it', async () => {
+    const { supabase } = client({ ...snapshot, effective_mode: 'economy', automatic_economy: true,
+      economy_reason: 'Estimated margin is at or below 10%.' })
+    render(<AdminCostMonitor supabase={supabase} refreshKey={0} />)
+    expect(await screen.findByText('Automatic savings mode is on')).toBeInTheDocument()
+    expect(screen.getByText(/Estimated margin reached 10%; optional road checks are reduced automatically/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reduce optional routing work' })).toHaveAttribute('aria-pressed', 'false')
   })
 
   it('records a provider charge with a reference and does not treat it as a transfer', async () => {

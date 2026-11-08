@@ -18,7 +18,6 @@ const snapshot = {
 function client(value: unknown = snapshot) {
   const rpc = vi.fn(async (name: string) => {
     if (name === 'admin_traffic_spike_snapshot_page') return { data: value, error: null }
-    if (name === 'admin_spike_push_configuration') return { data: { enabled: true }, error: null }
     return { data: null, error: null }
   })
   return { supabase: { rpc } as unknown as SupabaseClient, rpc }
@@ -52,7 +51,6 @@ describe('super-admin traffic monitor', () => {
       if (name === 'admin_traffic_spike_snapshot_page') return { data: args?.p_page === 2
         ? { ...first, alerts_page: 2, alerts: [{ ...alert, id: 'second', cause: 'Second page cause' }] }
         : first, error: null }
-      if (name === 'admin_spike_push_configuration') return { data: { enabled: true }, error: null }
       return { data: null, error: null }
     })
     render(<AdminTrafficSpikePanel supabase={{ rpc } as unknown as SupabaseClient} />)
@@ -87,19 +85,40 @@ describe('super-admin traffic monitor', () => {
   it('registers only a super-admin Android phone after notifications were enabled', async () => {
     const postMessage = vi.fn()
     window.KwikParselNative = { postMessage }
-    window.localStorage.setItem('kwik-parsel-admin-push-enabled', '1')
-    window.localStorage.setItem('kwik-parsel-admin-push-device-id', '62947c6b-6317-46bb-bb6a-98e189a87a37')
+    window.localStorage.setItem('kwik-parsel-admin-alarm-enabled', '1')
     const { supabase, rpc } = client()
     render(<AdminTrafficSpikePanel supabase={supabase} />)
-    await waitFor(() => expect(postMessage).toHaveBeenCalledWith('{"type":"admin:push-status"}'))
+    await waitFor(() => expect(postMessage).toHaveBeenCalledWith('{"type":"admin:poll-status"}'))
     window.dispatchEvent(new CustomEvent('kwik-parsel:admin-push', { detail: {
-      type: 'admin:push-state', status: 'token', token: 'phone-token-123456789012345678901234567890',
+      type: 'admin:poll-state', status: 'credentials',
+      deviceId: '62947c6b-6317-46bb-bb6a-98e189a87a37', deviceSecret: 'a'.repeat(43),
       message: 'Phone notifications are ready.',
     } }))
-    await waitFor(() => expect(rpc).toHaveBeenCalledWith('admin_register_spike_push_device', {
+    await waitFor(() => expect(rpc).toHaveBeenCalledWith('admin_register_alarm_device', {
       p_device_id: '62947c6b-6317-46bb-bb6a-98e189a87a37',
-      p_token: 'phone-token-123456789012345678901234567890',
+      p_secret: 'a'.repeat(43),
     }))
-    expect(await screen.findByText(/Enabled on this phone/)).toBeInTheDocument()
+    expect(postMessage).toHaveBeenCalledWith('{"type":"admin:poll-registered"}')
+    expect(await screen.findByText(/Android checks about every 15 minutes/)).toBeInTheDocument()
+  })
+
+  it('stops phone polling immediately when alerts are disabled, even if unregister is slow', async () => {
+    const postMessage = vi.fn()
+    window.KwikParselNative = { postMessage }
+    window.localStorage.setItem('kwik-parsel-admin-alarm-enabled', '1')
+    window.localStorage.setItem('kwik-parsel-admin-alarm-device-id', '62947c6b-6317-46bb-bb6a-98e189a87a37')
+    let completeUnregister: ((value: { data: null; error: null }) => void) | undefined
+    const rpc = vi.fn((name: string) => name === 'admin_unregister_alarm_device'
+      ? new Promise<{ data: null; error: null }>((resolve) => { completeUnregister = resolve })
+      : Promise.resolve({ data: name === 'admin_traffic_spike_snapshot_page' ? snapshot : null, error: null }))
+    render(<AdminTrafficSpikePanel supabase={{ rpc } as unknown as SupabaseClient} />)
+    await waitFor(() => expect(postMessage).toHaveBeenCalledWith('{"type":"admin:poll-status"}'))
+    window.dispatchEvent(new CustomEvent('kwik-parsel:admin-push', { detail: {
+      type: 'admin:poll-state', status: 'enabled', message: 'Ready',
+    } }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Disable phone alerts' }))
+    expect(postMessage).toHaveBeenCalledWith('{"type":"admin:disable-poll"}')
+    expect(window.localStorage.getItem('kwik-parsel-admin-alarm-enabled')).toBe('0')
+    completeUnregister?.({ data: null, error: null })
   })
 })

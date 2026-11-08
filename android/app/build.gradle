@@ -1,9 +1,5 @@
 plugins { id 'com.android.application' }
 
-// The APK still builds before Firebase setup; Android push becomes available
-// as soon as this app's google-services.json is installed in android/app/.
-if (file('google-services.json').exists()) apply plugin: 'com.google.gms.google-services'
-
 def webEnv = [:]
 def envFile = file('../../.env.local')
 if (envFile.exists()) {
@@ -26,8 +22,8 @@ android {
         applicationId 'org.gohezohservices.kwikparsel'
         minSdk 26
         targetSdk 36
-        versionCode 9
-        versionName '1.0.8'
+        versionCode 10
+        versionName '1.0.9'
         buildConfigField 'String', 'SUPABASE_API_KEY', '"' + apiKey.replace('\\', '\\\\').replace('"', '\\"') + '"'
     }
     buildFeatures { buildConfig true }
@@ -50,6 +46,5 @@ android {
 
 dependencies {
     implementation 'androidx.webkit:webkit:1.18.0'
-    implementation platform('com.google.firebase:firebase-bom:35.1.0')
-    implementation 'com.google.firebase:firebase-messaging'
+    implementation 'androidx.work:work-runtime:2.11.2'
 }

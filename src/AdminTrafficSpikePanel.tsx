@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { disableNativeAdminPush, getNativeAdminPushDeviceId, hasNativeAdminPush,
-  listenNativeAdminPush, nativeAdminPushPreferred, requestNativeAdminPush,
+import { confirmNativeAdminPushRegistration, disableNativeAdminPush, getNativeAdminPushDeviceId,
+  hasNativeAdminPush, listenNativeAdminPush, nativeAdminPushPreferred, rememberNativeAdminPushDeviceId, requestNativeAdminPush,
   setNativeAdminPushPreferred } from './lib/native-admin-push'
 import AdminCostMonitor from './AdminCostMonitor'
 import './AdminTrafficSpikePanel.css'
@@ -82,11 +82,11 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
   const [error, setError] = useState('')
   const [soundEnabled, setSoundEnabled] = useState(false)
   const [acknowledging, setAcknowledging] = useState<string | null>(null)
-  const [phonePushReady, setPhonePushReady] = useState(false)
   const [phoneStatus, setPhoneStatus] = useState<'disabled' | 'requesting' | 'enabled' | 'unavailable'>('disabled')
   const [phoneError, setPhoneError] = useState('')
   const [checkedNow, setCheckedNow] = useState(0)
   const [costRefreshKey, setCostRefreshKey] = useState(0)
+  const [costAlarm, setCostAlarm] = useState(false)
   const [alertPage, setAlertPage] = useState(1)
   const requestInFlight = useRef(false)
   const audioContext = useRef<AudioContext | null>(null)
@@ -129,34 +129,28 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
     let mounted = true
     const stopListening = listenNativeAdminPush((state) => {
       if (!mounted) return
-      if (state.status !== 'token') {
+      if (state.status === 'enabled') { setPhoneStatus('enabled'); setPhoneError(''); return }
+      if (state.status !== 'credentials') {
         setPhoneStatus(state.status === 'unavailable' ? 'unavailable' : 'disabled')
         if (state.status === 'error' || state.status === 'unavailable') setPhoneError(state.message)
         return
       }
-      if (!nativeAdminPushPreferred() || !state.token) return
-      const deviceId = getNativeAdminPushDeviceId()
-      if (!deviceId) { setPhoneError('Could not identify this phone for alerts.'); return }
-      void supabase.rpc('admin_register_spike_push_device', {
-        p_device_id: deviceId, p_token: state.token,
+      if (!nativeAdminPushPreferred() || !state.deviceId || !state.deviceSecret) return
+      rememberNativeAdminPushDeviceId(state.deviceId)
+      void supabase.rpc('admin_register_alarm_device', {
+        p_device_id: state.deviceId, p_secret: state.deviceSecret,
       }).then(({ error: registrationError }) => {
         if (!mounted) return
         if (registrationError) { setPhoneStatus('disabled'); setPhoneError(registrationError.message) }
-        else { setPhoneStatus('enabled'); setPhoneError('') }
+        else { confirmNativeAdminPushRegistration(); setPhoneStatus('enabled'); setPhoneError('') }
       })
     })
-    void supabase.rpc('admin_spike_push_configuration').then(({ data, error: configError }) => {
-      if (!mounted) return
-      const ready = !configError && data?.enabled === true
-      setPhonePushReady(ready)
-      if (configError) setPhoneError(configError.message)
-      if (ready && nativeAdminPushPreferred()) requestNativeAdminPush(false)
-    })
+    requestNativeAdminPush(false)
     return () => { mounted = false; stopListening() }
   }, [supabase])
 
   function enablePhonePush() {
-    if (!hasNativeAdminPush() || !phonePushReady) return
+    if (!hasNativeAdminPush()) return
     setNativeAdminPushPreferred(true)
     setPhoneError('')
     setPhoneStatus('requesting')
@@ -165,13 +159,13 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
 
   async function disablePhonePush() {
     setNativeAdminPushPreferred(false)
-    const deviceId = getNativeAdminPushDeviceId(false)
-    if (deviceId) {
-      const { error: unregisterError } = await supabase.rpc('admin_unregister_spike_push_device', { p_device_id: deviceId })
-      if (unregisterError) setPhoneError(unregisterError.message)
-    }
     disableNativeAdminPush()
     setPhoneStatus('disabled')
+    const deviceId = getNativeAdminPushDeviceId(false)
+    if (deviceId) {
+      const { error: unregisterError } = await supabase.rpc('admin_unregister_alarm_device', { p_device_id: deviceId })
+      if (unregisterError) setPhoneError(unregisterError.message)
+    }
   }
 
   const activeAlerts = snapshot?.alerts.filter((alert) => !alert.acknowledged_at && !alert.resolved_at) ?? []
@@ -180,14 +174,14 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
   const stale = snapshot ? checkedNow - new Date(snapshot.checked_at).getTime() > 180_000 : false
   const activeAlertIds = `${activeAlertCount}:${activeAlerts.map((alert) => alert.id).sort().join(',')}`
   useEffect(() => {
-    if (!soundEnabled || activeAlertCount === 0 || error || stale) return
+    if (!soundEnabled || (activeAlertCount === 0 && !costAlarm) || (error && !costAlarm) || (stale && !costAlarm)) return
     const ring = () => {
       if (document.visibilityState === 'visible' && audioContext.current) alarmTone(audioContext.current)
     }
     ring()
     const timer = window.setInterval(ring, 30_000)
     return () => window.clearInterval(timer)
-  }, [soundEnabled, activeAlertIds, activeAlertCount, error, stale])
+  }, [soundEnabled, activeAlertIds, activeAlertCount, costAlarm, error, stale])
 
   async function toggleSound() {
     if (soundEnabled) {
@@ -234,16 +228,14 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
       </div>
     </header>
     {hasNativeAdminPush() && <div className="traffic-phone-alerts">
-      <div><strong>Android background alarm</strong><small>{phonePushReady
-        ? phoneStatus === 'enabled' ? 'Enabled on this phone, including when the screen is off.'
-          : phoneStatus === 'requesting' ? 'Connecting phone notifications...'
-            : 'Enable alerts to hear new spikes when the app is minimized.'
-        : 'Awaiting Firebase push setup.'}</small></div>
-      {phonePushReady && <button type="button" className="secondary-button"
+      <div><strong>Android background alarm</strong><small>{phoneStatus === 'enabled' ? 'Enabled. Android checks about every 15 minutes; battery saving may delay alerts.'
+        : phoneStatus === 'requesting' ? 'Connecting phone notifications...'
+          : 'Enable alerts for spikes and the 10% margin threshold, including with the screen off.'}</small></div>
+      <button type="button" className="secondary-button"
         disabled={phoneStatus === 'requesting'}
         onClick={() => phoneStatus === 'enabled' ? void disablePhonePush() : enablePhonePush()}>
         {phoneStatus === 'enabled' ? 'Disable phone alerts' : 'Enable phone alerts'}
-      </button>}
+      </button>
     </div>}
     {phoneError && <p className="traffic-monitor-error" role="alert">{phoneError}</p>}
     {error && <p className="traffic-monitor-error" role="alert">Monitoring unavailable: {error}. Last successful figures may be stale.</p>}
@@ -276,7 +268,7 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
         </nav>}
       </div>
     </>}
-    <AdminCostMonitor supabase={supabase} refreshKey={costRefreshKey} />
+    <AdminCostMonitor supabase={supabase} refreshKey={costRefreshKey} onMarginAlarm={setCostAlarm} />
     <p className="traffic-monitor-footnote">Browser sound works while this dashboard is open. Android background alerts require phone notifications and a network connection.</p>
   </section>
 }

@@ -1,49 +1,11 @@
-# Super Admin traffic monitor
+# Super Admin service health and Android alarms
 
-The Super Admin page samples database activity once per minute and refreshes its
-health panel every 30 seconds while the page is visible. It keeps seven days of
-minute samples and 30 days of resolved alerts. Samples contain aggregate counts
-only; no customer, rider, address, phone, or FCM token is shown in the panel.
+The database samples aggregate traffic once per minute. The visible Super Admin dashboard refreshes its traffic panel every 30 seconds, shows eight alerts per page, and retains seven days of samples and 30 days of resolved alerts. It reports database transactions, fetched rows, rollbacks, overdue queues, route usage, and likely write-heavy tables. An alert resolves when its signal recovers; acknowledgement is per admin. A sample older than three minutes is marked stale.
 
-The dashboard reports database transactions, rows fetched and rollbacks; overdue
-quote, route, dispatch and matching work; Google route-matrix usage; and write
-changes to rider location, booking, route event and shared-address tables. It
-shows the affected component as a **likely cause**. Database-wide counts alone
-cannot identify a precise API endpoint; use Supabase logs and query diagnostics
-if the alert only says database traffic rose.
+The spending panel estimates today's margin from collected completed rides, settlement and referral provisions, published provider rates, recorded charges, and app-observed usage. At or below an **estimated 10% margin**, optional route checks switch to savings mode automatically; the manual savings switch remains available. Paid Google Route Matrix calls are also constrained by today's earned operating allowance after a 5% target profit provision. The Google free allowance is monthly and shared across the billing account, so the app's project ledger is an approximation. Provider invoices, all Supabase usage, and calls from other Google projects are not fully observable here. Reconcile the estimate with provider billing before treating it as actual profit.
 
-Warnings start at an absolute floor as well as three times the preceding
-30-minute average. Critical alerts start at a larger floor or six times that
-average. Queue alerts require work to be more than two minutes overdue. The
-Google daily guard warns at 4,000 of 5,000 matrix elements and becomes critical
-at 4,800. An alert resolves when its signal recovers; acknowledgement is per
-admin, so one admin cannot silence another. Stale samples are visible after
-three minutes. The in-page alarm requires a click on **Enable alarm** and only
-sounds while the dashboard is open.
+The **Enable alarm** button enables browser sound while the dashboard is open. It sounds for active traffic spikes and for the estimated 10% margin warning.
 
-## Activate Android background alarms
+Android version 1.0.9 adds alarms when the screen is off without Firebase. Install the signed APK from `/download`, sign in as Super Admin, open **Service health**, enable phone alerts, and allow Android notifications. The phone stores a random credential encrypted with Android Keystore. The native app checks the private `admin-alarm-poll` endpoint about every 15 minutes, with one sound and vibration per new incident. The sound is bundled in the APK under [CC0](../android/ALARM_SOUND_LICENSE.md). Server polling verifies that the phone's owner still has Super Admin access, and disabling alerts or signing out stops polling and revokes the credential. The retired Firebase sender cron and queue trigger are disabled.
 
-Android uses Firebase Cloud Messaging, rather than keeping a WebView or polling
-service running with the screen off. The database push queue and Edge Function
-are installed but delivery stays disabled until these steps are complete:
-
-1. In [Firebase Console](https://console.firebase.google.com/), create or select
-   a project and add Android package `org.gohezohservices.kwikparsel`. Download
-   its `google-services.json` into `android/app/`. The file is Git-ignored.
-2. From Firebase Project settings > Service accounts, generate a service-account
-   JSON file for the same project. Store its full JSON as Supabase Edge secret
-   `FCM_SERVICE_ACCOUNT_JSON` in project `yejiqfocqmdxjeajoexd`. Never put the
-   private key in the website environment or commit it.
-3. Rebuild and install the signed APK. Verify on a real Android device that the
-   Super Admin page can request notification permission, receive an FCM token,
-   and register that phone. Test a warning and a critical push with the screen
-   off. Only then set `public.admin_spike_push_config.enabled=true` in a
-   migration. Until that switch is on, the app explicitly says setup is pending.
-
-The existing `ADMIN_SPIKE_WORKER_SECRET` Edge secret and matching Vault secret
-authenticate the scheduled push worker. The queue retries individual devices
-with bounded backoff and drops invalid tokens. A high-importance Android
-notification channel uses the phone's default notification sound. Phone mute,
-Do Not Disturb, denied notification permission, no network, or Google Play
-services issues can prevent an audible alert; Android does not let the app
-override those controls.
+Android WorkManager is deliberately inexact: Doze, battery saving, no network, notification settings, or force-stop can delay or prevent a screen-off alarm. Short incidents that resolve before the next check remain visible in dashboard history but may not ring on the phone. This is a low-cost monitoring aid, not guaranteed instant paging. One enabled phone normally makes about 96 checks per day; multiple admin phones add their own checks.

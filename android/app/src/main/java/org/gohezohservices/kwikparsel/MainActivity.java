@@ -26,9 +26,6 @@ import android.location.LocationManager;
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 
-import com.google.firebase.FirebaseApp;
-import com.google.firebase.messaging.FirebaseMessaging;
-
 import org.json.JSONObject;
 
 import java.util.Collections;
@@ -52,7 +49,7 @@ public final class MainActivity extends Activity {
         super.onCreate(state);
         web = new WebView(this);
         setContentView(web);
-        AdminSpikeNotification.createChannel(this);
+        AdminAlarmNotification.createChannel(this);
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
             web.loadData("<h2>Update Android System WebView</h2><p>This app needs a newer Android System WebView for secure phone tracking.</p>", "text/html", "UTF-8");
             return;
@@ -149,9 +146,10 @@ public final class MainActivity extends Activity {
             requestedType = message.optString("type");
             switch (requestedType) {
                 case "rider:status": sendRiderStatus(); break;
-                case "admin:push-status": adminPushStatus(); break;
-                case "admin:enable-push": enableAdminPush(); break;
-                case "admin:disable-push": disableAdminPush(); break;
+                case "admin:poll-status": adminPollStatus(); break;
+                case "admin:enable-poll": enableAdminPoll(); break;
+                case "admin:poll-registered": adminPollRegistered(); break;
+                case "admin:disable-poll": disableAdminPoll(); break;
                 case "rider:background-settings":
                     showRiderLocationDisclosure(() -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                         Uri.parse("package:" + getPackageName()))));
@@ -180,7 +178,7 @@ public final class MainActivity extends Activity {
             }
         } catch (Exception error) {
             if (requestedType.startsWith("admin:"))
-                sendAdminPushEvent("error", null, "Phone notifications could not be started.");
+                sendAdminPollEvent("error", null, "Phone alerts could not be started.");
             else sendRiderEvent(false, "Phone tracking request was invalid");
         }
     }
@@ -190,51 +188,59 @@ public final class MainActivity extends Activity {
             || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
     }
 
-    private void adminPushStatus() {
-        if (FirebaseApp.getApps(this).isEmpty()) {
-            sendAdminPushEvent("unavailable", null, "Phone alerts need Firebase setup in the Android app.");
-        } else if (Build.VERSION.SDK_INT >= 33
-            && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-            sendAdminPushEvent("disabled", null, "Allow Android notifications to hear spike alarms.");
+    private void adminPollStatus() {
+        AdminAlarmStore.Credential credential = AdminAlarmStore.read(this);
+        if (!AdminAlarmNotification.canPost(this)) {
+            sendAdminPollEvent("disabled", null, "Allow Android service notifications to hear alarms.");
+        } else if (credential != null && credential.registered) {
+            sendAdminPollEvent("enabled", null, "Phone service alarms are on.");
         } else {
-            fetchAdminPushToken();
+            sendAdminPollEvent("disabled", null, "Turn on phone service alarms in the Super Admin dashboard.");
         }
     }
 
-    private void enableAdminPush() {
-        if (FirebaseApp.getApps(this).isEmpty()) {
-            sendAdminPushEvent("unavailable", null, "Phone alerts need Firebase setup in the Android app.");
-            return;
-        }
+    private void enableAdminPoll() {
         if (Build.VERSION.SDK_INT >= 33
             && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, ADMIN_NOTIFICATION_PERMISSION);
             return;
         }
-        fetchAdminPushToken();
-    }
-
-    private void fetchAdminPushToken() {
-        FirebaseMessaging.getInstance().getToken().addOnCompleteListener(task -> {
-            if (!task.isSuccessful() || task.getResult() == null) {
-                sendAdminPushEvent("error", null, "Could not connect phone alerts. Try again.");
-                return;
-            }
-            sendAdminPushEvent("token", task.getResult(), "Phone notifications are ready.");
-        });
-    }
-
-    private void disableAdminPush() {
-        if (FirebaseApp.getApps(this).isEmpty()) return;
-        FirebaseMessaging.getInstance().deleteToken().addOnCompleteListener(task ->
-            sendAdminPushEvent("disabled", null, "Phone alerts are off on this device."));
-    }
-
-    private void sendAdminPushEvent(String status, String token, String message) {
+        if (!AdminAlarmNotification.canPost(this)) {
+            sendAdminPollEvent("disabled", null, "Enable service alarms in Android notification settings.");
+            return;
+        }
         try {
-            JSONObject detail = new JSONObject().put("type", "admin:push-state")
+            AdminAlarmStore.Credential credential = AdminAlarmStore.getOrCreate(this);
+            sendAdminPollEvent("credentials", credential, "Registering this phone for service alarms.");
+        } catch (Exception error) {
+            sendAdminPollEvent("error", null, "Could not secure this phone's alarm credential.");
+        }
+    }
+
+    private void adminPollRegistered() {
+        if (!AdminAlarmNotification.canPost(this) || !AdminAlarmStore.markRegistered(this)) {
+            sendAdminPollEvent("error", null, "Phone alarms could not start. Try again.");
+            return;
+        }
+        AdminAlarmScheduler.enable(this);
+        sendAdminPollEvent("enabled", null, "Phone service alarms are on.");
+    }
+
+    private void disableAdminPoll() {
+        AdminAlarmScheduler.disable(this);
+        AdminAlarmStore.clear(this);
+        AdminAlarmPollWorker.clearDeliveryState(this);
+        sendAdminPollEvent("disabled", null, "Phone service alarms are off on this device.");
+    }
+
+    private void sendAdminPollEvent(String status, AdminAlarmStore.Credential credential, String message) {
+        try {
+            JSONObject detail = new JSONObject().put("type", "admin:poll-state")
                 .put("status", status).put("message", message);
-            if (token != null) detail.put("token", token);
+            if (credential != null) {
+                detail.put("deviceId", credential.deviceId);
+                detail.put("deviceSecret", credential.secret);
+            }
             sendEvent("kwik-parsel:admin-push", detail);
         } catch (Exception ignored) { /* The web screen can request state again. */ }
     }
@@ -366,8 +372,8 @@ public final class MainActivity extends Activity {
         }
         if (requestCode == ADMIN_NOTIFICATION_PERMISSION) {
             if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
-                fetchAdminPushToken();
-            else sendAdminPushEvent("disabled", null, "Android notification permission was denied.");
+                enableAdminPoll();
+            else sendAdminPollEvent("disabled", null, "Android notification permission was denied.");
             return;
         }
         if (requestCode != LOCATION_PERMISSION) return;
