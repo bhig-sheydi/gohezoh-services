@@ -76,6 +76,7 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
   const [phoneStatus, setPhoneStatus] = useState<'disabled' | 'requesting' | 'enabled' | 'unavailable'>('disabled')
   const [phoneError, setPhoneError] = useState('')
   const [remotePushEnabled, setRemotePushEnabled] = useState(false)
+  const [phonePushRegistered, setPhonePushRegistered] = useState(false)
   const [phoneCheck, setPhoneCheck] = useState<{ lastAttempt?: number; lastServerCheck?: number; outcome?: string }>({})
   const [checkedNow, setCheckedNow] = useState(0)
   const [costRefreshKey, setCostRefreshKey] = useState(0)
@@ -130,12 +131,22 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
         lastServerCheck: state.lastServerCheckAt, outcome: state.lastPollOutcome })
       if (state.status === 'enabled') {
         setPhoneStatus('enabled'); setPhoneError('')
-        if (state.deviceId && state.fcmToken) void supabase.rpc('admin_register_spike_push_device', {
-          p_device_id: state.deviceId, p_token: state.fcmToken,
-        })
+        if (state.deviceId && state.fcmToken) {
+          void supabase.rpc('admin_register_spike_push_device', {
+            p_device_id: state.deviceId, p_token: state.fcmToken,
+          }).then(({ error: registrationError }) => {
+            if (!mounted) return
+            setPhonePushRegistered(!registrationError)
+            if (registrationError) setPhoneError(`Firebase registration failed: ${registrationError.message}`)
+          })
+        } else {
+          setPhonePushRegistered(false)
+          setPhoneError('This phone has no Firebase token. Close and reopen the updated app.')
+        }
         return
       }
       if (state.status !== 'credentials') {
+        setPhonePushRegistered(false)
         setPhoneStatus(state.status === 'unavailable' ? 'unavailable' : 'disabled')
         if (state.status === 'error' || state.status === 'unavailable') setPhoneError(state.message)
         return
@@ -174,6 +185,7 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
     setNativeAdminPushPreferred(false)
     disableNativeAdminPush()
     setPhoneStatus('disabled')
+    setPhonePushRegistered(false)
     const deviceId = getNativeAdminPushDeviceId(false)
     if (deviceId) {
       await supabase.rpc('admin_unregister_spike_push_device', { p_device_id: deviceId })
@@ -251,7 +263,8 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
     </header>
     {hasNativeAdminPush() && <div className="traffic-phone-alerts">
       <div><strong>Android background alarm</strong><small>{phoneStatus === 'enabled'
-        ? remotePushEnabled ? 'Phone alerts enabled. Firebase push is active.' : 'Phone alerts enabled. Remote push is awaiting server setup.'
+        ? remotePushEnabled ? phonePushRegistered ? 'Phone alerts enabled. Firebase push is active.' : 'Phone alerts enabled. Firebase registration is incomplete.'
+          : 'Phone alerts enabled. Remote push is awaiting server setup.'
         : phoneStatus === 'requesting' ? 'Connecting phone notifications...'
           : 'Enable alerts for spikes and the 10% margin threshold, including with the screen off.'}</small>
         {phoneStatus === 'enabled' && <small>Last server check: {phoneCheck.lastServerCheck && phoneCheck.lastServerCheck > 0
