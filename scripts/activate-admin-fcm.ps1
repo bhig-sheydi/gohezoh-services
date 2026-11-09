@@ -10,10 +10,13 @@ if ($account.project_id -ne 'walkinguniverseenterprise' -or !$account.private_ke
 }
 
 $oldToken = $env:SUPABASE_ACCESS_TOKEN
-$secureToken = Read-Host 'Paste the Supabase access token for project yejiqfocqmdxjeajoexd' -AsSecureString
-$pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureToken)
-try { $env:SUPABASE_ACCESS_TOKEN = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer) }
-finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer) }
+Read-Host 'Copy the Supabase token, then press Enter here (do not paste)' | Out-Null
+$clipboardToken = (Get-Clipboard -Raw).Trim()
+if ($clipboardToken -notmatch '^sbp_[A-Za-z0-9]{20,}$') {
+  throw 'The clipboard does not contain a Supabase access token.'
+}
+$env:SUPABASE_ACCESS_TOKEN = $clipboardToken
+$clipboardToken = $null
 
 $name = [guid]::NewGuid().ToString('N')
 $envFile = Join-Path $env:TEMP "kwik-fcm-$name.env"
