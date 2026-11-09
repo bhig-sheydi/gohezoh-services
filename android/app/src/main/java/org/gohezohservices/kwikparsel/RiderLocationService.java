@@ -21,6 +21,7 @@ import android.os.PowerManager;
 
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
@@ -221,7 +222,14 @@ public final class RiderLocationService extends Service implements LocationListe
             }
             if (connection.getResponseCode() != 200) return null;
             try (InputStream input = connection.getInputStream()) {
-                String result = new String(input.readAllBytes(), StandardCharsets.UTF_8).trim();
+                ByteArrayOutputStream bounded = new ByteArrayOutputStream();
+                byte[] chunk = new byte[128];
+                int size;
+                while ((size = input.read(chunk)) != -1) {
+                    if (bounded.size() + size > 128) return null;
+                    bounded.write(chunk, 0, size);
+                }
+                String result = new String(bounded.toByteArray(), StandardCharsets.UTF_8).trim();
                 if (result.length() == 38 && result.startsWith("\"") && result.endsWith("\""))
                     return result.substring(1, 37);
                 return null;

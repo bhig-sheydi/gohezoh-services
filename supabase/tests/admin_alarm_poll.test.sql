@@ -6,7 +6,8 @@ declare
   v_other_device uuid:=gen_random_uuid();v_secret text:=repeat('A',43);
   v_day date:=(now() at time zone 'UTC')::date;
   v_count bigint;v_margin numeric;v_dashboard_margin numeric;
-  v_spike uuid;v_resolved uuid;v_margin_event uuid;
+  v_spike uuid;v_resolved uuid;v_recent_critical uuid;
+  v_old_critical uuid;v_margin_event uuid;
   v_response jsonb;
 begin
   if not exists(select 1 from cron.job where jobname='kwik-parsel-prune-admin-alarm') then
@@ -87,13 +88,27 @@ begin
     from public.admin_traffic_alerts where source='sql_alarm_resolved' and resolved_at is null;
   perform public.record_admin_traffic_signal('sql_alarm_resolved','SQL test resolved incident',
     0,0,20,60,now());
+  perform public.record_admin_traffic_signal('sql_alarm_recent_critical','SQL test brief critical incident',
+    80,0,20,60,now());
+  select md5(id::text||':'||severity)::uuid into v_recent_critical
+    from public.admin_traffic_alerts where source='sql_alarm_recent_critical' and resolved_at is null;
+  perform public.record_admin_traffic_signal('sql_alarm_recent_critical','SQL test brief critical incident',
+    0,0,20,60,now());
+  perform public.record_admin_traffic_signal('sql_alarm_old_critical','SQL test old critical incident',
+    80,0,20,60,now()-interval '2 hours');
+  select md5(id::text||':'||severity)::uuid into v_old_critical
+    from public.admin_traffic_alerts where source='sql_alarm_old_critical' and resolved_at is null;
+  perform public.record_admin_traffic_signal('sql_alarm_old_critical','SQL test old critical incident',
+    0,0,20,60,now()-interval '2 hours');
   v_response:=public.admin_poll_alarm_device(v_device,v_secret);
   if not (v_response->'alerts') @> jsonb_build_array(jsonb_build_object('id',v_spike))
-    or not (v_response->'alerts') @> jsonb_build_array(jsonb_build_object('id',v_margin_event)) then
-    raise exception 'Phone did not receive active spike % and current margin % alarms: %',v_spike,v_margin_event,v_response;
+    or not (v_response->'alerts') @> jsonb_build_array(jsonb_build_object('id',v_margin_event))
+    or not (v_response->'alerts') @> jsonb_build_array(jsonb_build_object('id',v_recent_critical)) then
+    raise exception 'Phone missed active, margin or recently resolved critical alarm: %',v_response;
   end if;
-  if (v_response->'alerts') @> jsonb_build_array(jsonb_build_object('id',v_resolved)) then
-    raise exception 'Resolved incident caused a phone alarm';
+  if (v_response->'alerts') @> jsonb_build_array(jsonb_build_object('id',v_resolved))
+    or (v_response->'alerts') @> jsonb_build_array(jsonb_build_object('id',v_old_critical)) then
+    raise exception 'Resolved warning or stale critical incident caused a phone alarm';
   end if;
   if (public.admin_poll_alarm_device(v_device,v_secret)->>'error')<>'rate_limited' then
     raise exception 'Rapid phone polling was not throttled';
@@ -106,9 +121,11 @@ begin
   end if;
   update public.admin_alarm_devices set last_poll_at=now()-interval '1 minute'
     where device_id=v_device;
-  v_response:=public.admin_poll_alarm_device(v_device,v_secret,array[v_spike,v_margin_event]);
+  v_response:=public.admin_poll_alarm_device(v_device,v_secret,
+    array[v_spike,v_margin_event,v_recent_critical]);
   if (v_response->'alerts') @> jsonb_build_array(jsonb_build_object('id',v_spike))
-    or (v_response->'alerts') @> jsonb_build_array(jsonb_build_object('id',v_margin_event)) then
+    or (v_response->'alerts') @> jsonb_build_array(jsonb_build_object('id',v_margin_event))
+    or (v_response->'alerts') @> jsonb_build_array(jsonb_build_object('id',v_recent_critical)) then
     raise exception 'Acknowledged phone alarm repeated';
   end if;
 

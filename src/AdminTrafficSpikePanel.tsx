@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { confirmNativeAdminPushRegistration, disableNativeAdminPush, getNativeAdminPushDeviceId,
-  hasNativeAdminPush, listenNativeAdminPush, nativeAdminPushPreferred, rememberNativeAdminPushDeviceId, requestNativeAdminPush,
+  hasNativeAdminPush, listenNativeAdminPush, nativeAdminPushPreferred, openNativeAdminAlarmSettings,
+  rememberNativeAdminPushDeviceId, requestNativeAdminAlarmTest, requestNativeAdminPush,
   setNativeAdminPushPreferred } from './lib/native-admin-push'
 import AdminCostMonitor from './AdminCostMonitor'
 import './AdminTrafficSpikePanel.css'
@@ -58,22 +59,12 @@ function timestamp(value: string) {
   }).format(date)
 }
 
-function alarmTone(context: AudioContext) {
+function alarmTone(context: AudioContext, sound: AudioBuffer) {
   if (context.state !== 'running') return
-  const start = context.currentTime
-  for (const [index, frequency] of [880, 660].entries()) {
-    const oscillator = context.createOscillator()
-    const gain = context.createGain()
-    oscillator.type = 'sine'
-    oscillator.frequency.value = frequency
-    gain.gain.setValueAtTime(0.0001, start + index * 0.22)
-    gain.gain.exponentialRampToValueAtTime(0.07, start + index * 0.22 + 0.02)
-    gain.gain.exponentialRampToValueAtTime(0.0001, start + index * 0.22 + 0.18)
-    oscillator.connect(gain)
-    gain.connect(context.destination)
-    oscillator.start(start + index * 0.22)
-    oscillator.stop(start + index * 0.22 + 0.19)
-  }
+  const source = context.createBufferSource()
+  source.buffer = sound
+  source.connect(context.destination)
+  source.start()
 }
 
 export default function AdminTrafficSpikePanel({ supabase }: { supabase: SupabaseClient }) {
@@ -84,12 +75,14 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
   const [acknowledging, setAcknowledging] = useState<string | null>(null)
   const [phoneStatus, setPhoneStatus] = useState<'disabled' | 'requesting' | 'enabled' | 'unavailable'>('disabled')
   const [phoneError, setPhoneError] = useState('')
+  const [phoneMessage, setPhoneMessage] = useState('')
   const [checkedNow, setCheckedNow] = useState(0)
   const [costRefreshKey, setCostRefreshKey] = useState(0)
   const [costAlarm, setCostAlarm] = useState(false)
   const [alertPage, setAlertPage] = useState(1)
   const requestInFlight = useRef(false)
   const audioContext = useRef<AudioContext | null>(null)
+  const audioBuffer = useRef<AudioBuffer | null>(null)
 
   const load = useCallback(async () => {
     if (requestInFlight.current || document.visibilityState === 'hidden') return
@@ -129,9 +122,12 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
     let mounted = true
     const stopListening = listenNativeAdminPush((state) => {
       if (!mounted) return
-      if (state.status === 'enabled') { setPhoneStatus('enabled'); setPhoneError(''); return }
+      if (state.status === 'enabled') {
+        setPhoneStatus('enabled'); setPhoneError(''); setPhoneMessage(state.message); return
+      }
       if (state.status !== 'credentials') {
         setPhoneStatus(state.status === 'unavailable' ? 'unavailable' : 'disabled')
+        setPhoneMessage('')
         if (state.status === 'error' || state.status === 'unavailable') setPhoneError(state.message)
         return
       }
@@ -153,6 +149,7 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
     if (!hasNativeAdminPush()) return
     setNativeAdminPushPreferred(true)
     setPhoneError('')
+    setPhoneMessage('')
     setPhoneStatus('requesting')
     requestNativeAdminPush(true)
   }
@@ -161,6 +158,7 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
     setNativeAdminPushPreferred(false)
     disableNativeAdminPush()
     setPhoneStatus('disabled')
+    setPhoneMessage('')
     const deviceId = getNativeAdminPushDeviceId(false)
     if (deviceId) {
       const { error: unregisterError } = await supabase.rpc('admin_unregister_alarm_device', { p_device_id: deviceId })
@@ -176,7 +174,8 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
   useEffect(() => {
     if (!soundEnabled || (activeAlertCount === 0 && !costAlarm) || (error && !costAlarm) || (stale && !costAlarm)) return
     const ring = () => {
-      if (document.visibilityState === 'visible' && audioContext.current) alarmTone(audioContext.current)
+      if (document.visibilityState === 'visible' && audioContext.current && audioBuffer.current)
+        alarmTone(audioContext.current, audioBuffer.current)
     }
     ring()
     const timer = window.setInterval(ring, 30_000)
@@ -188,15 +187,22 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
       setSoundEnabled(false)
       await audioContext.current?.close()
       audioContext.current = null
+      audioBuffer.current = null
       return
     }
+    let context: AudioContext | null = null
     try {
       if (typeof AudioContext === 'undefined') throw new Error('This browser cannot play the alarm.')
-      const context = new AudioContext()
+      context = new AudioContext()
       await context.resume()
+      const response = await fetch('/sounds/admin_alarm.wav', { cache: 'force-cache' })
+      if (!response.ok) throw new Error('The alarm sound could not be loaded.')
+      const sound = await context.decodeAudioData(await response.arrayBuffer())
       audioContext.current = context
+      audioBuffer.current = sound
       setSoundEnabled(true)
     } catch (cause) {
+      await context?.close()
       setError(cause instanceof Error ? cause.message : 'The browser could not enable sound.')
     }
   }
@@ -228,7 +234,7 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
       </div>
     </header>
     {hasNativeAdminPush() && <div className="traffic-phone-alerts">
-      <div><strong>Android background alarm</strong><small>{phoneStatus === 'enabled' ? 'Enabled. Android checks about every 15 minutes; battery saving may delay alerts.'
+      <div><strong>Android background alarm</strong><small>{phoneStatus === 'enabled' ? phoneMessage || 'Enabled. Android checks about every 15 minutes; battery saving may delay alerts.'
         : phoneStatus === 'requesting' ? 'Connecting phone notifications...'
           : 'Enable alerts for spikes and the 10% margin threshold, including with the screen off.'}</small></div>
       <button type="button" className="secondary-button"
@@ -236,6 +242,11 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
         onClick={() => phoneStatus === 'enabled' ? void disablePhonePush() : enablePhonePush()}>
         {phoneStatus === 'enabled' ? 'Disable phone alerts' : 'Enable phone alerts'}
       </button>
+      {phoneStatus === 'enabled' && <button type="button" className="secondary-button"
+        onClick={() => { setPhoneMessage('Test alarm scheduled. Lock your phone now.'); requestNativeAdminAlarmTest() }}>
+        Test phone alarm
+      </button>}
+      <button type="button" className="secondary-button" onClick={openNativeAdminAlarmSettings}>Sound settings</button>
     </div>}
     {phoneError && <p className="traffic-monitor-error" role="alert">{phoneError}</p>}
     {error && <p className="traffic-monitor-error" role="alert">Monitoring unavailable: {error}. Last successful figures may be stale.</p>}

@@ -61,15 +61,15 @@ describe('super-admin traffic monitor', () => {
   })
 
   it('rings only after the admin enables browser audio for an active spike', async () => {
-    const oscillator = vi.fn(() => ({ type: 'sine', frequency: { value: 0 },
-      connect: vi.fn(), start: vi.fn(), stop: vi.fn() }))
+    const start = vi.fn()
+    const source = vi.fn(() => ({ buffer: null, connect: vi.fn(), start }))
+    const fetchSound = vi.fn(async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(8) }))
+    vi.stubGlobal('fetch', fetchSound)
     class FakeAudioContext {
       state = 'running'
-      currentTime = 0
       destination = {}
-      createOscillator = oscillator
-      createGain = () => ({ gain: { setValueAtTime: vi.fn(),
-        exponentialRampToValueAtTime: vi.fn() }, connect: vi.fn() })
+      createBufferSource = source
+      decodeAudioData = async () => ({} as AudioBuffer)
       resume = async () => undefined
       close = async () => undefined
     }
@@ -77,9 +77,10 @@ describe('super-admin traffic monitor', () => {
     const { supabase } = client()
     render(<AdminTrafficSpikePanel supabase={supabase} />)
     await screen.findByText('1 spike need attention')
-    expect(oscillator).not.toHaveBeenCalled()
+    expect(start).not.toHaveBeenCalled()
     await userEvent.click(screen.getByRole('button', { name: 'Enable alarm' }))
-    await waitFor(() => expect(oscillator).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(start).toHaveBeenCalledTimes(1))
+    expect(fetchSound).toHaveBeenCalledWith('/sounds/admin_alarm.wav', { cache: 'force-cache' })
   })
 
   it('registers only a super-admin Android phone after notifications were enabled', async () => {
@@ -100,6 +101,10 @@ describe('super-admin traffic monitor', () => {
     }))
     expect(postMessage).toHaveBeenCalledWith('{"type":"admin:poll-registered"}')
     expect(await screen.findByText(/Android checks about every 15 minutes/)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Test phone alarm' }))
+    expect(postMessage).toHaveBeenCalledWith('{"type":"admin:test-notification"}')
+    await userEvent.click(screen.getByRole('button', { name: 'Sound settings' }))
+    expect(postMessage).toHaveBeenCalledWith('{"type":"admin:open-notification-settings"}')
   })
 
   it('stops phone polling immediately when alerts are disabled, even if unregister is slow', async () => {

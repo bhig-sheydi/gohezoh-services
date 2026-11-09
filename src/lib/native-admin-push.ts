@@ -47,6 +47,14 @@ export function disableNativeAdminPush(): void {
   window.KwikParselNative?.postMessage(JSON.stringify({ type: 'admin:disable-poll' }))
 }
 
+export function requestNativeAdminAlarmTest(): void {
+  window.KwikParselNative?.postMessage(JSON.stringify({ type: 'admin:test-notification' }))
+}
+
+export function openNativeAdminAlarmSettings(): void {
+  window.KwikParselNative?.postMessage(JSON.stringify({ type: 'admin:open-notification-settings' }))
+}
+
 export function listenNativeAdminPush(callback: (state: NativeAdminPushState) => void): () => void {
   const listener = (event: Event) => {
     const value = (event as CustomEvent).detail as Partial<NativeAdminPushState> & { type?: string }

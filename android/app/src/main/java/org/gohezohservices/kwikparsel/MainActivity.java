@@ -1,6 +1,7 @@
 package org.gohezohservices.kwikparsel;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.Intent;
@@ -22,6 +23,7 @@ import android.webkit.WebViewClient;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
+import android.window.OnBackInvokedDispatcher;
 
 import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
@@ -49,6 +51,13 @@ public final class MainActivity extends Activity {
         super.onCreate(state);
         web = new WebView(this);
         setContentView(web);
+        if (Build.VERSION.SDK_INT >= 33) {
+            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_DEFAULT, () -> {
+                    if (web != null && web.canGoBack()) web.goBack();
+                    else finish();
+                });
+        }
         AdminAlarmNotification.createChannel(this);
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
             web.loadData("<h2>Update Android System WebView</h2><p>This app needs a newer Android System WebView for secure phone tracking.</p>", "text/html", "UTF-8");
@@ -150,6 +159,8 @@ public final class MainActivity extends Activity {
                 case "admin:enable-poll": enableAdminPoll(); break;
                 case "admin:poll-registered": adminPollRegistered(); break;
                 case "admin:disable-poll": disableAdminPoll(); break;
+                case "admin:test-notification": testAdminNotification(); break;
+                case "admin:open-notification-settings": openAdminNotificationSettings(); break;
                 case "rider:background-settings":
                     showRiderLocationDisclosure(() -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                         Uri.parse("package:" + getPackageName()))));
@@ -193,7 +204,9 @@ public final class MainActivity extends Activity {
         if (!AdminAlarmNotification.canPost(this)) {
             sendAdminPollEvent("disabled", null, "Allow Android service notifications to hear alarms.");
         } else if (credential != null && credential.registered) {
-            sendAdminPollEvent("enabled", null, "Phone service alarms are on.");
+            if (AdminAlarmNotification.hasSound(this))
+                sendAdminPollEvent("enabled", null, "Phone service alarms are on.");
+            else sendAdminPollEvent("error", null, "Service alarm sound is off in Android notification settings.");
         } else {
             sendAdminPollEvent("disabled", null, "Turn on phone service alarms in the Super Admin dashboard.");
         }
@@ -209,6 +222,10 @@ public final class MainActivity extends Activity {
             sendAdminPollEvent("disabled", null, "Enable service alarms in Android notification settings.");
             return;
         }
+        if (!AdminAlarmNotification.hasSound(this)) {
+            sendAdminPollEvent("error", null, "Turn on sound for Super Admin service alarms in Android notification settings.");
+            return;
+        }
         try {
             AdminAlarmStore.Credential credential = AdminAlarmStore.getOrCreate(this);
             sendAdminPollEvent("credentials", credential, "Registering this phone for service alarms.");
@@ -218,7 +235,8 @@ public final class MainActivity extends Activity {
     }
 
     private void adminPollRegistered() {
-        if (!AdminAlarmNotification.canPost(this) || !AdminAlarmStore.markRegistered(this)) {
+        if (!AdminAlarmNotification.canPost(this) || !AdminAlarmNotification.hasSound(this)
+            || !AdminAlarmStore.markRegistered(this)) {
             sendAdminPollEvent("error", null, "Phone alarms could not start. Try again.");
             return;
         }
@@ -231,6 +249,32 @@ public final class MainActivity extends Activity {
         AdminAlarmStore.clear(this);
         AdminAlarmPollWorker.clearDeliveryState(this);
         sendAdminPollEvent("disabled", null, "Phone service alarms are off on this device.");
+    }
+
+    private void testAdminNotification() {
+        AdminAlarmStore.Credential credential = AdminAlarmStore.read(this);
+        if (credential == null || !credential.registered || !AdminAlarmNotification.canPost(this)
+            || !AdminAlarmNotification.hasSound(this)) {
+            sendAdminPollEvent("error", null, "Enable phone service alarms before testing.");
+            return;
+        }
+        if (!AdminAlarmScheduler.scheduleLockScreenTest(this)) {
+            sendAdminPollEvent("error", null, "Android could not schedule the alarm test.");
+            return;
+        }
+        sendAdminPollEvent("enabled", null, "Test alarm scheduled. Lock the phone now; Android may delay the alert.");
+    }
+
+    private void openAdminNotificationSettings() {
+        try {
+            Intent settings = new Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName())
+                .putExtra(Settings.EXTRA_CHANNEL_ID, AdminAlarmNotification.CHANNEL);
+            startActivity(settings);
+        } catch (Exception error) {
+            startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:" + getPackageName())));
+        }
     }
 
     private void sendAdminPollEvent(String status, AdminAlarmStore.Credential credential, String message) {
@@ -390,6 +434,7 @@ public final class MainActivity extends Activity {
 
     @Override protected void onResume() { super.onResume(); if (web != null) sendRiderStatus(); }
 
+    @SuppressLint("GestureBackNavigation") // API 33+ uses OnBackInvokedDispatcher above.
     @Override public void onBackPressed() {
         if (web != null && web.canGoBack()) web.goBack(); else super.onBackPressed();
     }

@@ -34,6 +34,8 @@ public final class AdminAlarmPollWorker extends Worker {
 
     @NonNull @Override public Result doWork() {
         Context context = getApplicationContext();
+        // An upgraded app may run background work before its activity is opened.
+        AdminAlarmNotification.createChannel(context);
         AdminAlarmStore.Credential credential = AdminAlarmStore.read(context);
         if (credential == null || !credential.registered || !AdminAlarmNotification.canPost(context)) return Result.success();
         try {

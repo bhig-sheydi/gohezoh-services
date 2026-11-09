@@ -14,7 +14,9 @@ import android.os.Build;
 
 /** One high-priority notification per new admin incident, using a sound bundled in the APK. */
 final class AdminAlarmNotification {
-    static final String CHANNEL = "admin_service_alarm_v2";
+    // Android keeps a channel's sound and vibration settings after app updates.
+    // A new ID is required for the revised, more audible alarm to take effect.
+    static final String CHANNEL = "admin_service_alarm_v3";
 
     private AdminAlarmNotification() { }
 
@@ -22,13 +24,14 @@ final class AdminAlarmNotification {
         NotificationManager manager = context.getSystemService(NotificationManager.class);
         NotificationChannel channel = new NotificationChannel(CHANNEL,
             "Super Admin service alarms", NotificationManager.IMPORTANCE_HIGH);
-        channel.setDescription("Service spikes and low profit-margin warnings.");
+        channel.setDescription("Audible service spikes and low profit-margin warnings.");
         channel.enableVibration(true);
-        channel.setVibrationPattern(new long[]{0, 300, 150, 400});
+        channel.setVibrationPattern(new long[]{0, 600, 250, 700, 250, 900});
+        channel.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
         // Name-based resource URI remains stable when Android changes numeric resource IDs on upgrade.
         Uri sound = Uri.parse("android.resource://" + context.getPackageName() + "/raw/admin_alert");
         channel.setSound(sound, new AudioAttributes.Builder()
-            .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
+            .setUsage(AudioAttributes.USAGE_ALARM)
             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build());
         manager.createNotificationChannel(channel);
     }
@@ -40,6 +43,11 @@ final class AdminAlarmNotification {
         NotificationChannel channel = manager.getNotificationChannel(CHANNEL);
         return manager.areNotificationsEnabled() && channel != null
             && channel.getImportance() >= NotificationManager.IMPORTANCE_DEFAULT;
+    }
+
+    static boolean hasSound(Context context) {
+        NotificationChannel channel = context.getSystemService(NotificationManager.class).getNotificationChannel(CHANNEL);
+        return channel != null && channel.getSound() != null;
     }
 
     static boolean show(Context context, String alertId, String title, String body) {
@@ -57,7 +65,6 @@ final class AdminAlarmNotification {
             .setStyle(new Notification.BigTextStyle().bigText(body))
             .setContentIntent(tap)
             .setCategory(Notification.CATEGORY_ALARM)
-            .setVisibility(Notification.VISIBILITY_PRIVATE)
             .setVisibility(Notification.VISIBILITY_PRIVATE)
             .setAutoCancel(true)
             .build();
