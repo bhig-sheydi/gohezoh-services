@@ -76,6 +76,7 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
   const [phoneStatus, setPhoneStatus] = useState<'disabled' | 'requesting' | 'enabled' | 'unavailable'>('disabled')
   const [phoneError, setPhoneError] = useState('')
   const [phoneMessage, setPhoneMessage] = useState('')
+  const [phoneCheck, setPhoneCheck] = useState<{ lastAttempt?: number; lastServerCheck?: number; outcome?: string }>({})
   const [checkedNow, setCheckedNow] = useState(0)
   const [costRefreshKey, setCostRefreshKey] = useState(0)
   const [costAlarm, setCostAlarm] = useState(false)
@@ -122,6 +123,8 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
     let mounted = true
     const stopListening = listenNativeAdminPush((state) => {
       if (!mounted) return
+      setPhoneCheck({ lastAttempt: state.lastPollAttemptAt,
+        lastServerCheck: state.lastServerCheckAt, outcome: state.lastPollOutcome })
       if (state.status === 'enabled') {
         setPhoneStatus('enabled'); setPhoneError(''); setPhoneMessage(state.message); return
       }
@@ -142,7 +145,15 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
       })
     })
     requestNativeAdminPush(false)
-    return () => { mounted = false; stopListening() }
+    const statusTimer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') requestNativeAdminPush(false)
+    }, 60_000)
+    const refreshStatus = () => { if (document.visibilityState === 'visible') requestNativeAdminPush(false) }
+    document.addEventListener('visibilitychange', refreshStatus)
+    return () => {
+      mounted = false; stopListening(); window.clearInterval(statusTimer)
+      document.removeEventListener('visibilitychange', refreshStatus)
+    }
   }, [supabase])
 
   function enablePhonePush() {
@@ -236,7 +247,11 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
     {hasNativeAdminPush() && <div className="traffic-phone-alerts">
       <div><strong>Android background alarm</strong><small>{phoneStatus === 'enabled' ? phoneMessage || 'Enabled. Android checks about every 15 minutes; battery saving may delay alerts.'
         : phoneStatus === 'requesting' ? 'Connecting phone notifications...'
-          : 'Enable alerts for spikes and the 10% margin threshold, including with the screen off.'}</small></div>
+          : 'Enable alerts for spikes and the 10% margin threshold, including with the screen off.'}</small>
+        {phoneStatus === 'enabled' && <small>Last server check: {phoneCheck.lastServerCheck && phoneCheck.lastServerCheck > 0
+          ? timestamp(new Date(phoneCheck.lastServerCheck).toISOString()) : 'Never'}
+          {phoneCheck.lastAttempt && phoneCheck.lastAttempt > (phoneCheck.lastServerCheck ?? 0)
+            ? ` · Last attempt: ${timestamp(new Date(phoneCheck.lastAttempt).toISOString())}${phoneCheck.outcome ? ` (${phoneCheck.outcome})` : ''}` : ''}</small>}</div>
       <button type="button" className="secondary-button"
         disabled={phoneStatus === 'requesting'}
         onClick={() => phoneStatus === 'enabled' ? void disablePhonePush() : enablePhonePush()}>

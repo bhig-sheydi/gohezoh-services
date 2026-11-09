@@ -93,7 +93,7 @@ describe('super-admin traffic monitor', () => {
     window.dispatchEvent(new CustomEvent('kwik-parsel:admin-push', { detail: {
       type: 'admin:poll-state', status: 'credentials',
       deviceId: '62947c6b-6317-46bb-bb6a-98e189a87a37', deviceSecret: 'a'.repeat(43),
-      message: 'Phone notifications are ready.',
+      message: 'Phone notifications are ready.', lastPollAttemptAt: 0, lastServerCheckAt: 0,
     } }))
     await waitFor(() => expect(rpc).toHaveBeenCalledWith('admin_register_alarm_device', {
       p_device_id: '62947c6b-6317-46bb-bb6a-98e189a87a37',
@@ -101,6 +101,7 @@ describe('super-admin traffic monitor', () => {
     }))
     expect(postMessage).toHaveBeenCalledWith('{"type":"admin:poll-registered"}')
     expect(await screen.findByText(/Android checks about every 15 minutes/)).toBeInTheDocument()
+    expect(screen.getByText('Last server check: Never')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Test phone alarm' }))
     expect(postMessage).toHaveBeenCalledWith('{"type":"admin:test-notification"}')
     await userEvent.click(screen.getByRole('button', { name: 'Sound settings' }))

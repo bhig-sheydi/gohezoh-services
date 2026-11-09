@@ -6,6 +6,9 @@ export type NativeAdminPushState = {
   deviceId?: string
   deviceSecret?: string
   message: string
+  lastPollAttemptAt?: number
+  lastServerCheckAt?: number
+  lastPollOutcome?: string
 }
 
 export function hasNativeAdminPush(): boolean {
@@ -62,7 +65,12 @@ export function listenNativeAdminPush(callback: (state: NativeAdminPushState) =>
     callback({ status: value.status as NativeAdminPushState['status'],
       deviceId: typeof value.deviceId === 'string' ? value.deviceId : undefined,
       deviceSecret: typeof value.deviceSecret === 'string' ? value.deviceSecret : undefined,
-      message: typeof value.message === 'string' ? value.message : 'Phone alerts are unavailable.' })
+      message: typeof value.message === 'string' ? value.message : 'Phone alerts are unavailable.',
+      lastPollAttemptAt: typeof value.lastPollAttemptAt === 'number' && Number.isFinite(value.lastPollAttemptAt)
+        ? value.lastPollAttemptAt : undefined,
+      lastServerCheckAt: typeof value.lastServerCheckAt === 'number' && Number.isFinite(value.lastServerCheckAt)
+        ? value.lastServerCheckAt : undefined,
+      lastPollOutcome: typeof value.lastPollOutcome === 'string' ? value.lastPollOutcome.slice(0, 100) : undefined })
   }
   window.addEventListener('kwik-parsel:admin-push', listener)
   return () => window.removeEventListener('kwik-parsel:admin-push', listener)

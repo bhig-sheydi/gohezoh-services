@@ -59,6 +59,9 @@ public final class MainActivity extends Activity {
                 });
         }
         AdminAlarmNotification.createChannel(this);
+        // Re-arm after a force-stop once the admin opens the app again.
+        try { AdminAlarmScheduler.restoreAfterSystemEvent(this); }
+        catch (RuntimeException ignored) { /* Opening the app must still work if Android delays alarms. */ }
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
             web.loadData("<h2>Update Android System WebView</h2><p>This app needs a newer Android System WebView for secure phone tracking.</p>", "text/html", "UTF-8");
             return;
@@ -245,8 +248,8 @@ public final class MainActivity extends Activity {
     }
 
     private void disableAdminPoll() {
-        AdminAlarmScheduler.disable(this);
         AdminAlarmStore.clear(this);
+        AdminAlarmScheduler.disable(this);
         AdminAlarmPollWorker.clearDeliveryState(this);
         sendAdminPollEvent("disabled", null, "Phone service alarms are off on this device.");
     }
@@ -281,6 +284,9 @@ public final class MainActivity extends Activity {
         try {
             JSONObject detail = new JSONObject().put("type", "admin:poll-state")
                 .put("status", status).put("message", message);
+            detail.put("lastPollAttemptAt", AdminAlarmPollWorker.lastPollAttemptAt(this));
+            detail.put("lastServerCheckAt", AdminAlarmPollWorker.lastServerCheckAt(this));
+            detail.put("lastPollOutcome", AdminAlarmPollWorker.lastPollOutcome(this));
             if (credential != null) {
                 detail.put("deviceId", credential.deviceId);
                 detail.put("deviceSecret", credential.secret);
