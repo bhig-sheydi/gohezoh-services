@@ -56,7 +56,7 @@ Deno.serve(async (request) => {
         const response = await fetch(`https://fcm.googleapis.com/v1/projects/${account.project_id}/messages:send`, {
           method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ message: { token: row.device_token,
-            data: { event_id: row.alert_id, type: 'spike' },
+            data: { event_id: row.alert_id, type: row.event_type === 'margin' ? 'margin' : 'spike' },
             android: { priority: 'HIGH', ttl: '300s' } } }), signal: AbortSignal.timeout(10_000),
         })
         ok = response.ok
