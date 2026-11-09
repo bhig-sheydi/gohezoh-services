@@ -100,7 +100,14 @@ describe('super-admin traffic monitor', () => {
       p_secret: 'a'.repeat(43),
     }))
     expect(postMessage).toHaveBeenCalledWith('{"type":"admin:poll-registered"}')
-    expect(await screen.findByText(/Android checks about every 15 minutes/)).toBeInTheDocument()
+    window.dispatchEvent(new CustomEvent('kwik-parsel:admin-push', { detail: {
+      type: 'admin:poll-state', status: 'enabled', message: 'Ready',
+      deviceId: '62947c6b-6317-46bb-bb6a-98e189a87a37', fcmToken: 'f'.repeat(64),
+    } }))
+    await waitFor(() => expect(rpc).toHaveBeenCalledWith('admin_register_spike_push_device', {
+      p_device_id: '62947c6b-6317-46bb-bb6a-98e189a87a37', p_token: 'f'.repeat(64),
+    }))
+    expect(await screen.findByText(/Remote push is awaiting server setup/)).toBeInTheDocument()
     expect(screen.getByText('Last server check: Never')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: 'Test phone alarm' }))
     expect(postMessage).toHaveBeenCalledWith('{"type":"admin:test-notification"}')

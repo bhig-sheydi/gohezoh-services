@@ -5,6 +5,7 @@ export type NativeAdminPushState = {
   status: 'credentials' | 'enabled' | 'disabled' | 'unavailable' | 'error'
   deviceId?: string
   deviceSecret?: string
+  fcmToken?: string
   message: string
   lastPollAttemptAt?: number
   lastServerCheckAt?: number
@@ -65,6 +66,7 @@ export function listenNativeAdminPush(callback: (state: NativeAdminPushState) =>
     callback({ status: value.status as NativeAdminPushState['status'],
       deviceId: typeof value.deviceId === 'string' ? value.deviceId : undefined,
       deviceSecret: typeof value.deviceSecret === 'string' ? value.deviceSecret : undefined,
+      fcmToken: typeof value.fcmToken === 'string' ? value.fcmToken : undefined,
       message: typeof value.message === 'string' ? value.message : 'Phone alerts are unavailable.',
       lastPollAttemptAt: typeof value.lastPollAttemptAt === 'number' && Number.isFinite(value.lastPollAttemptAt)
         ? value.lastPollAttemptAt : undefined,

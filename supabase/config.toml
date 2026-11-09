@@ -456,3 +456,7 @@ verify_jwt = false
 # Android supplies a per-phone random credential; the function checks its
 # digest and the user's current Super Admin role in the database.
 verify_jwt = false
+
+[functions.admin-spike-push]
+# Called only by the scheduled database worker using a dedicated secret.
+verify_jwt = false

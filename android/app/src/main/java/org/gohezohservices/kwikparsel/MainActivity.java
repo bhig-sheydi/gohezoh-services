@@ -32,6 +32,7 @@ import org.json.JSONObject;
 
 import java.util.Collections;
 import java.util.concurrent.atomic.AtomicBoolean;
+import com.google.firebase.messaging.FirebaseMessaging;
 
 /** Trusted-site WebView. The native message bridge is available to the main frame only. */
 public final class MainActivity extends Activity {
@@ -208,7 +209,7 @@ public final class MainActivity extends Activity {
             sendAdminPollEvent("disabled", null, "Allow Android service notifications to hear alarms.");
         } else if (credential != null && credential.registered) {
             if (AdminAlarmNotification.hasSound(this))
-                sendAdminPollEvent("enabled", null, "Phone service alarms are on.");
+                sendAdminPushState("enabled", null, "Phone service alarms are on.");
             else sendAdminPollEvent("error", null, "Service alarm sound is off in Android notification settings.");
         } else {
             sendAdminPollEvent("disabled", null, "Turn on phone service alarms in the Super Admin dashboard.");
@@ -244,7 +245,7 @@ public final class MainActivity extends Activity {
             return;
         }
         AdminAlarmScheduler.enable(this);
-        sendAdminPollEvent("enabled", null, "Phone service alarms are on.");
+        sendAdminPushState("enabled", null, "Phone service alarms are on.");
     }
 
     private void disableAdminPoll() {
@@ -293,6 +294,25 @@ public final class MainActivity extends Activity {
             }
             sendEvent("kwik-parsel:admin-push", detail);
         } catch (Exception ignored) { /* The web screen can request state again. */ }
+    }
+
+    private void sendAdminPushState(String status, AdminAlarmStore.Credential credential, String message) {
+        FirebaseMessaging.getInstance().getToken().addOnCompleteListener(task -> {
+            if (!task.isSuccessful()) {
+                sendAdminPollEvent("error", null, "Firebase phone alerts are unavailable.");
+                return;
+            }
+            try {
+                JSONObject detail = new JSONObject().put("type", "admin:poll-state")
+                    .put("status", status).put("message", message)
+                    .put("deviceId", AdminAlarmStore.read(this).deviceId)
+                    .put("fcmToken", task.getResult());
+                detail.put("lastPollAttemptAt", AdminAlarmPollWorker.lastPollAttemptAt(this));
+                detail.put("lastServerCheckAt", AdminAlarmPollWorker.lastServerCheckAt(this));
+                detail.put("lastPollOutcome", AdminAlarmPollWorker.lastPollOutcome(this));
+                sendEvent("kwik-parsel:admin-push", detail);
+            } catch (Exception ignored) { sendAdminPollEvent("error", null, "Phone alerts could not register."); }
+        });
     }
 
     private void showRiderLocationDisclosure(Runnable continueAction) {

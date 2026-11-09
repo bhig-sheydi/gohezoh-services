@@ -75,7 +75,7 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
   const [acknowledging, setAcknowledging] = useState<string | null>(null)
   const [phoneStatus, setPhoneStatus] = useState<'disabled' | 'requesting' | 'enabled' | 'unavailable'>('disabled')
   const [phoneError, setPhoneError] = useState('')
-  const [phoneMessage, setPhoneMessage] = useState('')
+  const [remotePushEnabled, setRemotePushEnabled] = useState(false)
   const [phoneCheck, setPhoneCheck] = useState<{ lastAttempt?: number; lastServerCheck?: number; outcome?: string }>({})
   const [checkedNow, setCheckedNow] = useState(0)
   const [costRefreshKey, setCostRefreshKey] = useState(0)
@@ -121,16 +121,22 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
   useEffect(() => {
     if (!hasNativeAdminPush()) return
     let mounted = true
+    void supabase.rpc('admin_spike_push_configuration').then(({ data, error: configError }) => {
+      if (mounted && !configError) setRemotePushEnabled(data?.enabled === true)
+    })
     const stopListening = listenNativeAdminPush((state) => {
       if (!mounted) return
       setPhoneCheck({ lastAttempt: state.lastPollAttemptAt,
         lastServerCheck: state.lastServerCheckAt, outcome: state.lastPollOutcome })
       if (state.status === 'enabled') {
-        setPhoneStatus('enabled'); setPhoneError(''); setPhoneMessage(state.message); return
+        setPhoneStatus('enabled'); setPhoneError('')
+        if (state.deviceId && state.fcmToken) void supabase.rpc('admin_register_spike_push_device', {
+          p_device_id: state.deviceId, p_token: state.fcmToken,
+        })
+        return
       }
       if (state.status !== 'credentials') {
         setPhoneStatus(state.status === 'unavailable' ? 'unavailable' : 'disabled')
-        setPhoneMessage('')
         if (state.status === 'error' || state.status === 'unavailable') setPhoneError(state.message)
         return
       }
@@ -160,7 +166,6 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
     if (!hasNativeAdminPush()) return
     setNativeAdminPushPreferred(true)
     setPhoneError('')
-    setPhoneMessage('')
     setPhoneStatus('requesting')
     requestNativeAdminPush(true)
   }
@@ -169,9 +174,9 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
     setNativeAdminPushPreferred(false)
     disableNativeAdminPush()
     setPhoneStatus('disabled')
-    setPhoneMessage('')
     const deviceId = getNativeAdminPushDeviceId(false)
     if (deviceId) {
+      await supabase.rpc('admin_unregister_spike_push_device', { p_device_id: deviceId })
       const { error: unregisterError } = await supabase.rpc('admin_unregister_alarm_device', { p_device_id: deviceId })
       if (unregisterError) setPhoneError(unregisterError.message)
     }
@@ -245,7 +250,8 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
       </div>
     </header>
     {hasNativeAdminPush() && <div className="traffic-phone-alerts">
-      <div><strong>Android background alarm</strong><small>{phoneStatus === 'enabled' ? phoneMessage || 'Enabled. Android checks about every 15 minutes; battery saving may delay alerts.'
+      <div><strong>Android background alarm</strong><small>{phoneStatus === 'enabled'
+        ? remotePushEnabled ? 'Phone alerts enabled. Firebase push is active.' : 'Phone alerts enabled. Remote push is awaiting server setup.'
         : phoneStatus === 'requesting' ? 'Connecting phone notifications...'
           : 'Enable alerts for spikes and the 10% margin threshold, including with the screen off.'}</small>
         {phoneStatus === 'enabled' && <small>Last server check: {phoneCheck.lastServerCheck && phoneCheck.lastServerCheck > 0
@@ -258,7 +264,7 @@ export default function AdminTrafficSpikePanel({ supabase }: { supabase: Supabas
         {phoneStatus === 'enabled' ? 'Disable phone alerts' : 'Enable phone alerts'}
       </button>
       {phoneStatus === 'enabled' && <button type="button" className="secondary-button"
-        onClick={() => { setPhoneMessage('Test alarm scheduled. Lock your phone now.'); requestNativeAdminAlarmTest() }}>
+        onClick={requestNativeAdminAlarmTest}>
         Test phone alarm
       </button>}
       <button type="button" className="secondary-button" onClick={openNativeAdminAlarmSettings}>Sound settings</button>

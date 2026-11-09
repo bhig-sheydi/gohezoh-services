@@ -17,7 +17,7 @@ import androidx.work.WorkManager;
 
 import java.util.concurrent.TimeUnit;
 
-/** Android schedules background checks; no always-running foreground service or Firebase. */
+/** Android schedules fallback background checks when FCM delivery is delayed. */
 final class AdminAlarmScheduler {
     private static final String PERIODIC = "admin_alarm_periodic_v1";
     private static final String IMMEDIATE = "admin_alarm_immediate_v1";

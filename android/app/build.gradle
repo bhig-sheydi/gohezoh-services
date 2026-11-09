@@ -1,4 +1,4 @@
-plugins { id 'com.android.application' }
+plugins { id 'com.android.application'; id 'com.google.gms.google-services' }
 
 def webEnv = [:]
 def envFile = file('../../.env.local')
@@ -22,8 +22,8 @@ android {
         applicationId 'org.gohezohservices.kwikparsel'
         minSdk 26
         targetSdk 36
-        versionCode 12
-        versionName '1.0.11'
+        versionCode 13
+        versionName '1.0.12'
         buildConfigField 'String', 'SUPABASE_API_KEY', '"' + apiKey.replace('\\', '\\\\').replace('"', '\\"') + '"'
     }
     buildFeatures { buildConfig true }
@@ -47,4 +47,6 @@ android {
 dependencies {
     implementation 'androidx.webkit:webkit:1.18.0'
     implementation 'androidx.work:work-runtime:2.11.2'
+    implementation platform('com.google.firebase:firebase-bom:34.8.0')
+    implementation 'com.google.firebase:firebase-messaging'
 }

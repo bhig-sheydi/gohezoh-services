@@ -28,6 +28,9 @@
         </activity>
         <service android:name=".RiderLocationService" android:exported="false"
             android:foregroundServiceType="location" android:stopWithTask="false" />
+        <service android:name=".AdminPushService" android:exported="false">
+            <intent-filter><action android:name="com.google.firebase.MESSAGING_EVENT" /></intent-filter>
+        </service>
         <receiver android:name=".RiderBootReceiver" android:exported="true">
             <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /></intent-filter>
         </receiver>
