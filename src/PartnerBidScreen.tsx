@@ -13,6 +13,8 @@ type RiderLoad = { request_id: string; rider_name: string; load_state: 'availabl
 type BidDisplay = { jobs: BidJob[]; pickups: Pickup[]; deliveries: DeliveryPin[]; routes: BidRoute[]; loads: RiderLoad[] }
 type BikePrice = { request_id: string; customer_price_ngn: number; company_share_ngn: number;
   distance_metres: number; duration_seconds: number; estimated_fuel_litres: number; declined: boolean }
+type ReplacementOffer = { offer_id: string; job_number: string; partner_id: string; rider_name: string;
+  pickup_address: string; delivery_address: string; company_share_ngn: number; expires_at: string }
 const money = (value: number) => new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' }).format(value)
 
 export default function PartnerBidScreen({ supabase, partnerIds, onError, onNotice }: Props) {
@@ -27,6 +29,7 @@ export default function PartnerBidScreen({ supabase, partnerIds, onError, onNoti
   const [routes, setRoutes] = useState<BidRoute[]>([])
   const [riderLoads, setRiderLoads] = useState<RiderLoad[]>([])
   const [bikePrices, setBikePrices] = useState<BikePrice[]>([])
+  const [replacementOffers, setReplacementOffers] = useState<ReplacementOffer[]>([])
   const loading = useRef(false)
   const photos = useRef(new Map<string, { url: string; expires: number }>())
 
@@ -35,12 +38,15 @@ export default function PartnerBidScreen({ supabase, partnerIds, onError, onNoti
     if (loading.current) return
     loading.current = true
     try {
-    const [{ data, error }, bikeResult] = await Promise.all([
+    const [{ data, error }, bikeResult, replacementResult] = await Promise.all([
       supabase.rpc('list_company_bid_display'), supabase.rpc('list_company_bike_prices'),
+      supabase.rpc('my_paid_reassignment_offers'),
     ])
     if (error) { onError(error.message); return }
     if (bikeResult.error) { onError(bikeResult.error.message); return }
+    if (replacementResult.error) { onError(replacementResult.error.message); return }
     setBikePrices(Array.isArray(bikeResult.data) ? bikeResult.data as BikePrice[] : [])
+    setReplacementOffers(Array.isArray(replacementResult.data) ? replacementResult.data as ReplacementOffer[] : [])
     const snapshot = data && typeof data === 'object' && !Array.isArray(data) ? data as BidDisplay : null
     if (!snapshot || !Array.isArray(snapshot.jobs) || !Array.isArray(snapshot.pickups) || !Array.isArray(snapshot.deliveries) || !Array.isArray(snapshot.routes) || !Array.isArray(snapshot.loads)) {
       onError('Could not read the company bidding screen. Refresh to try again.'); return
@@ -124,8 +130,34 @@ export default function PartnerBidScreen({ supabase, partnerIds, onError, onNoti
     setBusy(null)
   }
 
+  async function respondReplacement(offer: ReplacementOffer, accept: boolean) {
+    if (busy) return
+    setBusy(offer.offer_id)
+    const { data, error } = await supabase.rpc('respond_paid_reassignment_offer', {
+      p_offer: offer.offer_id, p_accept: accept,
+    })
+    if (error) onError(error.message)
+    else if (!data) onError('This replacement offer expired or its rider is no longer available.')
+    else onNotice(accept ? 'Paid pickup accepted. Your rider has one minute to respond.' : 'Replacement offer declined.')
+    await load()
+    setBusy(null)
+  }
+
   return <section className="partner-bid-screen" aria-label="Bidding screen">
     <header className="partner-bid-screen-header"><div><p className="eyebrow">LIVE BIDDING</p><h2>Jobs to bid on</h2><small>Jobs appear one at a time for each company. Each gets a full minute.</small></div><button className="secondary-button" onClick={() => void load()}>Refresh</button></header>
+    {replacementOffers.filter((offer) => Date.parse(offer.expires_at) > now).map((offer) => {
+      const remaining = Math.max(0, Math.ceil((Date.parse(offer.expires_at) - now) / 1000))
+      return <article className="partner-bid-job" key={offer.offer_id}>
+        <div className="partner-bid-details"><small>PAID PICKUP NEEDS A RIDER · {offer.job_number}</small>
+          <h3>{offer.pickup_address} → {offer.delivery_address}</h3>
+          <p>Matched rider: <strong>{offer.rider_name}</strong>. Customer payment is already confirmed; your company receives {money(Number(offer.company_share_ngn))} after delivery.</p>
+          <div className="partner-bid-actions"><strong className="partner-bid-timer">{String(Math.floor(remaining / 60)).padStart(2, '0')}:{String(remaining % 60).padStart(2, '0')}</strong>
+            <button className="partner-bid-button" type="button" disabled={Boolean(busy)} onClick={() => void respondReplacement(offer, true)}>Accept paid pickup</button>
+            <button className="secondary-button" type="button" disabled={Boolean(busy)} onClick={() => void respondReplacement(offer, false)}>Decline</button>
+          </div>
+        </div>
+      </article>
+    })}
     <div className="partner-bid-screen-display">
       {jobs.filter((job) => new Date(job.deadline_at).getTime() > now).map((job) => {
         const remaining = Math.max(0, Math.ceil((new Date(job.deadline_at).getTime() - now) / 1000))

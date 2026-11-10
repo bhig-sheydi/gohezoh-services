@@ -53,6 +53,8 @@ final class RidePushNotification {
         switch (type) {
             case "company_invitation":
                 title = "New delivery request"; body = "Open your company dashboard to respond now."; path = "/"; break;
+            case "company_reassignment_offer":
+                title = "Paid pickup needs a rider"; body = "Open your company dashboard to accept this fixed-price job within one minute."; path = "/"; break;
             case "rider_assignment":
                 title = "New ride assigned"; body = "Open your rider dashboard for pickup details."; path = "/rider"; break;
             case "customer_match":

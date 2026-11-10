@@ -3,10 +3,12 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import PartnerBidScreen from './PartnerBidScreen'
 
-function setup(jobs: Record<string, unknown>[], routes: Record<string, unknown>[] = [], loads: Record<string, unknown>[] = [], bikePrices: Record<string, unknown>[] = []) {
+function setup(jobs: Record<string, unknown>[], routes: Record<string, unknown>[] = [], loads: Record<string, unknown>[] = [], bikePrices: Record<string, unknown>[] = [], offers: Record<string, unknown>[] = []) {
   const rpc = vi.fn(async (name: string) => name === 'list_company_bid_display'
     ? { data: { jobs, pickups: [], deliveries: [], routes, loads }, error: null }
-    : name === 'list_company_bike_prices' ? { data: bikePrices, error: null } : { data: 'bid-1', error: null })
+    : name === 'list_company_bike_prices' ? { data: bikePrices, error: null }
+      : name === 'my_paid_reassignment_offers' ? { data: offers, error: null }
+        : name === 'respond_paid_reassignment_offer' ? { data: true, error: null } : { data: 'bid-1', error: null })
   const createSignedUrl = vi.fn(async () => ({ data: { signedUrl: 'https://example.test/parcel' }, error: null }))
   let onWindowChange = () => {}
   const channel = { on: vi.fn((_type, _filter, callback: () => void) => { onWindowChange = callback; return channel }), subscribe: vi.fn(() => channel) }
@@ -16,6 +18,22 @@ function setup(jobs: Record<string, unknown>[], routes: Record<string, unknown>[
 }
 
 describe('company bidding screen', () => {
+  it('shows a paid replacement at the fixed company payout and lets management accept it', async () => {
+    const { supabase, rpc } = setup([], [], [], [], [{
+      offer_id: 'offer-1', job_number: 'JOB-101', partner_id: 'partner-1', rider_name: 'Ada Rider',
+      pickup_address: 'Eliozu', delivery_address: 'Trans Amadi', company_share_ngn: 1575,
+      expires_at: new Date(Date.now() + 60_000).toISOString(),
+    }])
+    render(<PartnerBidScreen supabase={supabase} partnerIds={['partner-1']} onError={vi.fn()} onNotice={vi.fn()} />)
+    expect(await screen.findByText(/PAID PICKUP NEEDS A RIDER/)).toBeInTheDocument()
+    expect(screen.getByText(/Eliozu.*Trans Amadi/)).toBeInTheDocument()
+    expect(screen.getByText(/Customer payment is already confirmed/)).toHaveTextContent('Ada Rider')
+    expect(screen.getByText(/Customer payment is already confirmed/)).toHaveTextContent('₦1,575.00')
+    fireEvent.click(screen.getByRole('button', { name: 'Accept paid pickup' }))
+    await waitFor(() => expect(rpc).toHaveBeenCalledWith('respond_paid_reassignment_offer', {
+      p_offer: 'offer-1', p_accept: true,
+    }))
+  })
   it('accepts a fixed motorcycle offer without entering a bid', async () => {
     const { supabase, rpc } = setup([{
       request_id: 'request-bike', request_number: 'REQ-BIKE', pickup_city: 'Port Harcourt', delivery_city: 'Port Harcourt',

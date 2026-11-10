@@ -261,6 +261,21 @@ begin
     raise exception 'Paid booking did not route the rider and record the 25 percent platform fee'; end if;
   if (select count(*) from public.orders where service_request_id=v_request)<>1 then raise exception 'Duplicate order'; end if;
   select j.id into v_job from public.jobs j join public.orders o on o.id=j.order_id where o.service_request_id=v_request;
+  begin
+    perform set_config('request.jwt.claim.sub',v_manager::text,true);
+    perform set_config('request.jwt.claims',jsonb_build_object('sub',v_manager,'role','authenticated')::text,true);
+    update public.jobs set status='pickup_scheduled' where id=v_job;
+    perform set_config('request.jwt.claims','{"role":"service_role"}',true);
+    update public.rider_assignment_responses set timed_out_at=now()
+      where job_id=v_job and rider_id=v_rider and timed_out_at is null;
+    update public.jobs set status='partner_assigned',assigned_rider_id=null,
+      route_assignment_issue='Rider missed response; searching for a route-matched replacement'
+      where id=v_job;
+    if (select status from public.jobs where id=v_job)<>'partner_assigned' then
+      raise exception 'Scheduled missed pickup did not return to assignable state'; end if;
+    raise exception using errcode='PT003',message='rollback scheduled reroute fixture';
+  exception when sqlstate 'PT003' then null;
+  end;
   -- Paid reassignment keeps the accepted company and price, and never retries
   -- a rider who already missed the job. Roll back this branch of the fixture.
   begin
@@ -281,6 +296,31 @@ begin
       raise exception 'Reassignment changed the paid company or payout'; end if;
     raise exception using errcode='PT001',message='rollback reassignment fixture';
   exception when sqlstate 'PT001' then null;
+  end;
+  begin
+    update public.rider_assignment_responses set timed_out_at=now()
+      where job_id=v_job and rider_id=v_rider and timed_out_at is null;
+    update public.jobs set assigned_rider_id=null,route_assignment_issue='Rider missed response; searching for a route-matched replacement'
+      where id=v_job;
+    update public.rider_presence set position=extensions.st_setsrid(extensions.st_makepoint(3.401,6.45),4326)::extensions.geography,
+      received_at=now(),captured_at=now() where user_id=v_far_rider;
+    insert into public.partner_corridor_coverage(partner_id,corridor_id) values(v_far_company,v_corridor);
+    if not public.offer_paid_reassignment(v_job,v_far_company,v_far_rider,2,12) then
+      raise exception 'Eligible second company did not get paid pickup offer'; end if;
+    perform set_config('request.jwt.claim.sub',v_far_manager::text,true);
+    perform set_config('request.jwt.claims',jsonb_build_object('sub',v_far_manager,'role','authenticated')::text,true);
+    if not exists(select 1 from public.my_paid_reassignment_offers() where job_number=(select job_number from public.jobs where id=v_job)) then
+      raise exception 'Second company cannot see its paid pickup offer'; end if;
+    if not public.respond_paid_reassignment_offer(
+      (select id from public.paid_reassignment_offers where job_id=v_job),true) then
+      raise exception 'Second company could not accept paid pickup'; end if;
+    if not exists(select 1 from public.jobs j join public.job_financials f on f.job_id=j.id
+      where j.id=v_job and j.partner_id=v_far_company and j.assigned_rider_id=v_far_rider and f.partner_cost=1500)
+      or not exists(select 1 from public.partner_assignments a
+        where a.job_id=v_job and a.partner_id=v_far_company and a.status='accepted') then
+      raise exception 'Cross-company reassignment lost the paid payout or assignment'; end if;
+    raise exception using errcode='PT002',message='rollback company replacement fixture';
+  exception when sqlstate 'PT002' then null;
   end;
   update public.rider_credentials set load_state='full' where user_id=v_rider2;
   v_denied:=false;

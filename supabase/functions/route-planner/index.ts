@@ -209,14 +209,20 @@ Deno.serve(async (request) => {
       .select('rider_id').eq('job_id', context.job_id)
     if (previousError) throw new Error(`Previous rider lookup: ${previousError.message}`)
     const missed = new Set((previous ?? []).map((row) => row.rider_id))
-    const eligible = candidates.filter((candidate) => candidate.partner_id === context.partner_id &&
-      !missed.has(candidate.rider_id) && !candidate.has_unroutable_jobs &&
+    const { data: offers, error: offerError } = await db.from('paid_reassignment_offers')
+      .select('partner_id,rider_id,status,expires_at').eq('job_id', context.job_id)
+    if (offerError) throw new Error(`Replacement offer lookup: ${offerError.message}`)
+    if ((offers ?? []).some((offer) => offer.status === 'pending' && Date.parse(offer.expires_at) > Date.now())) return
+    const offered = new Set((offers ?? []).map((offer) => `${offer.partner_id}:${offer.rider_id}`))
+    const eligible = candidates.filter((candidate) =>
+      !missed.has(candidate.rider_id) && !offered.has(`${candidate.partner_id}:${candidate.rider_id}`) && !candidate.has_unroutable_jobs &&
       !(candidate.active_jobs ?? []).some((job) => job.status === 'exception'))
     if (!eligible.length) return
-    const closingRows = await rpc('dispatch_company_closing_times', { p_partners: [context.partner_id] }) as
+    const closingRows = await rpc('dispatch_company_closing_times', {
+      p_partners: [...new Set(eligible.map((candidate) => candidate.partner_id))],
+    }) as
       Array<{ partner_id: string; closes_at: string | null }>
-    const closingAt = closingRows.find((row) => row.partner_id === context.partner_id)?.closes_at
-    if (!closingAt || Date.parse(closingAt) - Date.now() <= 20 * 60_000) return
+    const closingByCompany = new Map(closingRows.map((row) => [row.partner_id, row.closes_at]))
     const proposals = []
     const directLegCache = new Map<string, RoadLeg>()
     const economyMode = await getEconomyMode()
@@ -224,6 +230,8 @@ Deno.serve(async (request) => {
       candidate, distance_metres: candidate.distance_metres,
     })), economyMode, Math.floor(Date.now() / 120_000))
     for (const { candidate } of selected) {
+      const closingAt = closingByCompany.get(candidate.partner_id)
+      if (!closingAt || Date.parse(closingAt) - Date.now() <= 20 * 60_000) continue
       const active = candidate.active_jobs ?? []
       const stored = (candidate.existing_stops ?? []).filter((s) => active.some((job) =>
         job.job_id === s.job_id && (s.kind === 'dropoff' || job.status === 'pickup_scheduled')))
@@ -248,10 +256,18 @@ Deno.serve(async (request) => {
         proposals.push(proposal)
     }
     for (const proposal of proposals.sort(compareProposals)) {
-      const assigned = await rpc('assign_paid_replacement_rider', {
-        p_job: context.job_id, p_rider: proposal.riderId, p_partner: context.partner_id,
-      })
-      if (assigned) return
+      if (proposal.companyId === context.partner_id) {
+        const assigned = await rpc('assign_paid_replacement_rider', {
+          p_job: context.job_id, p_rider: proposal.riderId, p_partner: context.partner_id,
+        })
+        if (assigned) return
+      } else {
+        const offered = await rpc('offer_paid_reassignment', {
+          p_job: context.job_id, p_partner: proposal.companyId, p_rider: proposal.riderId,
+          p_tier: proposal.tier, p_score: proposal.score,
+        })
+        if (offered) return
+      }
     }
   }
   const events = await rpc('claim_route_planner_events', { p_limit: 5 }) as Event[]
