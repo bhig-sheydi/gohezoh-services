@@ -261,6 +261,27 @@ begin
     raise exception 'Paid booking did not route the rider and record the 25 percent platform fee'; end if;
   if (select count(*) from public.orders where service_request_id=v_request)<>1 then raise exception 'Duplicate order'; end if;
   select j.id into v_job from public.jobs j join public.orders o on o.id=j.order_id where o.service_request_id=v_request;
+  -- Paid reassignment keeps the accepted company and price, and never retries
+  -- a rider who already missed the job. Roll back this branch of the fixture.
+  begin
+    update public.rider_assignment_responses set timed_out_at=now()
+      where job_id=v_job and rider_id=v_rider and timed_out_at is null;
+    update public.jobs set assigned_rider_id=null,route_assignment_issue='Rider missed response; searching for a route-matched replacement'
+      where id=v_job;
+    update public.rider_credentials set load_state='available' where user_id=v_rider2;
+    update public.rider_presence set received_at=now(),captured_at=now() where user_id=v_rider2;
+    if public.paid_reassignment_context(v_request) is null then
+      raise exception 'Paid uncollected job was unavailable to route-based reassignment'; end if;
+    if public.assign_paid_replacement_rider(v_job,v_rider,v_company) then
+      raise exception 'Missed rider was offered the same job again'; end if;
+    if not public.assign_paid_replacement_rider(v_job,v_rider2,v_company) then
+      raise exception 'Eligible replacement rider was not assigned'; end if;
+    if not exists(select 1 from public.jobs j join public.job_financials f on f.job_id=j.id
+      where j.id=v_job and j.partner_id=v_company and j.assigned_rider_id=v_rider2 and f.partner_cost=1500) then
+      raise exception 'Reassignment changed the paid company or payout'; end if;
+    raise exception using errcode='PT001',message='rollback reassignment fixture';
+  exception when sqlstate 'PT001' then null;
+  end;
   update public.rider_credentials set load_state='full' where user_id=v_rider2;
   v_denied:=false;
   begin update public.jobs set assigned_rider_id=v_rider2 where id=v_job;

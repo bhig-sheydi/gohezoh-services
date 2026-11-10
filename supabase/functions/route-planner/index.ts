@@ -1,7 +1,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { googleIdleRiderRoadMatrix, googleRoadMatrix } from '../_shared/google-road-matrix.ts'
 import { selectRoadCheckCandidates } from '../_shared/route-match-economy.ts'
-import { bestPerCompany, optimizeCommittedRoute, planRiderRoute, DEFAULT_POLICY, type Point, type Stop, type RiderCandidate, type RoadLeg } from '../_shared/rider-route-planner.ts'
+import { bestPerCompany, compareProposals, optimizeCommittedRoute, planRiderRoute, DEFAULT_POLICY, type Point, type Stop, type RiderCandidate, type RoadLeg } from '../_shared/rider-route-planner.ts'
 
 type Event = { event_id: string; request_id: string; rider_id: string | null; event_kind: string }
 type Job = { job_id: string; status: string; pickup_latitude: number | null; pickup_longitude: number | null;
@@ -191,11 +191,75 @@ Deno.serve(async (request) => {
     })
     await rpc('finalize_live_route_match', { p_request: requestId })
   }
+  const paidReassign = async (requestId: string) => {
+    const context = await rpc('paid_reassignment_context', { p_request: requestId }) as {
+      job_id: string; partner_id: string; pickup_latitude: number; pickup_longitude: number;
+      dropoff_latitude: number; dropoff_longitude: number
+    } | null
+    if (!context) return
+    const pickup = point(context.pickup_latitude, context.pickup_longitude)
+    const dropoff = point(context.dropoff_latitude, context.dropoff_longitude)
+    if (!pickup || !dropoff) throw new Error('Paid pickup or drop-off lacks coordinates')
+    const candidates = await rpc('route_planner_candidates', { p_request: requestId }) as Array<{
+      partner_id: string; rider_id: string; latitude: number; longitude: number; accuracy_metres: number;
+      gps_captured_at: string; load_state: 'available' | 'almost_full'; active_pickups: number;
+      distance_metres: number; existing_stops: StoredStop[]; active_jobs: Job[]; has_unroutable_jobs: boolean
+    }>
+    const { data: previous, error: previousError } = await db.from('rider_assignment_responses')
+      .select('rider_id').eq('job_id', context.job_id)
+    if (previousError) throw new Error(`Previous rider lookup: ${previousError.message}`)
+    const missed = new Set((previous ?? []).map((row) => row.rider_id))
+    const eligible = candidates.filter((candidate) => candidate.partner_id === context.partner_id &&
+      !missed.has(candidate.rider_id) && !candidate.has_unroutable_jobs &&
+      !(candidate.active_jobs ?? []).some((job) => job.status === 'exception'))
+    if (!eligible.length) return
+    const closingRows = await rpc('dispatch_company_closing_times', { p_partners: [context.partner_id] }) as
+      Array<{ partner_id: string; closes_at: string | null }>
+    const closingAt = closingRows.find((row) => row.partner_id === context.partner_id)?.closes_at
+    if (!closingAt || Date.parse(closingAt) - Date.now() <= 20 * 60_000) return
+    const proposals = []
+    const directLegCache = new Map<string, RoadLeg>()
+    const economyMode = await getEconomyMode()
+    const selected = selectRoadCheckCandidates(eligible.map((candidate) => ({
+      candidate, distance_metres: candidate.distance_metres,
+    })), economyMode, Math.floor(Date.now() / 120_000))
+    for (const { candidate } of selected) {
+      const active = candidate.active_jobs ?? []
+      const stored = (candidate.existing_stops ?? []).filter((s) => active.some((job) =>
+        job.job_id === s.job_id && (s.kind === 'dropoff' || job.status === 'pickup_scheduled')))
+      if ((active.length && !stored.length) || active.some((job) =>
+        !stored.some((s) => s.job_id === job.job_id && s.kind === 'dropoff') ||
+        (job.status === 'pickup_scheduled' && !stored.some((s) => s.job_id === job.job_id && s.kind === 'pickup')))) continue
+      const origin = { latitude: candidate.latitude, longitude: candidate.longitude }
+      const stops = stored.map(stop)
+      const matrix = active.length === 0 && stops.length === 0
+        ? await googleIdleRiderRoadMatrix(origin, pickup, dropoff, googleKey,
+          reserveRoadElements, fetch, directLegCache)
+        : await roads([origin, ...stops.map((s) => s.point), pickup, dropoff])
+      if (!matrix) continue
+      const rider: RiderCandidate = { riderId: candidate.rider_id, companyId: candidate.partner_id,
+        position: origin, onDuty: true, loadState: candidate.load_state,
+        locationAgeSeconds: (Date.now() - Date.parse(candidate.gps_captured_at)) / 1000,
+        locationAccuracyMetres: candidate.accuracy_metres, activePickupCount: active.length, stops }
+      const proposal = planRiderRoute(rider, { jobId: context.job_id,
+        pickup: { id: `${context.job_id}:pickup`, jobId: context.job_id, kind: 'pickup', point: pickup },
+        dropoff: { id: `${context.job_id}:dropoff`, jobId: context.job_id, kind: 'dropoff', point: dropoff } }, matrix)
+      if (proposal && Date.now() + (proposal.totalMinutes + 20) * 60_000 <= Date.parse(closingAt))
+        proposals.push(proposal)
+    }
+    for (const proposal of proposals.sort(compareProposals)) {
+      const assigned = await rpc('assign_paid_replacement_rider', {
+        p_job: context.job_id, p_rider: proposal.riderId, p_partner: context.partner_id,
+      })
+      if (assigned) return
+    }
+  }
   const events = await rpc('claim_route_planner_events', { p_limit: 5 }) as Event[]
   const outcomes = []
   for (const event of events) {
     try {
       if (event.event_kind === 'live_invitation') await liveMatch(event.request_id)
+      else if (event.event_kind === 'paid_reassignment') await paidReassign(event.request_id)
       else if (event.rider_id) await replan(event.rider_id)
       await rpc('finish_route_planner_event', { p_event_id: event.event_id, p_success: true })
       outcomes.push({ event_id: event.event_id, ok: true })
