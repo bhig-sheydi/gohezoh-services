@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { getSupabaseClient } from './lib/supabase'
 import { riderDeviceProof } from './lib/rider-device'
+import RideAlerts from './RideAlerts'
+import { clearRideAlerts } from './lib/ride-alerts'
 import { routeLabel } from './lib/route-label'
 import RiderAvailability from './RiderAvailability'
 import { stopNativeRiderTracking } from './lib/native-rider'
@@ -240,12 +242,13 @@ export default function RiderApp() {
 
   return <main className="app-shell rider-shell">
     <header className="topbar"><a className="brand" href="/rider"><span className="brand-mark">K</span><span><strong>KWIK-PARSEL</strong><small>RIDER</small></span></a>
-      {session && <button className="text-button" onClick={() => void supabase.auth.signOut()}>Sign out</button>}</header>
+      {session && <button className="text-button" onClick={() => void (async () => { await clearRideAlerts(supabase); await supabase.auth.signOut() })()}>Sign out</button>}</header>
     {!ready ? <div className="loading">Preparing rider access...</div> : !session ? <section className="form-card narrow rider-login" aria-label="Rider sign in">
       <p className="eyebrow">COMPANY RIDER</p><h1>Welcome back</h1>
       <form className="form-grid" onSubmit={(event) => void signIn(event)}><label className="field"><span>Your password</span><input name="password" type="password" autoComplete="current-password" required /></label>
         <button className="primary-button" disabled={busy}>{busy ? 'Signing in...' : 'Sign in'}</button></form>
     </section> : rider === null ? <div className="loading">Checking rider access...</div> : !rider ? <section className="form-card narrow"><h1>Rider access only</h1><p>Sign out of your current account to use a company rider link.</p></section> : <section className="rider-workspace">
+      <RideAlerts supabase={supabase} userId={session.user.id} kind="rider" />
       <div className="dashboard-heading"><div><p className="eyebrow">YOUR RIDES</p><h1>{session.user.user_metadata?.full_name ?? 'Rider'}</h1><p>{companyName}</p></div><button className="secondary-button" onClick={() => void load()}>Refresh jobs</button></div>
       <RiderAvailability supabase={supabase} />
       <RiderNextStop stop={nextStop} jobs={jobs} />

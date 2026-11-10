@@ -42,6 +42,7 @@ public final class MainActivity extends Activity {
     private static final int NOTIFICATION_PERMISSION = 43;
     private static final int CAMERA_PERMISSION = 44;
     private static final int ADMIN_NOTIFICATION_PERMISSION = 45;
+    private static final int RIDE_NOTIFICATION_PERMISSION = 46;
     private WebView web;
     private String pendingTrackingToken;
     private String pendingPositionId;
@@ -60,6 +61,7 @@ public final class MainActivity extends Activity {
                 });
         }
         AdminAlarmNotification.createChannel(this);
+        RidePushNotification.createChannel(this);
         // Re-arm after a force-stop once the admin opens the app again.
         try { AdminAlarmScheduler.restoreAfterSystemEvent(this); }
         catch (RuntimeException ignored) { /* Opening the app must still work if Android delays alarms. */ }
@@ -165,6 +167,19 @@ public final class MainActivity extends Activity {
                 case "admin:disable-poll": disableAdminPoll(); break;
                 case "admin:test-notification": testAdminNotification(); break;
                 case "admin:open-notification-settings": openAdminNotificationSettings(); break;
+                case "ride:status": sendRidePushStatus(); break;
+                case "ride:register": enableRidePush(); break;
+                case "ride:registered":
+                    String rideUserId = message.optString("userId");
+                    try { java.util.UUID.fromString(rideUserId); }
+                    catch (Exception invalid) { break; }
+                    getSharedPreferences("ride_push", MODE_PRIVATE).edit().putString("user_id", rideUserId).apply();
+                    sendRidePushStatus();
+                    break;
+                case "ride:clear":
+                    getSharedPreferences("ride_push", MODE_PRIVATE).edit().remove("user_id").apply();
+                    sendRidePushStatus();
+                    break;
                 case "rider:background-settings":
                     showRiderLocationDisclosure(() -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                         Uri.parse("package:" + getPackageName()))));
@@ -201,6 +216,39 @@ public final class MainActivity extends Activity {
     private boolean hasLocationPermission() {
         return checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
             || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void sendRidePushStatus() {
+        try {
+            String registeredUser = getSharedPreferences("ride_push", MODE_PRIVATE).getString("user_id", "");
+            sendEvent("kwik-parsel:ride-push", new JSONObject().put("type", "ride:status")
+                .put("registeredUserId", registeredUser)
+                .put("available", RidePushNotification.canPost(this)));
+        } catch (Exception ignored) { /* Status can be requested again. */ }
+    }
+
+    private void enableRidePush() {
+        if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+            != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, RIDE_NOTIFICATION_PERMISSION);
+            return;
+        }
+        if (!RidePushNotification.canPost(this)) {
+            sendRidePushStatus();
+            return;
+        }
+        FirebaseMessaging.getInstance().getToken().addOnCompleteListener(task -> {
+            if (!task.isSuccessful()) { sendRidePushStatus(); return; }
+            try {
+                String deviceId = getSharedPreferences("ride_push", MODE_PRIVATE).getString("device_id", null);
+                if (deviceId == null) {
+                    deviceId = java.util.UUID.randomUUID().toString();
+                    getSharedPreferences("ride_push", MODE_PRIVATE).edit().putString("device_id", deviceId).apply();
+                }
+                sendEvent("kwik-parsel:ride-push", new JSONObject().put("type", "ride:token")
+                    .put("deviceId", deviceId).put("fcmToken", task.getResult()));
+            } catch (Exception ignored) { sendRidePushStatus(); }
+        });
     }
 
     private void adminPollStatus() {
@@ -444,6 +492,12 @@ public final class MainActivity extends Activity {
             if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
                 enableAdminPoll();
             else sendAdminPollEvent("disabled", null, "Android notification permission was denied.");
+            return;
+        }
+        if (requestCode == RIDE_NOTIFICATION_PERMISSION) {
+            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
+                enableRidePush();
+            else sendRidePushStatus();
             return;
         }
         if (requestCode != LOCATION_PERMISSION) return;

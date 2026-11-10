@@ -17,6 +17,11 @@ public final class AdminPushService extends FirebaseMessagingService {
         String id = data.get("event_id");
         String type = data.get("type");
         try { UUID.fromString(id); } catch (Exception invalid) { return; }
+        if ("company_invitation".equals(type) || "rider_assignment".equals(type) || "customer_match".equals(type)) {
+            String registeredUser = getSharedPreferences("ride_push", MODE_PRIVATE).getString("user_id", "");
+            if (registeredUser.equals(data.get("user_id"))) RidePushNotification.show(this, id, type);
+            return;
+        }
         if (!"spike".equals(type) && !"margin".equals(type)) return;
         AdminAlarmStore.Credential credential = AdminAlarmStore.read(this);
         if (credential == null || !credential.registered) return;

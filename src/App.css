@@ -428,3 +428,11 @@
 .rider-next-stop { border: 2px solid var(--accent, #276b61); margin-block: 1rem; }
 .rider-next-stop .secondary-button { display: inline-flex; width: auto; margin-top: .5rem; }
 .rider-next-stop-note { font-size: .9rem; margin-bottom: 0; }
+.ride-alert-control {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  flex-wrap: wrap;
+  padding: .4rem 1rem;
+}
+.ride-alert-control small { color: var(--text-muted, #7a2732); }
