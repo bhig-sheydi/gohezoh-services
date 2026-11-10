@@ -281,6 +281,7 @@ begin
     if not v_denied then raise exception 'Another account verified pickup'; end if;
     perform set_config('request.jwt.claim.sub',v_rider::text,true);
     perform set_config('request.jwt.claims',jsonb_build_object('sub',v_rider,'role','authenticated','session_id',v_session)::text,true);
+    if not public.accept_rider_assignment(v_job) then raise exception 'Assigned rider could not accept the paid ride'; end if;
     v_denied:=false;
     begin perform public.rider_update_job_status(v_job,'in_transit');
     exception when object_not_in_prerequisite_state then v_denied:=true; end;

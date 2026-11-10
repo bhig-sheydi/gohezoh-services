@@ -15,6 +15,7 @@ import android.os.Build;
 /** Actionable ride alerts have their own audible channel and never use the admin channel. */
 final class RidePushNotification {
     static final String CHANNEL = "ride_alerts_v1";
+    static final String ALARM_CHANNEL = "rider_assignment_alarm_v1";
     private RidePushNotification() { }
 
     static void createChannel(Context context) {
@@ -29,6 +30,11 @@ final class RidePushNotification {
             .setUsage(AudioAttributes.USAGE_NOTIFICATION_EVENT)
             .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build());
         manager.createNotificationChannel(channel);
+        NotificationChannel alarm = new NotificationChannel(ALARM_CHANNEL, "Rider assignment alarm", NotificationManager.IMPORTANCE_HIGH);
+        alarm.setDescription("Visible one-minute alarm for a newly assigned ride.");
+        alarm.setSound(null, null);
+        alarm.setLockscreenVisibility(Notification.VISIBILITY_PRIVATE);
+        manager.createNotificationChannel(alarm);
     }
 
     static boolean canPost(Context context) {
@@ -51,6 +57,8 @@ final class RidePushNotification {
                 title = "New ride assigned"; body = "Open your rider dashboard for pickup details."; path = "/rider"; break;
             case "customer_match":
                 title = "A rider is available"; body = "Open your deliveries to choose a company."; path = "/"; break;
+            case "rider_missed":
+                title = "Rider missed a new ride"; body = "Open your company dashboard to check the replacement and pending balance."; path = "/"; break;
             default: return;
         }
         Intent open = new Intent(context, MainActivity.class)

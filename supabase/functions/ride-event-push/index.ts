@@ -59,7 +59,7 @@ Deno.serve(async (request) => {
             method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
             body: JSON.stringify({ message: { token: row.device_token,
               data: { event_id: row.event_id, type: row.event_type, source_id: row.source_id,
-                user_id: row.user_id },
+                user_id: row.user_id, expires_at: row.expires_at },
               android: { priority: 'HIGH', ttl: `${ttlSeconds}s` } } }), signal: AbortSignal.timeout(10_000),
           })
           ok = response.ok

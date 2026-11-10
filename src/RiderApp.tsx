@@ -22,6 +22,7 @@ type RiderDashboardSnapshot = {
   pickup_locations: Array<{ job_id: string; sender_name?: string; sender_phone?: string; latitude?: number; longitude?: number }>;
   delivery_locations: Array<{ job_id: string; latitude?: number; longitude?: number }>;
   selected_pickups: SelectedPickup[]; next_stop: RiderRouteStop[];
+  assignment_responses?: Array<{ job_id: string; deadline_at: string; accepted_at: string | null }>;
 }
 const nextStatus: Record<string, string[]> = {
   partner_assigned: ['pickup_scheduled', 'exception'], pickup_scheduled: ['exception'],
@@ -67,6 +68,7 @@ export default function RiderApp() {
   const [ready, setReady] = useState(false)
   const [rider, setRider] = useState<boolean | null>(null)
   const [jobs, setJobs] = useState<RiderJob[]>([])
+  const [assignmentResponses, setAssignmentResponses] = useState<RiderDashboardSnapshot['assignment_responses']>([])
   const [selectedPickups, setSelectedPickups] = useState<SelectedPickup[]>([])
   const [nextStop, setNextStop] = useState<RiderRouteStop | null>(null)
   const [companyName, setCompanyName] = useState('Company rider')
@@ -79,7 +81,7 @@ export default function RiderApp() {
   const lastAccessCheckAt = useRef(0)
   const loadGeneration = useRef(0)
   const clearDashboard = useCallback(() => {
-    setJobs([]); setSelectedPickups([]); setNextStop(null); setCompanyName('Company rider')
+    setJobs([]); setAssignmentResponses([]); setSelectedPickups([]); setNextStop(null); setCompanyName('Company rider')
   }, [])
   useEffect(() => {
     void supabase.auth.getSession().then(({ data }) => { setSession(data.session); setReady(true) })
@@ -129,6 +131,7 @@ export default function RiderApp() {
       return { ...job, ...snapshot.pickup_locations.find((location) => location.job_id === job.job_id),
         delivery_latitude: delivery?.latitude, delivery_longitude: delivery?.longitude }
     }))
+    setAssignmentResponses(snapshot.assignment_responses ?? [])
     setSelectedPickups(snapshot.selected_pickups)
     setNextStop(snapshot.next_stop[0] ?? null)
     if (snapshot.profile[0]?.company_name) setCompanyName(snapshot.profile[0].company_name)
@@ -188,6 +191,20 @@ export default function RiderApp() {
     const { error: updateError } = await supabase.rpc('rider_update_job_status', { p_job_id: job.job_id, p_new_status: status })
     if (updateError) setError(updateError.message)
     else { setNotice(`${job.job_number}: ${label(status)}.`); await load() }
+    setBusy(false)
+  }
+
+  async function acceptAssignment(job: RiderJob) {
+    if (busy) return
+    setBusy(true); setError('')
+    const { data, error: acceptError } = await supabase.rpc('accept_rider_assignment', { p_job_id: job.job_id })
+    if (acceptError) setError(acceptError.message)
+    else if (!data) setError('This ride is no longer assigned to you. Refresh your jobs.')
+    else {
+      window.KwikParselNative?.postMessage?.(JSON.stringify({ type: 'ride:stop-alarm', jobId: job.job_id }))
+      setNotice(`${job.job_number}: ride accepted. Head to the pickup.`)
+    }
+    await load()
     setBusy(false)
   }
 
@@ -259,12 +276,14 @@ export default function RiderApp() {
       </article>)}</div></section>}
       {jobs.length === 0 && selectedPickups.length === 0 ? <section className="form-card"><h2>No jobs assigned yet</h2><p>Your company will assign deliveries here.</p></section> : jobs.length > 0 && <div className="partner-assignment-list">{jobs.map((job) => <article className="form-card partner-job-card" key={job.job_id}>
         <div className="review-title"><div><p className="eyebrow">{job.job_number}</p><h2>{label(job.status)}</h2></div></div>
+        {assignmentResponses?.some((response) => response.job_id === job.job_id && !response.accepted_at) &&
+          <div className="delivery-otp-panel" role="alert"><strong>New ride: accept within one minute</strong><button className="primary-button" disabled={busy} onClick={() => void acceptAssignment(job)}>Accept ride</button></div>}
         {(job.sender_name || job.sender_phone) && <p><strong>Sender: {job.sender_name || 'Name unavailable'} · {job.sender_phone || 'Phone unavailable'}</strong></p>}
         {job.latitude != null && job.longitude != null && <p><a href={`https://www.google.com/maps/search/?api=1&query=${job.latitude},${job.longitude}`} target="_blank" rel="noreferrer">Open pickup directions</a></p>}
         <p>{job.parcel_summary}</p><div className="partner-job-route"><div><small>PICKUP</small><p>{job.pickup_address}<br />{job.pickup_city}</p></div><div><small>DELIVER TO</small><p>{job.delivery_address}<br />{job.delivery_city}</p><strong>{job.recipient_name} · {job.recipient_phone}</strong></div></div>
         {job.delivery_latitude != null && job.delivery_longitude != null && <p><a href={`https://www.google.com/maps/search/?api=1&query=${job.delivery_latitude},${job.delivery_longitude}`} target="_blank" rel="noreferrer">Open delivery pin</a></p>}
         {(nextStatus[job.status] ?? []).length === 1 && nextStatus[job.status][0] === 'exception' ? <button className="secondary-button" disabled={busy} onClick={() => void advance(job, 'exception')}>Report a problem</button> : (nextStatus[job.status] ?? []).length > 0 && <label className="field"><span>Update delivery</span><select disabled={busy} value="" onChange={(event) => { if (event.target.value) void advance(job, event.target.value) }}><option value="">Choose next step</option>{nextStatus[job.status].map((status) => <option key={status} value={status}>{label(status)}</option>)}</select></label>}
-        {['partner_assigned','pickup_scheduled'].includes(job.status) && <section className="delivery-otp-panel" aria-label={`Pickup code for ${job.job_number}`}><label className="field"><span>Sender pickup code</span><input inputMode="numeric" autoComplete="one-time-code" value={pickupCodes[job.job_id] ?? ''} onChange={(event) => setPickupCodes((current) => ({ ...current, [job.job_id]: event.target.value.replace(/\D/g, '').slice(0, 8) }))} maxLength={8} placeholder="8-digit code" /></label><button className="primary-button" disabled={busy || (pickupCodes[job.job_id] ?? '').length !== 8} onClick={() => void confirmPickup(job)}>Confirm parcel collected</button></section>}
+        {['partner_assigned','pickup_scheduled'].includes(job.status) && !assignmentResponses?.some((response) => response.job_id === job.job_id && !response.accepted_at) && <section className="delivery-otp-panel" aria-label={`Pickup code for ${job.job_number}`}><label className="field"><span>Sender pickup code</span><input inputMode="numeric" autoComplete="one-time-code" value={pickupCodes[job.job_id] ?? ''} onChange={(event) => setPickupCodes((current) => ({ ...current, [job.job_id]: event.target.value.replace(/\D/g, '').slice(0, 8) }))} maxLength={8} placeholder="8-digit code" /></label><button className="primary-button" disabled={busy || (pickupCodes[job.job_id] ?? '').length !== 8} onClick={() => void confirmPickup(job)}>Confirm parcel collected</button></section>}
         {['in_transit','picked_up','out_for_delivery'].includes(job.status) && <section className="delivery-otp-panel"><button className="secondary-button" disabled={busy} onClick={() => void sendCode(job)}>Send recipient code</button><label className="field"><span>Recipient code</span><input inputMode="numeric" value={codes[job.job_id] ?? ''} onChange={(event) => setCodes((current) => ({ ...current, [job.job_id]: event.target.value.replace(/\D/g, '').slice(0, 6) }))} maxLength={6} /></label><button className="primary-button" disabled={busy || (codes[job.job_id] ?? '').length !== 6} onClick={() => void verifyCode(job)}>Confirm delivery</button><p>If the recipient cannot provide a code, call the sender at {job.sender_phone || 'the pickup number'}. Ask them to confirm only after they have independently checked that the recipient received the parcel.</p><button className="secondary-button" type="button" disabled={busy || !!senderConfirmationRequested[job.job_id]} onClick={() => void askSenderToConfirm(job)}>{senderConfirmationRequested[job.job_id] ? 'Waiting for sender confirmation' : 'Ask sender to confirm delivery'}</button></section>}
       </article>)}</div>}
     </section>}

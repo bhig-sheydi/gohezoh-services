@@ -178,7 +178,12 @@ public final class MainActivity extends Activity {
                     break;
                 case "ride:clear":
                     getSharedPreferences("ride_push", MODE_PRIVATE).edit().remove("user_id").apply();
+                    stopService(new Intent(this, RiderRideAlarmService.class));
                     sendRidePushStatus();
+                    break;
+                case "ride:stop-alarm":
+                    startService(new Intent(this, RiderRideAlarmService.class)
+                        .setAction(RiderRideAlarmService.STOP).putExtra(RiderRideAlarmService.JOB_ID, message.optString("jobId")));
                     break;
                 case "rider:background-settings":
                     showRiderLocationDisclosure(() -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,

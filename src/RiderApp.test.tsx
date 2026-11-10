@@ -210,6 +210,26 @@ describe('company rider sign-in', () => {
     expect(mocks.rpc).not.toHaveBeenCalledWith('rider_update_job_status', { p_job_id: 'job-1', p_new_status: 'picked_up' })
   })
 
+  it('lets an assigned rider accept the one-minute request and stop the phone alarm', async () => {
+    mocks.getSession.mockResolvedValue({ data: { session: { user: { id: 'rider-1', user_metadata: { full_name: 'Ada' } } } } } as never)
+    const postMessage = vi.fn()
+    window.KwikParselNative = { postMessage } as typeof window.KwikParselNative
+    let accepted = false
+    mocks.rpc.mockImplementation(async (name: string) => {
+      if (name === 'my_rider_dashboard_snapshot') return { data: dashboard({
+        jobs: [{ job_id: 'job-1', job_number: 'JOB-1', status: 'partner_assigned', pickup_address: '1 Market Road', pickup_city: 'Lagos', delivery_address: '2 Market Road', delivery_city: 'Lagos', recipient_name: 'Receiver', recipient_phone: '08000000000', parcel_summary: 'Books', company_name: 'Quick Riders' }],
+        assignment_responses: [{ job_id: 'job-1', deadline_at: new Date(Date.now() + 60000).toISOString(), accepted_at: accepted ? new Date().toISOString() : null }],
+      }), error: null }
+      if (name === 'accept_rider_assignment') { accepted = true; return { data: true, error: null } }
+      return { data: [], error: null }
+    })
+    render(<RiderApp />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Accept ride' }))
+    await waitFor(() => expect(mocks.rpc).toHaveBeenCalledWith('accept_rider_assignment', { p_job_id: 'job-1' }))
+    expect(postMessage).toHaveBeenCalledWith(JSON.stringify({ type: 'ride:stop-alarm', jobId: 'job-1' }))
+    delete window.KwikParselNative
+  })
+
   it('shows delivery success without sending a second status update after code verification', async () => {
     mocks.getSession.mockResolvedValue({ data: { session: { user: { id: 'rider-1', user_metadata: { full_name: 'Ada' } } } } } as never)
     mocks.rpc.mockImplementation(async (name: string) => {

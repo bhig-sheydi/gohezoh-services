@@ -11,6 +11,7 @@ type PayoutAccount = { bankName: string; accountLast4: string; accountName: stri
 type ResolvedAccount = { bankCode: string; bankName: string; accountNumber: string; accountName: string }
 type Withdrawal = { withdrawalId: string; status: 'reserved' | 'initiating' | 'queued' | 'successful' | 'failed' | 'unknown'; amountNgn: number; transferReference?: string }
 type CancellationCompensation = { job_id: string; job_number: string; rider_name: string; amount_ngn: number }
+type RiderMissAlert = { job_number: string; body: string; created_at: string }
 type Props = { supabase: ReturnType<typeof getSupabaseClient>; onError: (message: string) => void; onNotice: (message: string) => void; showPayout?: boolean; canEditLogo?: boolean }
 
 async function payoutErrorMessage(error: { message: string; context?: unknown }) {
@@ -41,6 +42,7 @@ export default function PartnerCompanyWelcome({ supabase, onError, onNotice, sho
   const [busy, setBusy] = useState(false)
   const [payables, setPayables] = useState<Payables | null>(null)
   const [cancellationCompensation, setCancellationCompensation] = useState<CancellationCompensation[]>([])
+  const [riderMissAlerts, setRiderMissAlerts] = useState<RiderMissAlert[]>([])
   const [withdrawing, setWithdrawing] = useState(false)
   const [account, setAccount] = useState<PayoutAccount | null>(null)
   const [banks, setBanks] = useState<Bank[]>([])
@@ -61,6 +63,12 @@ export default function PartnerCompanyWelcome({ supabase, onError, onNotice, sho
   const lastDay = useRef(localDayRange(new Date()).p_day_start)
   const companyId = useRef<string | null>(null)
   const payablesLoading = useRef(false)
+  const refreshRiderAlerts = useCallback(async () => {
+    const { data, error } = await supabase.rpc('my_company_rider_miss_alerts')
+    if (!error) setRiderMissAlerts(Array.isArray(data)
+      ? data.filter((item): item is RiderMissAlert => !!item && typeof item.job_number === 'string'
+        && typeof item.body === 'string' && typeof item.created_at === 'string') : [])
+  }, [supabase])
 
   const refreshPayables = useCallback(async (partnerId?: string) => {
     if (payablesLoading.current) return
@@ -89,6 +97,7 @@ export default function PartnerCompanyWelcome({ supabase, onError, onNotice, sho
     setCompany(row)
     companyId.current = row?.partner_id ?? null
     if (showPayout) await refreshPayables(row?.partner_id)
+    await refreshRiderAlerts()
     if (row && showPayout) {
       const payout = await supabase.functions.invoke('paystack-payout', { body: { action: 'account', partnerId: row.partner_id } })
       if (payout.error) onError(await payoutErrorMessage(payout.error))
@@ -98,7 +107,7 @@ export default function PartnerCompanyWelcome({ supabase, onError, onNotice, sho
     const signed = await supabase.storage.from('partner-logos').createSignedUrl(row.logo_path, 3600)
     if (signed.error) { onError(signed.error.message); setLogoUrl(null) }
     else setLogoUrl(signed.data?.signedUrl ?? null)
-  }, [onError, refreshPayables, showPayout, supabase])
+  }, [onError, refreshPayables, refreshRiderAlerts, showPayout, supabase])
 
   async function openAccountEditor() {
     if (!company) return
@@ -190,12 +199,12 @@ export default function PartnerCompanyWelcome({ supabase, onError, onNotice, sho
       if (day !== lastDay.current) { lastDay.current = day; void refresh() }
     }, 60_000)
     const payablesTimer = window.setInterval(() => {
-      if (showPayout && document.visibilityState === 'visible') void refreshPayables()
+      if (document.visibilityState === 'visible') { if (showPayout) void refreshPayables(); void refreshRiderAlerts() }
     }, 30_000)
-    const focused = () => { if (showPayout) void refreshPayables() }
+    const focused = () => { if (showPayout) void refreshPayables(); void refreshRiderAlerts() }
     window.addEventListener('focus', focused)
     return () => { window.clearTimeout(initial); window.clearInterval(timer); window.clearInterval(payablesTimer); window.removeEventListener('focus', focused) }
-  }, [refresh, refreshPayables, showPayout])
+  }, [refresh, refreshPayables, refreshRiderAlerts, showPayout])
 
   async function uploadLogo(event: ChangeEvent<HTMLInputElement>) {
     const file = event.currentTarget.files?.[0]
@@ -229,6 +238,7 @@ export default function PartnerCompanyWelcome({ supabase, onError, onNotice, sho
       <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => void uploadLogo(event)} className="partner-company-file" aria-label="Company logo image" />
       <div><p className="eyebrow">{company.partner_name}</p><h1>{localGreeting(now.getHours())}, {company.ceo_name || 'partner'}</h1>{canEditLogo && <p className="partner-company-logo-hint">{busy ? 'Saving logo...' : 'Tap the logo to change it'}</p>}</div>
     </div>
+    {riderMissAlerts.length > 0 && <div className="partner-payout-status" role="status"><strong>Rider response alerts</strong>{riderMissAlerts.map((alert) => <p key={`${alert.job_number}-${alert.created_at}`}><strong>{alert.job_number}</strong> · {alert.body}</p>)}</div>}
     {showPayout && <div className="partner-company-finances">
       <div className="partner-company-earnings"><span>Today's earnings</span><strong>{new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN' }).format(Number(company.earnings_ngn) || 0)}</strong><small>Confirmed from today's deliveries</small></div>
       {payables && <div className="partner-company-payables" aria-label="Company payout balance">

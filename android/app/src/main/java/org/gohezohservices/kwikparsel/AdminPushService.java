@@ -17,9 +17,15 @@ public final class AdminPushService extends FirebaseMessagingService {
         String id = data.get("event_id");
         String type = data.get("type");
         try { UUID.fromString(id); } catch (Exception invalid) { return; }
-        if ("company_invitation".equals(type) || "rider_assignment".equals(type) || "customer_match".equals(type)) {
+        if ("company_invitation".equals(type) || "rider_assignment".equals(type) || "customer_match".equals(type) || "rider_missed".equals(type)) {
             String registeredUser = getSharedPreferences("ride_push", MODE_PRIVATE).getString("user_id", "");
-            if (registeredUser.equals(data.get("user_id"))) RidePushNotification.show(this, id, type);
+            if (registeredUser.equals(data.get("user_id"))) {
+                if ("rider_assignment".equals(type)) {
+                    try { startForegroundService(new android.content.Intent(this, RiderRideAlarmService.class)
+                        .setAction(RiderRideAlarmService.START).putExtra(RiderRideAlarmService.JOB_ID, data.get("source_id"))); }
+                    catch (Exception unavailable) { RidePushNotification.show(this, id, type); }
+                } else RidePushNotification.show(this, id, type);
+            }
             return;
         }
         if (!"spike".equals(type) && !"margin".equals(type)) return;

@@ -97,6 +97,29 @@ begin
     raise exception 'Another rider saw assigned job or wrong profile: %',v_snapshot;
   end if;
 
+  insert into public.rider_assignment_responses(job_id,rider_id,partner_id) values(v_job,v_rider,v_partner);
+  if not exists(select 1 from public.rider_assignment_responses r
+    where r.job_id=v_job and r.rider_id=v_rider and r.accepted_at is null) then
+    raise exception 'Assigned rider did not receive a response window';
+  end if;
+  perform set_config('request.jwt.claim.sub',v_rider::text,true);
+  perform set_config('request.jwt.claims',jsonb_build_object('sub',v_rider,'role','authenticated',
+    'session_id',v_session)::text,true);
+  if not public.accept_rider_assignment(v_job) then raise exception 'Assigned rider could not accept'; end if;
+  if not exists(select 1 from public.rider_assignment_responses r where r.job_id=v_job and r.accepted_at is not null) then
+    raise exception 'Rider acceptance was not recorded';
+  end if;
+  -- A timed-out, unaccepted rider is removed; no unrelated company receives the paid job.
+  update public.rider_assignment_responses set accepted_at=null,deadline_at=now()-interval '1 minute'
+    where job_id=v_job;
+  if public.accept_rider_assignment(v_job) then raise exception 'Expired ride was accepted'; end if;
+  perform set_config('request.jwt.claim.role','service_role',true);
+  if public.resolve_missed_rider_assignments()<>1 then raise exception 'Missed rider was not resolved'; end if;
+  if exists(select 1 from public.jobs where id=v_job and assigned_rider_id is not null) then
+    raise exception 'Unanswered ride remained assigned';
+  end if;
+  perform set_config('request.jwt.claim.role','authenticated',true);
+
   perform set_config('request.jwt.claim.sub',v_rider::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_rider,'role','authenticated',
     'session_id',v_session)::text,true);

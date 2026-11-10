@@ -9,6 +9,7 @@ type Reveal = { latitude: number; longitude: number; accuracy_metres: number; ca
   community: string | null; street: string | null; landmark: string | null; landmarkDistance: number | null }
 type Claim = { state: Tracking['state'] | 'limited'; latitude?: number; longitude?: number; accuracy_metres?: number;
   captured_at?: string; checks_remaining?: number; retry_at?: string }
+type CurrentRider = { name: string | null; phone: string | null; photo_path?: string | null; status: 'finding_replacement' | 'awaiting_response' | 'on_the_way'; issue?: string | null }
 
 function validTracking(value: unknown): value is Tracking {
   if (!value || typeof value !== 'object') return false
@@ -29,6 +30,8 @@ function validClaim(value: unknown): value is Claim {
 
 export default function CustomerRiderTracking({ supabase, jobId }: { supabase: SupabaseClient; jobId: string }) {
   const [tracking, setTracking] = useState<Tracking | null>(null)
+  const [currentRider, setCurrentRider] = useState<CurrentRider | null>(null)
+  const [riderPhotoUrl, setRiderPhotoUrl] = useState<string | null>(null)
   const [reveal, setReveal] = useState<Reveal | null>(null)
   const [error, setError] = useState('')
   const [revealError, setRevealError] = useState('')
@@ -42,7 +45,18 @@ export default function CustomerRiderTracking({ supabase, jobId }: { supabase: S
     if (document.hidden) return
     const checkedAt = Date.now()
     setRequestedAt((current) => current && checkedAt - current >= 4_200_000 ? null : current)
-    const { data, error: rpcError } = await supabase.rpc('get_my_delivery_tracking', { p_job_id: jobId })
+    const [{ data, error: rpcError }, riderResult] = await Promise.all([
+      supabase.rpc('get_my_delivery_tracking', { p_job_id: jobId }),
+      supabase.rpc('my_current_delivery_rider', { p_job_id: jobId }),
+    ])
+    if (!riderResult.error) {
+      const rider = riderResult.data as CurrentRider | null
+      setCurrentRider(rider)
+      if (rider?.photo_path) {
+        const signed = await supabase.storage.from('rider-evidence').createSignedUrl(rider.photo_path, 300)
+        setRiderPhotoUrl(signed.data?.signedUrl ?? null)
+      } else setRiderPhotoUrl(null)
+    }
     if (rpcError) { setError('Tracking is unavailable right now.'); setTracking(null); setReveal(null) }
     else if (!validTracking(data)) { setError('Tracking returned an invalid status.'); setTracking(null); setReveal(null) }
     else { setError(''); setTracking(data); if (data.state !== 'live') { setReveal(null); setShowMap(false) } }
@@ -102,6 +116,7 @@ export default function CustomerRiderTracking({ supabase, jobId }: { supabase: S
   const mapUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${lon - 0.012}%2C${lat - 0.008}%2C${lon + 0.012}%2C${lat + 0.008}&layer=mapnik&marker=${lat}%2C${lon}`
   return <section className="customer-rider-tracking" aria-label="Rider tracking">
     <div className="customer-rider-tracking-head"><strong>Rider progress</strong><button type="button" className="text-button" onClick={() => void refresh()}>Refresh</button></div>
+    {currentRider && <div role="status" className="customer-current-rider">{riderPhotoUrl && <img src={riderPhotoUrl} alt={`${currentRider.name ?? 'Rider'} profile`} width="54" height="54" />}<p><strong>{currentRider.name ?? 'Rider being assigned'}</strong>{currentRider.phone ? ` · ${currentRider.phone}` : ''} · {currentRider.status === 'finding_replacement' ? 'Company finding a replacement' : currentRider.status === 'awaiting_response' ? 'Waiting for rider to accept' : 'Rider assigned'}</p></div>}
     {loading && <p>Checking rider progress…</p>}
     {error && <p role="status">{error}</p>}
     {!loading && !error && tracking?.state === 'awaiting_rider' && <p>A rider has not been assigned yet.</p>}
