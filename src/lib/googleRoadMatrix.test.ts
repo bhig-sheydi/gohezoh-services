@@ -167,6 +167,19 @@ describe('sparse Google matrix for an idle rider', () => {
     expect(fetcher).toHaveBeenCalledOnce()
   })
 
+  it('treats a rider within 30 metres of pickup as already there', async () => {
+    const pickup = { latitude: 4.882269, longitude: 7.0096482 }
+    const closeRider = { latitude: 4.882260, longitude: 7.009640 }
+    const destination = { latitude: 4.91, longitude: 7.08 }
+    const reserve = vi.fn(async () => true)
+    const fetcher = vi.fn(async () => Response.json([element(0, 0, '1200s', 9000)])) as unknown as typeof fetch
+    const matrix = await googleIdleRiderRoadMatrix(closeRider, pickup, destination, 'key', reserve, fetcher)
+    expect(reserve).toHaveBeenCalledExactlyOnceWith(1)
+    expect(fetcher).toHaveBeenCalledOnce()
+    expect(matrix?.(closeRider, pickup)).toEqual({ minutes: 0, kilometres: 0 })
+    expect(matrix?.(pickup, destination)).toEqual({ minutes: 20, kilometres: 9 })
+  })
+
   it('reuses one successful direct leg across idle candidates for the same order', async () => {
     const reserve = vi.fn(async (_elements: number) => true)
     const directLegCache = new Map()

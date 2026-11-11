@@ -14,6 +14,13 @@ type MatrixElement = {
 const endpoint = 'https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix'
 const fieldMask = 'originIndex,destinationIndex,status,condition,distanceMeters,duration'
 const coordinateKey = (point: Point) => `${point.latitude.toFixed(6)},${point.longitude.toFixed(6)}`
+const nearbyMetres = (a: Point, b: Point) => {
+  const lat = (b.latitude - a.latitude) * Math.PI / 180
+  const lon = (b.longitude - a.longitude) * Math.PI / 180
+  const ratio = Math.sin(lat / 2) ** 2 + Math.cos(a.latitude * Math.PI / 180) *
+    Math.cos(b.latitude * Math.PI / 180) * Math.sin(lon / 2) ** 2
+  return 6371000 * 2 * Math.asin(Math.sqrt(Math.min(1, ratio)))
+}
 const validPoint = (point: Point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude) &&
   Math.abs(point.latitude) <= 90 && Math.abs(point.longitude) <= 180
 const waypoint = (point: Point) => ({ waypoint: { location: { latLng: {
@@ -129,8 +136,10 @@ export async function googleIdleRiderRoadMatrix(
     ([from, to]) => [key(from, to), { from, to }],
   )).values()]
   const directKey = key(pickup, dropoff)
+  const riderAtPickup = nearbyMetres(rider, pickup) <= 30
   const nonzero = required.filter(({ from, to }) =>
-    coordinateKey(from) !== coordinateKey(to) && !(directLegCache?.has(directKey) && key(from, to) === directKey))
+    coordinateKey(from) !== coordinateKey(to) && !(riderAtPickup && key(from, to) === key(rider, pickup)) &&
+    !(directLegCache?.has(directKey) && key(from, to) === directKey))
   if (nonzero.length && !await reserve(nonzero.length)) return undefined
 
   const controller = new AbortController()
@@ -162,6 +171,7 @@ export async function googleIdleRiderRoadMatrix(
     for (const { from, to } of required) {
       if (coordinateKey(from) === coordinateKey(to)) legs.set(key(from, to), { minutes: 0, kilometres: 0 })
     }
+    if (riderAtPickup) legs.set(key(rider, pickup), { minutes: 0, kilometres: 0 })
     if (directLegCache?.has(directKey)) legs.set(directKey, directLegCache.get(directKey)!)
     nonzero.forEach(({ from, to }, index) => {
       const leg = fetched[index]
