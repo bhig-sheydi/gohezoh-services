@@ -193,7 +193,7 @@ Deno.serve(async (request) => {
   }
   const paidReassign = async (requestId: string) => {
     const context = await rpc('paid_reassignment_context', { p_request: requestId }) as {
-      job_id: string; partner_id: string; pickup_latitude: number; pickup_longitude: number;
+      job_id: string; pickup_latitude: number; pickup_longitude: number;
       dropoff_latitude: number; dropoff_longitude: number
     } | null
     if (!context) return
@@ -206,16 +206,18 @@ Deno.serve(async (request) => {
       distance_metres: number; existing_stops: StoredStop[]; active_jobs: Job[]; has_unroutable_jobs: boolean
     }>
     const { data: previous, error: previousError } = await db.from('rider_assignment_responses')
-      .select('rider_id').eq('job_id', context.job_id)
+      .select('rider_id,partner_id').eq('job_id', context.job_id)
     if (previousError) throw new Error(`Previous rider lookup: ${previousError.message}`)
     const missed = new Set((previous ?? []).map((row) => row.rider_id))
+    const missedCompanies = new Set((previous ?? []).map((row) => row.partner_id))
     const { data: offers, error: offerError } = await db.from('paid_reassignment_offers')
       .select('partner_id,rider_id,status,expires_at').eq('job_id', context.job_id)
     if (offerError) throw new Error(`Replacement offer lookup: ${offerError.message}`)
     if ((offers ?? []).some((offer) => offer.status === 'pending' && Date.parse(offer.expires_at) > Date.now())) return
     const offered = new Set((offers ?? []).map((offer) => `${offer.partner_id}:${offer.rider_id}`))
     const eligible = candidates.filter((candidate) =>
-      !missed.has(candidate.rider_id) && !offered.has(`${candidate.partner_id}:${candidate.rider_id}`) && !candidate.has_unroutable_jobs &&
+      !missed.has(candidate.rider_id) && !missedCompanies.has(candidate.partner_id) &&
+      !offered.has(`${candidate.partner_id}:${candidate.rider_id}`) && !candidate.has_unroutable_jobs &&
       !(candidate.active_jobs ?? []).some((job) => job.status === 'exception'))
     if (!eligible.length) return
     const closingRows = await rpc('dispatch_company_closing_times', {
@@ -256,18 +258,11 @@ Deno.serve(async (request) => {
         proposals.push(proposal)
     }
     for (const proposal of proposals.sort(compareProposals)) {
-      if (proposal.companyId === context.partner_id) {
-        const assigned = await rpc('assign_paid_replacement_rider', {
-          p_job: context.job_id, p_rider: proposal.riderId, p_partner: context.partner_id,
-        })
-        if (assigned) return
-      } else {
-        const offered = await rpc('offer_paid_reassignment', {
-          p_job: context.job_id, p_partner: proposal.companyId, p_rider: proposal.riderId,
-          p_tier: proposal.tier, p_score: proposal.score,
-        })
-        if (offered) return
-      }
+      const offered = await rpc('offer_paid_reassignment', {
+        p_job: context.job_id, p_partner: proposal.companyId, p_rider: proposal.riderId,
+        p_tier: proposal.tier, p_score: proposal.score,
+      })
+      if (offered) return
     }
   }
   const events = await rpc('claim_route_planner_events', { p_limit: 5 }) as Event[]

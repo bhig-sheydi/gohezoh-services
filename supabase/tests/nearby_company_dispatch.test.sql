@@ -276,31 +276,40 @@ begin
     raise exception using errcode='PT003',message='rollback scheduled reroute fixture';
   exception when sqlstate 'PT003' then null;
   end;
-  -- Paid reassignment keeps the accepted company and price, and never retries
-  -- a rider who already missed the job. Roll back this branch of the fixture.
+  -- A missed rider forfeits the original company's pending payout immediately.
   begin
-    update public.rider_assignment_responses set timed_out_at=now()
+    perform set_config('request.jwt.claim.sub',v_manager::text,true);
+    perform set_config('request.jwt.claims',jsonb_build_object('sub',v_manager,'role','authenticated')::text,true);
+    if (select pending_delivery_ngn from public.get_my_partner_payables() where partner_id=v_company)<>1500 then
+      raise exception 'Paid job was absent from the original company pending payout'; end if;
+    perform set_config('request.jwt.claims','{"role":"service_role"}',true);
+    update public.rider_assignment_responses set deadline_at=now()-interval '1 second'
       where job_id=v_job and rider_id=v_rider and timed_out_at is null;
-    update public.jobs set assigned_rider_id=null,route_assignment_issue='Rider missed response; searching for a route-matched replacement'
-      where id=v_job;
+    perform public.resolve_missed_rider_assignments();
+    if not exists(select 1 from public.jobs where id=v_job and partner_id is null and assigned_rider_id is null
+      and route_assignment_issue like 'Rider missed response%')
+      or exists(select 1 from public.partner_assignments where job_id=v_job and status='accepted') then
+      raise exception 'Missed rider left the old company reserved on the paid job'; end if;
     update public.rider_credentials set load_state='available' where user_id=v_rider2;
     update public.rider_presence set received_at=now(),captured_at=now() where user_id=v_rider2;
     if public.paid_reassignment_context(v_request) is null then
       raise exception 'Paid uncollected job was unavailable to route-based reassignment'; end if;
-    if public.assign_paid_replacement_rider(v_job,v_rider,v_company) then
-      raise exception 'Missed rider was offered the same job again'; end if;
-    if not public.assign_paid_replacement_rider(v_job,v_rider2,v_company) then
-      raise exception 'Eligible replacement rider was not assigned'; end if;
-    if not exists(select 1 from public.jobs j join public.job_financials f on f.job_id=j.id
-      where j.id=v_job and j.partner_id=v_company and j.assigned_rider_id=v_rider2 and f.partner_cost=1500) then
-      raise exception 'Reassignment changed the paid company or payout'; end if;
+    insert into public.partner_corridor_coverage(partner_id,corridor_id) values(v_company,v_corridor);
+    if public.offer_paid_reassignment(v_job,v_company,v_rider2,1,10) then
+      raise exception 'Forfeited company received the paid job again'; end if;
+    perform set_config('request.jwt.claim.sub',v_manager::text,true);
+    perform set_config('request.jwt.claims',jsonb_build_object('sub',v_manager,'role','authenticated')::text,true);
+    if (select pending_delivery_ngn from public.get_my_partner_payables() where partner_id=v_company)<>0 then
+      raise exception 'Missed company retained expected payout'; end if;
     raise exception using errcode='PT001',message='rollback reassignment fixture';
   exception when sqlstate 'PT001' then null;
   end;
   begin
     update public.rider_assignment_responses set timed_out_at=now()
       where job_id=v_job and rider_id=v_rider and timed_out_at is null;
-    update public.jobs set assigned_rider_id=null,route_assignment_issue='Rider missed response; searching for a route-matched replacement'
+    update public.partner_assignments set status='cancelled' where job_id=v_job and status='accepted';
+    update public.jobs set assigned_rider_id=null,partner_id=null,
+      route_assignment_issue='Rider missed response; searching the network for another company'
       where id=v_job;
     update public.rider_presence set position=extensions.st_setsrid(extensions.st_makepoint(3.401,6.45),4326)::extensions.geography,
       received_at=now(),captured_at=now() where user_id=v_far_rider;

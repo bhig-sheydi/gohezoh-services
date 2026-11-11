@@ -25,7 +25,7 @@ for ($offset = 0; $offset -lt $testFiles.Count; $offset += $batchSize) {
     $queryExitCode = $LASTEXITCODE
     $ErrorActionPreference = 'Stop'
     if ($queryExitCode -eq 0) { $passed = $true; break }
-    if ($result -notmatch 'Transport\s?Error|NetworkError|Connection terminated due to connection timeout|DbConfigConnectTempRoleError|unsupported or invalid secret format') { throw "Database integration batch failed: $batchNames`n$result" }
+    if ($result -notmatch 'Transport\s?Error|NetworkError|Connection terminated due to connection timeout|DbConfigConnectTempRoleError|DbConfigLoginRoleStatusError|unsupported or invalid secret format') { throw "Database integration batch failed: $batchNames`n$result" }
     if ($attempt -lt 5) { Start-Sleep -Seconds (2 * $attempt) }
   }
   Remove-Item -LiteralPath $batchPath -ErrorAction SilentlyContinue

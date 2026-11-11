@@ -60,7 +60,7 @@ final class RidePushNotification {
             case "customer_match":
                 title = "A rider is available"; body = "Open your deliveries to choose a company."; path = "/"; break;
             case "rider_missed":
-                title = "Rider missed a new ride"; body = "Open your company dashboard to check the replacement and pending balance."; path = "/"; break;
+                title = "Paid pickup lost"; body = "Your rider did not respond. The job and its pending payout were removed from your company."; path = "/"; break;
             default: return;
         }
         Intent open = new Intent(context, MainActivity.class)
