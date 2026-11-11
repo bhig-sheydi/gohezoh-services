@@ -46,6 +46,12 @@ final class RidePushNotification {
             && channel.getImportance() >= NotificationManager.IMPORTANCE_DEFAULT;
     }
 
+    static boolean canRing(Context context) {
+        if (!canPost(context)) return false;
+        NotificationChannel channel = context.getSystemService(NotificationManager.class).getNotificationChannel(CHANNEL);
+        return channel != null && channel.getSound() != null;
+    }
+
     static void show(Context context, String eventId, String type) {
         createChannel(context);
         if (!canPost(context)) return;

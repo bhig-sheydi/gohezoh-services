@@ -433,6 +433,13 @@
   align-items: center;
   gap: .6rem;
   flex-wrap: wrap;
-  padding: .4rem 1rem;
+  padding: .8rem 1rem;
+  margin: .65rem 0;
+  border-radius: 12px;
 }
+.ride-alert-needed { border: 2px solid #b45309; background: #fff7ed; color: #68330b; }
+.ride-alert-ready { padding: .25rem 1rem; }
+.ride-alert-copy { display: grid; gap: .2rem; flex: 1 1 240px; }
+.ride-alert-copy span { font-size: .9rem; }
+:root[data-theme='dark'] .ride-alert-needed { border-color: #e9a55a; background: #3c2917; color: #ffe8c6; }
 .ride-alert-control small { color: var(--text-muted, #7a2732); }

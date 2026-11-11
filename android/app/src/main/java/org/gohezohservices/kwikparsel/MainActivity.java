@@ -169,6 +169,7 @@ public final class MainActivity extends Activity {
                 case "admin:open-notification-settings": openAdminNotificationSettings(); break;
                 case "ride:status": sendRidePushStatus(); break;
                 case "ride:register": enableRidePush(); break;
+                case "ride:settings": openRideNotificationSettings(); break;
                 case "ride:registered":
                     String rideUserId = message.optString("userId");
                     try { java.util.UUID.fromString(rideUserId); }
@@ -228,7 +229,8 @@ public final class MainActivity extends Activity {
             String registeredUser = getSharedPreferences("ride_push", MODE_PRIVATE).getString("user_id", "");
             sendEvent("kwik-parsel:ride-push", new JSONObject().put("type", "ride:status")
                 .put("registeredUserId", registeredUser)
-                .put("available", RidePushNotification.canPost(this)));
+                .put("available", RidePushNotification.canPost(this))
+                .put("audible", RidePushNotification.canRing(this)));
         } catch (Exception ignored) { /* Status can be requested again. */ }
     }
 
@@ -254,6 +256,17 @@ public final class MainActivity extends Activity {
                     .put("deviceId", deviceId).put("fcmToken", task.getResult()));
             } catch (Exception ignored) { sendRidePushStatus(); }
         });
+    }
+
+    private void openRideNotificationSettings() {
+        try {
+            startActivity(new Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName())
+                .putExtra(Settings.EXTRA_CHANNEL_ID, RidePushNotification.CHANNEL));
+        } catch (Exception error) {
+            startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                Uri.parse("package:" + getPackageName())));
+        }
     }
 
     private void adminPollStatus() {
@@ -517,7 +530,7 @@ public final class MainActivity extends Activity {
         if (pendingPositionId != null) { findPosition(pendingPositionId); pendingPositionId = null; }
     }
 
-    @Override protected void onResume() { super.onResume(); if (web != null) sendRiderStatus(); }
+    @Override protected void onResume() { super.onResume(); if (web != null) { sendRiderStatus(); sendRidePushStatus(); } }
 
     @SuppressLint("GestureBackNavigation") // API 33+ uses OnBackInvokedDispatcher above.
     @Override public void onBackPressed() {
