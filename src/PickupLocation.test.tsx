@@ -3,11 +3,11 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import PickupLocation from './PickupLocation'
-import { suggestAddresses, suggestNearby } from './lib/geoapify-geocoding'
+import { identifyCurrentLocation, suggestAddresses, suggestNearby } from './lib/geoapify-geocoding'
 import { requestAddressPosition } from './lib/proximity'
 
 vi.mock('./PinCorrection', () => ({ default: () => <div aria-label="Map correction" /> }))
-vi.mock('./lib/proximity', () => ({ requestAddressPosition: vi.fn() }))
+vi.mock('./lib/proximity', () => ({ requestAddressPosition: vi.fn(), LocationError: class LocationError extends Error {} }))
 vi.mock('./lib/geoapify-geocoding', () => ({ suggestAddresses: vi.fn(), suggestNearby: vi.fn(), searchAddress: vi.fn(), reverseAddress: vi.fn(), identifyCurrentLocation: vi.fn() }))
 const match = { address: 'Eliozu Road', city: 'Port Harcourt', state: 'Rivers', latitude: 4.8661, longitude: 7.0219,
   specificity: 'street', resultType: 'street', confidence: null, distanceMetres: 50,
@@ -57,5 +57,13 @@ describe('one-field pickup location', () => {
     await userEvent.setup().selectOptions(await screen.findByLabelText('My pickup addresses'), '1')
     expect(screen.getByRole('alert')).toHaveTextContent('no map point')
     expect(document.querySelector('[name=pickup_latitude]')).toBeNull()
+  })
+  it('shows a disabled confirmation checkbox when pickup GPS is too coarse', async () => {
+    vi.mocked(requestAddressPosition).mockResolvedValue({ latitude: 4.882269, longitude: 7.0096482, accuracyMetres: 350, capturedAt: Date.now(), source: 'native' })
+    vi.mocked(identifyCurrentLocation).mockResolvedValue({ label: 'Rumuodumaya', landmarkDistanceMetres: null, matchedAddress: null })
+    render(<form><select name="pickup_city" defaultValue="Port Harcourt"><option>Port Harcourt</option></select><PickupLocation supabase={client()} userId="user-1" onCitySelected={vi.fn()} /></form>)
+    await userEvent.setup().click(screen.getByRole('button', { name: /use GPS/ }))
+    expect(await screen.findByText(/Move the map pin to your pickup point/)).toBeInTheDocument()
+    expect(screen.getByLabelText('This is the pickup location.')).toBeDisabled()
   })
 })

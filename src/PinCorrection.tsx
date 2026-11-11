@@ -41,7 +41,7 @@ export default function PinCorrection({ supabase, initial, onChoose, onClose, re
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [movedPin, setMovedPin] = useState(false)
-  const [mapExpanded, setMapExpanded] = useState(!compactMap)
+  const [mapExpanded, setMapExpanded] = useState(requireMove || !compactMap)
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const mapRef = useRef<HTMLButtonElement | null>(null)
   const drag = useRef<{ id: number; x: number; y: number } | null>(null)
