@@ -58,12 +58,13 @@ describe('one-field pickup location', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('no map point')
     expect(document.querySelector('[name=pickup_latitude]')).toBeNull()
   })
-  it('shows a disabled confirmation checkbox when pickup GPS is too coarse', async () => {
+  it('allows confirming a coarse pickup GPS point with an accuracy warning', async () => {
     vi.mocked(requestAddressPosition).mockResolvedValue({ latitude: 4.882269, longitude: 7.0096482, accuracyMetres: 350, capturedAt: Date.now(), source: 'native' })
     vi.mocked(identifyCurrentLocation).mockResolvedValue({ label: 'Rumuodumaya', landmarkDistanceMetres: null, matchedAddress: null })
     render(<form><select name="pickup_city" defaultValue="Port Harcourt"><option>Port Harcourt</option></select><PickupLocation supabase={client()} userId="user-1" onCitySelected={vi.fn()} /></form>)
     await userEvent.setup().click(screen.getByRole('button', { name: /use GPS/ }))
-    expect(await screen.findByText(/Move the map pin to your pickup point/)).toBeInTheDocument()
-    expect(screen.getByLabelText('This is the pickup location.')).toBeDisabled()
+    expect(await screen.findByText(/GPS accuracy is about 350 m/)).toBeInTheDocument()
+    await userEvent.setup().click(screen.getByLabelText('This is the pickup location.'))
+    expect(screen.getByLabelText('This is the pickup location.')).toBeChecked()
   })
 })

@@ -64,7 +64,7 @@ describe('one-field drop-off location', () => {
     await user.type(screen.getByRole('searchbox', { name: 'Drop-off place search' }), 'Market Road')
     await user.click(screen.getByRole('button', { name: 'Find location' }))
     expect(await screen.findByText(/Only a broad area was found/)).toBeInTheDocument()
-    expect(screen.getByLabelText('This is the delivery location.')).toBeDisabled()
+    expect(screen.getByLabelText('This is the delivery location.')).toBeEnabled()
   })
   it('does not offer current-phone GPS for the drop-off', () => {
     render(<form><select name="delivery_city" defaultValue="Port Harcourt"><option>Port Harcourt</option></select><DeliveryPoint supabase={supabase} /></form>)

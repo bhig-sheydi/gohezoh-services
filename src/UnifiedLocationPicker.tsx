@@ -259,9 +259,9 @@ export default function UnifiedLocationPicker({ kind, supabase, userId, destinat
     {error && <small role="alert">{error}</small>}
     {locationSettingsNeeded && window.GohezohLocation?.postMessage && <button type="button" className="text-button" onClick={() => window.GohezohLocation?.postMessage?.(JSON.stringify({ type: 'position:settings' }))}>Turn on phone location</button>}
     {fix && point && <><small role="status">{note || 'Confirm this location.'}</small>
-      <PinCorrection key={pinVersion} supabase={supabase} initial={point} compactMap hideSearch requireMove={needsPin} onChoose={(evidence, _address, movedPin) => { setFix(evidence); setPoint(evidence); setUserMovedPin(!!movedPin); setNeedsPin(false); setNote('Pin chosen by you. Confirm this point.') }} />
-      {needsPin && <small role="status">GPS could only place you within {Math.round(fix.accuracyMetres ?? 0)} m. Move the map pin to your pickup point and tap “Use this pin” to continue.</small>}
-      <label className="recipient-location-confirm"><input type="checkbox" name={`${kind}_location_confirmed`} value="yes" required disabled={needsPin} />This is the {kind} location.</label>
+      <PinCorrection key={pinVersion} supabase={supabase} initial={point} compactMap hideSearch onChoose={(evidence, _address, movedPin) => { setFix(evidence); setPoint(evidence); setUserMovedPin(!!movedPin); setNeedsPin(false); setNote('Pin chosen by you. Confirm this point.') }} />
+      {needsPin && <small role="status">GPS accuracy is about {Math.round(fix.accuracyMetres ?? 0)} m. Check the point on the map and adjust it if needed before confirming.</small>}
+      <label className="recipient-location-confirm"><input type="checkbox" name={`${kind}_location_confirmed`} value="yes" required />This is the {kind} location.</label>
       {slot && kind === 'pickup' && <input type="hidden" name="pickup_saved_slot" value={slot} />}
       <input type="hidden" name={`${kind}_latitude`} value={fix.latitude} /><input type="hidden" name={`${kind}_longitude`} value={fix.longitude} />
       <input type="hidden" name={`${kind}_accuracy_metres`} value={fix.accuracyMetres ?? ''} /><input type="hidden" name={`${kind}_location_source`} value={fix.source} />
