@@ -176,6 +176,11 @@
 .address-search-hint { display:block; font-size:13px !important; }
 .unified-location-picker { width:100%; max-width:720px; }
 .unified-location-picker .location-single-search { width:100%; min-height:58px; padding:14px 18px; font-size:1.05rem; border-radius:14px; }
+.unified-location-picker .location-gps-button { min-height:48px; border-color:#276b50; color:#fff; background:#276b50; font-size:14px; font-weight:800; box-shadow:0 3px 10px rgba(17,70,47,.18); }
+.unified-location-picker .location-gps-button:hover:not(:disabled) { border-color:#174e39; color:#fff; background:#174e39; }
+.unified-location-picker .location-gps-button:focus-visible { outline:3px solid #e9b959; outline-offset:3px; }
+:root[data-theme='dark'] .unified-location-picker .location-gps-button { border-color:#70bd91; color:#102b20; background:#70bd91; }
+:root[data-theme='dark'] .unified-location-picker .location-gps-button:hover:not(:disabled) { border-color:#a0d5af; color:#102b20; background:#a0d5af; }
 .address-search-status { display:flex; align-items:center; gap:9px; padding:11px 12px; border:1px solid #83a487; border-radius:9px; color:#245338 !important; background:#eaf4ec; font-size:13px !important; font-weight:700 !important; }
 .address-search-spinner { flex:none; width:16px; height:16px; border:2px solid #9abfa4; border-top-color:#245338; border-radius:50%; animation:address-search-spin .7s linear infinite; }
 .address-search-fallback { display:grid; gap:7px; }

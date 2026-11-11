@@ -1235,7 +1235,7 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
     }
     const location = deliveryStep === 0 ? 'pickup' : 'delivery'
     if (!values.has(`${location}_latitude`) || !values.has(`${location}_longitude`) || !values.has(`${location}_location_confirmed`)) {
-      setDeliveryStepError(`Select a ${location} street suggestion or map pin, then confirm the location.`); return
+      setDeliveryStepError(`Choose a ${location === 'pickup' ? 'pickup' : 'drop-off'} place from the search results or use GPS, then confirm the location.`); return
     }
     setDeliveryStepError(''); setDeliveryStep((step) => Math.min(step + 1, 2))
   }

@@ -5,14 +5,17 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import UnifiedLocationPicker from './UnifiedLocationPicker'
 import { googleAutocomplete } from './lib/google-geocoding'
 import { identifyCurrentLocation, suggestAddresses } from './lib/geoapify-geocoding'
-import { requestAddressPosition } from './lib/proximity'
+import { LocationError, requestAddressPosition } from './lib/proximity'
 
 vi.mock('./PinCorrection', () => ({ default: ({ initial, onChoose }: { initial: { latitude: number; longitude: number }; onChoose: (point: unknown, address: null, moved: boolean) => void }) =>
   <button type="button" aria-label="Move map pin" onClick={() => onChoose({ ...initial, accuracyMetres: null, capturedAt: Date.now(), source: 'map' }, null, true)}>Move map pin</button> }))
 vi.mock('./lib/google-maps', () => ({ googleMapsDemoEnabled: true }))
 vi.mock('./lib/google-geocoding', () => ({ googleAutocomplete: vi.fn(), newGoogleAutocompleteSession: () => ({}) }))
 vi.mock('./lib/geoapify-geocoding', () => ({ suggestAddresses: vi.fn(), suggestNearby: vi.fn(), searchAddress: vi.fn(), identifyCurrentLocation: vi.fn() }))
-vi.mock('./lib/proximity', () => ({ requestAddressPosition: vi.fn() }))
+vi.mock('./lib/proximity', () => ({ requestAddressPosition: vi.fn(), LocationError: class LocationError extends Error {
+  code: string
+  constructor(code: string, message: string) { super(message); this.code = code }
+} }))
 
 beforeEach(() => { vi.clearAllMocks() })
 
@@ -44,6 +47,13 @@ it('uses Google automatically when no saved place matches', async () => {
     <UnifiedLocationPicker kind="pickup" supabase={client} /></form>)
   await userEvent.setup().type(screen.getByRole('searchbox', { name: 'Pickup place search' }), 'Orji Woko')
   await vi.waitFor(() => expect(googleAutocomplete).toHaveBeenCalledOnce())
+})
+
+it('does not offer current-phone GPS for a drop-off destination', () => {
+  render(<form><select name="delivery_city" defaultValue="Port Harcourt"><option>Port Harcourt</option></select>
+    <UnifiedLocationPicker kind="delivery" supabase={sharedClient([])} /></form>)
+  expect(screen.queryByRole('button', { name: /use GPS/ })).not.toBeInTheDocument()
+  expect(screen.getByRole('searchbox', { name: 'Drop-off place search' })).toBeInTheDocument()
 })
 
 it('allows Google search when the saved places are not the intended place', async () => {
@@ -103,6 +113,19 @@ it('keeps the phone point available when nearby saved places are not right', asy
   await userEvent.setup().click(await screen.findByRole('button', { name: 'Use my phone point instead' }))
   await vi.waitFor(() => expect(document.querySelector('[name=pickup_latitude]')).toHaveValue('4.88227'))
   expect(identifyCurrentLocation).toHaveBeenCalledOnce()
+})
+
+it('opens phone location settings after a GPS timeout in the Android app', async () => {
+  const postMessage = vi.fn()
+  window.GohezohLocation = { postMessage }
+  vi.mocked(requestAddressPosition).mockRejectedValue(new LocationError('timeout', 'Location request timed out.'))
+  render(<form><select name="pickup_city" defaultValue="Port Harcourt"><option>Port Harcourt</option></select>
+    <UnifiedLocationPicker kind="pickup" supabase={sharedClient([])} /></form>)
+  await userEvent.setup().click(screen.getByRole('button', { name: /use GPS/ }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('Location request timed out.')
+  await userEvent.setup().click(screen.getByRole('button', { name: 'Turn on phone location' }))
+  expect(postMessage).toHaveBeenCalledWith('{"type":"position:settings"}')
+  delete window.GohezohLocation
 })
 
 it('reverse geocodes a phone point when the nearest saved place is beyond 15 metres', async () => {

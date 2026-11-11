@@ -53,7 +53,7 @@ export default function RideAlerts({ supabase, userId, kind }: {
     return () => window.removeEventListener('kwik-parsel:ride-push', listener)
   }, [kind, supabase, userId])
 
-  if (!supported) return null
+  if (!supported || enabled) return null
   return <section className={`ride-alert-control ${enabled ? 'ride-alert-ready' : 'ride-alert-needed'}`} aria-label="Phone ride alerts">
     {!enabled && <div className="ride-alert-copy"><strong>Turn on ride alarms</strong><span>{kind === 'rider' ? 'Hear new assignments in time to accept them.' : kind === 'company' ? 'Hear new delivery offers before they expire.' : 'Hear when a rider is available for your delivery.'}</span></div>}
     <button type="button" className="secondary-button" disabled={busy || enabled}

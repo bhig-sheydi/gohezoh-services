@@ -44,6 +44,21 @@ it('opens Android notification settings when alerts are disabled', async () => {
   expect(postMessage).toHaveBeenCalledWith('{"type":"ride:settings"}')
 })
 
+it.each(['customer', 'company', 'rider'] as const)('hides the %s alarm panel when enabled and restores it if disabled', async (kind) => {
+  window.KwikParselNative = { postMessage: vi.fn() }
+  const userId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  render(<RideAlerts supabase={{ rpc: vi.fn() } as never} userId={userId} kind={kind} />)
+  expect(screen.getByRole('region', { name: 'Phone ride alerts' })).toBeTruthy()
+  window.dispatchEvent(new CustomEvent('kwik-parsel:ride-push', { detail: {
+    type: 'ride:status', registeredUserId: userId, available: true, audible: true,
+  } }))
+  await waitFor(() => expect(screen.queryByRole('region', { name: 'Phone ride alerts' })).toBeNull())
+  window.dispatchEvent(new CustomEvent('kwik-parsel:ride-push', { detail: {
+    type: 'ride:status', registeredUserId: userId, available: false, audible: false,
+  } }))
+  expect(await screen.findByRole('region', { name: 'Phone ride alerts' })).toBeTruthy()
+})
+
 it('does not register a malformed phone token event', () => {
   const postMessage = vi.fn()
   window.KwikParselNative = { postMessage }

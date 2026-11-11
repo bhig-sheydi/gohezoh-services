@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ParcelDestination } from './ParcelPalsPanel'
-import { requestAddressPosition, type PositionFix } from './lib/proximity'
+import { LocationError, requestAddressPosition, type PositionFix } from './lib/proximity'
 import { identifyCurrentLocation, searchAddress, suggestAddresses, suggestNearby, type AddressSuggestion, type LocationEvidence } from './lib/geoapify-geocoding'
 import { googleMapsDemoEnabled } from './lib/google-maps'
 import { googleAutocomplete, newGoogleAutocompleteSession, type GoogleAutocompleteOption, type GoogleAutocompleteSession } from './lib/google-geocoding'
@@ -33,6 +33,7 @@ export default function UnifiedLocationPicker({ kind, supabase, userId, destinat
   const [searching, setSearching] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [locationSettingsNeeded, setLocationSettingsNeeded] = useState(false)
   const [note, setNote] = useState(destination ? 'Saved delivery location' : '')
   const [needsPin, setNeedsPin] = useState(false)
   const [saved, setSaved] = useState<ParcelDestination[]>([])
@@ -194,7 +195,7 @@ export default function UnifiedLocationPicker({ kind, supabase, userId, destinat
     if (pending.current) return
     autocompleteSession.current = null
     const controller = new AbortController(); pending.current = controller
-    setBusy(true); setError('')
+    setBusy(true); setError(''); setLocationSettingsNeeded(false)
     try {
       const device = await requestAddressPosition({ signal: controller.signal })
       let local: AddressSuggestion[] = []
@@ -221,7 +222,10 @@ export default function UnifiedLocationPicker({ kind, supabase, userId, destinat
           : `${result.landmarkDistanceMetres === null ? 'Mapped address' : `Named place ${result.landmarkDistanceMetres} m away`} · phone accuracy ±${Math.round(device.accuracyMetres)} m. Confirm the point.`)
         setNeedsPin(device.accuracyMetres > 100)
       }
-    } catch (cause) { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Could not get your location.') }
+    } catch (cause) { if (!controller.signal.aborted) {
+      setError(cause instanceof Error ? cause.message : 'Could not get your location.')
+      setLocationSettingsNeeded(cause instanceof LocationError && ['permission_denied', 'unavailable', 'timeout'].includes(cause.code))
+    } }
     finally { if (pending.current === controller) pending.current = null; if (!controller.signal.aborted) setBusy(false) }
   }
 
@@ -251,8 +255,9 @@ export default function UnifiedLocationPicker({ kind, supabase, userId, destinat
     {googleOptions.length > 0 && <div className="address-suggestions" role="group" aria-label={`${kind} place suggestions`}>{googleOptions.map((item) => <button type="button" key={item.placeId} disabled={busy} onClick={() => void chooseGoogleOption(item)}><strong>{item.address}</strong><small>{item.detail}</small></button>)}<small className="google-maps-attribution" translate="no">Google Maps</small></div>}
     {nearbyPhonePoint && <button type="button" className="text-button" disabled={busy} onClick={() => void choosePhonePointInstead()}>Use my phone point instead</button>}
     {offerProvider && !fix && <button type="button" className="text-button" onClick={() => { setProviderOnly(true); setOfferProvider(false); setSuggestions([]); setNearbyPhonePoint(null); setError(''); setSearching(true) }}>Search more places</button>}
-    <div className="field-row"><button type="button" className="secondary-button" disabled={busy || query.trim().length < 3} onClick={() => void find()}>{busy ? 'Finding location...' : 'Find location'}</button><button type="button" className="text-button" disabled={busy} onClick={() => void findCurrentPosition()}>I'm here — use GPS</button></div>
+    <div className="field-row"><button type="button" className="secondary-button" disabled={busy || query.trim().length < 3} onClick={() => void find()}>{busy ? 'Finding location...' : 'Find location'}</button>{kind === 'pickup' && <button type="button" className="secondary-button location-gps-button" disabled={busy} onClick={() => void findCurrentPosition()}>I'm here — use GPS</button>}</div>
     {error && <small role="alert">{error}</small>}
+    {locationSettingsNeeded && window.GohezohLocation?.postMessage && <button type="button" className="text-button" onClick={() => window.GohezohLocation?.postMessage?.(JSON.stringify({ type: 'position:settings' }))}>Turn on phone location</button>}
     {fix && point && <><small role="status">{note || 'Confirm this location.'}</small>
       <PinCorrection key={pinVersion} supabase={supabase} initial={point} compactMap hideSearch requireMove={needsPin} onChoose={(evidence, _address, movedPin) => { setFix(evidence); setPoint(evidence); setUserMovedPin(!!movedPin); setNeedsPin(false); setNote('Pin chosen by you. Confirm this point.') }} />
       {!needsPin && <label className="recipient-location-confirm"><input type="checkbox" name={`${kind}_location_confirmed`} value="yes" required />This is the {kind} location.</label>}
