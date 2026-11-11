@@ -9,7 +9,7 @@ type PaymentHold = { request_id: string; status: string; amount_ngn: number; acc
   bank_name: string | null; expires_at: string; reference: string; provider?: 'flutterwave' | 'paystack'; test_mode?: boolean | null }
 type CustomerBidState = { windows: QuoteWindow[]; quotes: CustomerQuote[]; holds: PaymentHold[] }
 type BikePrice = { request_id: string; customer_price_ngn: number; distance_metres: number;
-  duration_seconds: number; estimated_fuel_litres: number }
+  duration_seconds: number; estimated_fuel_litres: number; space_surcharge_ngn: number }
 const TERMINAL_NOTICE_MS = 10 * 60 * 1000
 function terminalNoticeDeadline(hold: PaymentHold, paymentReceivedAt?: string) {
   const timestamp = Date.parse(hold.status === 'paid' && paymentReceivedAt ? paymentReceivedAt : hold.expires_at)
@@ -60,7 +60,7 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
     if (!ids.length) { setWindows([]); setQuotes([]); setOffers({}); setHolds({}); return }
     const [{ data, error }, pricesResult] = await Promise.all([
       supabase.rpc('list_customer_bid_state', { p_request_ids: ids }),
-      supabase.from('bike_route_prices').select('request_id,customer_price_ngn,distance_metres,duration_seconds,estimated_fuel_litres').in('request_id', ids),
+      supabase.from('bike_route_prices').select('request_id,customer_price_ngn,distance_metres,duration_seconds,estimated_fuel_litres,space_surcharge_ngn').in('request_id', ids),
     ])
     if (error) { onError(error.message); return }
     if (pricesResult.error) { onError(pricesResult.error.message); return }
@@ -213,7 +213,7 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
       const waiting = remaining > 0 && !(bikePrice && (offers[requestId]?.length ?? 0) > 0)
       const bids = offers[requestId] ?? []
       return <section className="customer-bid-panel" key={requestId} aria-label="Interested companies">
-        {bikePrice && <p><strong>Bike delivery price: {money(bikePrice.customer_price_ngn)}</strong> · {(bikePrice.distance_metres / 1000).toFixed(1)} km · about {Math.ceil(bikePrice.duration_seconds / 60)} min without detours. Company acceptance is needed before payment.</p>}
+        {bikePrice && <p><strong>Bike delivery price: {money(bikePrice.customer_price_ngn)}</strong> · {(bikePrice.distance_metres / 1000).toFixed(1)} km · about {Math.ceil(bikePrice.duration_seconds / 60)} min without detours.{bikePrice.space_surcharge_ngn > 0 && ` Includes ${money(bikePrice.space_surcharge_ngn)} for packed space.`} Company acceptance is needed before payment.</p>}
         {priceRetry && <button type="button" className="secondary-button" disabled={busy === requestId} onClick={() => void retryBikePrice(requestId)}>Get bike price</button>}
         {waiting ? <div className="customer-bid-wait" role="status">
           <div className="customer-bid-radar" aria-hidden="true"><span /><span /><span /><i /></div>

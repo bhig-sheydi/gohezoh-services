@@ -10,12 +10,14 @@ begin
   insert into saved_parcel_fixture values(v_user);
   perform set_config('request.jwt.claim.sub',v_user::text,true);
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_user,'role','authenticated')::text,true);
-  insert into public.customer_saved_parcels(user_id,item_name,description,declared_value,price,length_cm,width_cm,height_cm,weight_kg,photo_path)
-  values(v_user,'Sample parcel','Goods inside',10000,8500,99,60,70.5,9.9,v_user::text||'/sample.jpg');
+  insert into public.customer_saved_parcels(user_id,item_name,description,declared_value,price,length_cm,width_cm,height_cm,weight_kg,photo_path,catalog_code)
+  values(v_user,'Sample parcel','Goods inside',10000,8500,1,1,1,0.01,v_user::text||'/sample.jpg','textbook');
+  if (select length_cm from public.customer_saved_parcels where user_id=v_user)<>29 then
+    raise exception 'Customer-supplied dimensions were not replaced'; end if;
   begin
-    insert into public.customer_saved_parcels(user_id,item_name,description,declared_value,price,length_cm,width_cm,height_cm,weight_kg,photo_path)
-    values(v_user,'Oversized parcel','Too tall',10000,8500,99,60,70.6,9.9,v_user::text||'/large.jpg');
-    raise exception 'Oversized parcel passed database bounds';
+    insert into public.customer_saved_parcels(user_id,item_name,description,declared_value,price,length_cm,width_cm,height_cm,weight_kg,photo_path,catalog_code)
+    values(v_user,'Over limit','Too valuable',70001,70001,1,1,1,0.01,v_user::text||'/large.jpg','wig_long');
+    raise exception 'Over-limit declared worth passed database bounds';
   exception when check_violation then null; end;
   if (select count(*) from public.customer_saved_parcels where user_id=v_user)<>1 then raise exception 'Customer could not read their saved parcel'; end if;
 end $$;

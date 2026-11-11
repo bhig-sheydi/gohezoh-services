@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import type { getSupabaseClient } from './lib/supabase'
-import { ParcelMeasureFields, ParcelWeightField } from './ParcelLimitFields'
+import BikeItemPicker, { type BikeItem } from './BikeItemPicker'
+import { bikeItemEstimate, MAX_GOODS_VALUE_NGN } from './lib/bike-item-space'
 
 export type SavedParcel = {
   id: string
@@ -13,6 +14,8 @@ export type SavedParcel = {
   width_cm: number
   height_cm: number
   weight_kg: number
+  catalog_code?: string | null
+  pages?: number | null
   photo_path: string
   photo_url?: string
   created_at: string
@@ -26,7 +29,7 @@ type Props = {
   onUse: (parcel: SavedParcel) => void
 }
 
-const selectFields = 'id,user_id,item_name,description,declared_value,price,length_cm,width_cm,height_cm,weight_kg,photo_path,created_at'
+const selectFields = 'id,user_id,item_name,description,declared_value,price,length_cm,width_cm,height_cm,weight_kg,catalog_code,pages,photo_path,created_at'
 
 export default function CustomerSavedParcels({ supabase, userId, onError, onNotice, onUse }: Props) {
   const [items, setItems] = useState<SavedParcel[]>([])
@@ -35,6 +38,7 @@ export default function CustomerSavedParcels({ supabase, userId, onError, onNoti
   const fileInput = useRef<HTMLInputElement>(null)
   const [photo, setPhoto] = useState<File | null>(null)
   const [photoPreview, setPhotoPreview] = useState('')
+  const [selectedType, setSelectedType] = useState<BikeItem | null>(null)
 
   const refresh = useCallback(async () => {
     const { data, error } = await supabase.from('customer_saved_parcels').select(selectFields).eq('user_id', userId).order('created_at', { ascending: false })
@@ -73,6 +77,12 @@ export default function CustomerSavedParcels({ supabase, userId, onError, onNoti
     const formElement = event.currentTarget
     const form = new FormData(event.currentTarget)
     if (!photo) { onError('Add a parcel photo to save this item.'); return }
+    const pages = Number(form.get('parcel_pages') || 1)
+    if (!selectedType || !bikeItemEstimate(selectedType, 1, pages).fits) { onError('Choose an item that fits a bike box.'); return }
+    const declaredValue = Number(form.get('declared_value'))
+    if (!Number.isFinite(declaredValue) || declaredValue < 0 || declaredValue > MAX_GOODS_VALUE_NGN) {
+      onError('Declared worth must be ₦70,000 or less.'); return
+    }
     const extension = photo.type === 'image/jpeg' ? 'jpg' : photo.type === 'image/png' ? 'png' : 'webp'
     const path = `${userId}/${Date.now()}.${extension}`
     setSaving(true); onError(''); onNotice('')
@@ -83,12 +93,14 @@ export default function CustomerSavedParcels({ supabase, userId, onError, onNoti
       user_id: userId,
       item_name: String(form.get('item_name')).trim(),
       description: String(form.get('description')).trim(),
-      declared_value: Number(form.get('declared_value')),
+      declared_value: declaredValue,
       price: Number(form.get('price')),
-      length_cm: Number(form.get('length_cm')),
-      width_cm: Number(form.get('width_cm')),
-      height_cm: Number(form.get('height_cm')),
-      weight_kg: Number(form.get('weight_kg')),
+      catalog_code: selectedType.code,
+      pages: selectedType.measurement === 'pages' ? pages : null,
+      length_cm: selectedType.length_cm,
+      width_cm: selectedType.width_cm,
+      height_cm: bikeItemEstimate(selectedType, 1, pages).height,
+      weight_kg: bikeItemEstimate(selectedType, 1, pages).weight,
       photo_path: path,
     })
     if (error) {
@@ -98,6 +110,7 @@ export default function CustomerSavedParcels({ supabase, userId, onError, onNoti
       return
     }
     formElement.reset()
+    setSelectedType(null)
     setPhoto(null); setPhotoPreview('')
     onNotice('Saved item added.')
     setSaving(false)
@@ -125,11 +138,10 @@ export default function CustomerSavedParcels({ supabase, userId, onError, onNoti
       <label className="saved-parcel-photo"><input ref={fileInput} aria-label="Parcel photo" type="file" accept="image/jpeg,image/png,image/webp" onChange={choosePhoto} /><span>{photoPreview ? <img src={photoPreview} alt="Parcel preview" /> : <span aria-hidden="true">＋</span>}</span><small>{photo ? photo.name : 'Add parcel photo'}</small></label>
       <label className="field"><span>Item name</span><input name="item_name" required maxLength={100} placeholder="e.g. Phone accessories" /></label>
       <label className="field"><span>Parcel description</span><input name="description" required maxLength={500} placeholder="Describe what is inside" /></label>
-      <div className="field-row"><label className="field"><span>Declared worth (₦)</span><input name="declared_value" type="number" min="0" step="0.01" required /></label><label className="field"><span>Price paid (₦)</span><input name="price" type="number" min="0" step="0.01" required /></label></div>
-      <fieldset className="saved-parcel-dimensions"><legend>Parcel size · centimetres</legend><ParcelMeasureFields names={{ length: 'length_cm', width: 'width_cm', height: 'height_cm' }} /></fieldset>
-      <ParcelWeightField name="weight_kg" />
+      <div className="field-row"><label className="field"><span>Declared worth (₦)</span><input name="declared_value" type="number" min="0" max="70000" step="0.01" required /></label><label className="field"><span>Price paid (₦)</span><input name="price" type="number" min="0" step="0.01" required /></label></div>
+      <BikeItemPicker supabase={supabase} onSelected={setSelectedType} />
       <button className="primary-button" disabled={saving}>{saving ? 'Saving item…' : 'Save item'}</button>
     </form></details>
-    {loading ? <p className="saved-parcel-empty">Loading saved items…</p> : items.length === 0 ? <p className="saved-parcel-empty">Save a parcel once to add it faster next time.</p> : <div className="saved-parcel-list">{items.map((item) => <article className="saved-parcel-card" key={item.id}><img src={item.photo_url} alt={item.item_name} /><div className="saved-parcel-copy"><strong>{item.item_name}</strong><span>{item.weight_kg} kg · {item.length_cm} × {item.width_cm} × {item.height_cm} cm</span><small>Declared worth ₦{Number(item.declared_value).toLocaleString('en-NG')}</small></div><button className="primary-button" type="button" onClick={() => onUse(item)}>Use item</button><button className="text-button" type="button" aria-label={`Remove ${item.item_name}`} onClick={() => void removeItem(item)}>Remove</button></article>)}</div>}
+    {loading ? <p className="saved-parcel-empty">Loading saved items…</p> : items.length === 0 ? <p className="saved-parcel-empty">Save a parcel once to add it faster next time.</p> : <div className="saved-parcel-list">{items.map((item) => <article className="saved-parcel-card" key={item.id}><img src={item.photo_url} alt={item.item_name} /><div className="saved-parcel-copy"><strong>{item.item_name}</strong><span>{item.length_cm} × {item.width_cm} × {item.height_cm} cm estimated packed size</span><small>Declared worth ₦{Number(item.declared_value).toLocaleString('en-NG')}</small></div><button className="primary-button" type="button" onClick={() => onUse(item)}>Use item</button><button className="text-button" type="button" aria-label={`Remove ${item.item_name}`} onClick={() => void removeItem(item)}>Remove</button></article>)}</div>}
   </section>
 }

@@ -19,14 +19,14 @@ begin
   perform set_config('request.jwt.claims',jsonb_build_object('sub',v_user,'role','authenticated')::text,true);
   insert into public.service_requests(id,customer_id,service_id,created_by,pickup_address,pickup_city,pickup_latitude,pickup_longitude,pickup_captured_at,pickup_location_source,sender_name,sender_phone,delivery_address,delivery_city,recipient_name,recipient_phone,parcel_summary,parcel_items,parcel_photo_path)
   values(v_request,v_customer,v_service,v_user,'1 Pickup Road','Lagos',6.5244,3.3792,now(),'search','Sender','08000000002','2 Delivery Road','Lagos','Recipient','08000000003','Books',
-    '[{"description":"Books","quantity":1,"weight_kg":1.3,"length_cm":30,"width_cm":20,"height_cm":10,"declared_value":25000,"price":18000}]'::jsonb,v_path);
+    '[{"description":"Books","quantity":1,"catalog_code":"textbook","declared_value":25000}]'::jsonb,v_path);
   if not exists(select 1 from public.customer_saved_parcels where user_id=v_user and photo_path=v_path and description='Books' and declared_value=25000) then
     raise exception 'Sent item was not added to the catalogue';
   end if;
   select id into v_saved from public.customer_saved_parcels where user_id=v_user and photo_path=v_path;
   insert into public.service_requests(customer_id,service_id,created_by,pickup_address,pickup_city,pickup_latitude,pickup_longitude,pickup_captured_at,pickup_location_source,sender_name,sender_phone,delivery_address,delivery_city,recipient_name,recipient_phone,parcel_summary,parcel_items,parcel_photo_path)
   values(v_customer,v_service,v_user,'1 Pickup Road','Lagos',6.5244,3.3792,now(),'search','Sender','08000000002','2 Delivery Road','Lagos','Recipient','08000000003','Books again',
-    jsonb_build_array(jsonb_build_object('description','Books again','quantity',1,'weight_kg',1.3,'length_cm',30,'width_cm',20,'height_cm',10,'saved_parcel_id',v_saved)),v_path);
+    jsonb_build_array(jsonb_build_object('description','Books again','quantity',1,'catalog_code','textbook','declared_value',25000,'saved_parcel_id',v_saved)),v_path);
   if (select count(*) from public.customer_saved_parcels where user_id=v_user)<>1 then
     raise exception 'Reusing a saved item created a duplicate catalogue entry';
   end if;

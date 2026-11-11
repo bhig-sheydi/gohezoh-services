@@ -88,7 +88,7 @@ begin
     pickup_latitude,pickup_longitude,pickup_accuracy_metres,pickup_captured_at,pickup_location_source)
   values(v_request,v_customer,v_service,v_customer_user,'1 Lagos Road','Lagos','Sender','08000000004',
     '2 Lagos Road','Lagos','Recipient','08000000005','Books',
-    '[{"description":"Books","quantity":1,"weight_kg":1,"length_cm":10,"width_cm":10,"height_cm":10,"declared_value":1000,"price":500}]'::jsonb,v_path,
+    '[{"description":"Books","quantity":1,"catalog_code":"textbook","declared_value":1000,"price":500}]'::jsonb,v_path,
     6.45,3.4,18,now(),'browser');
   if (select status from public.delivery_quote_windows where request_id=v_request)<>'matching' then
     raise exception 'Request must wait for route matching before bidding'; end if;
@@ -186,7 +186,7 @@ begin
     pickup_latitude,pickup_longitude,pickup_captured_at,pickup_location_source)
   values(v_request2,v_customer,v_service,v_customer_user,'1 Lagos Road','Lagos','Sender','08000000004',
     '2 Lagos Road','Lagos','Recipient','08000000005','Books',
-    '[{"description":"Books","quantity":1,"weight_kg":1,"length_cm":10,"width_cm":10,"height_cm":10}]'::jsonb,v_path,
+    '[{"description":"Books","quantity":1,"catalog_code":"textbook","declared_value":1000}]'::jsonb,v_path,
     6.45,3.4,now(),'search');
   if (select dispatch_match_status from public.service_requests where id=v_request2)<>'waiting' then raise exception 'Unmatched request was not queued'; end if;
   insert into public.delivery_quote_windows(request_id,corridor_id,status,published_at,deadline_at)

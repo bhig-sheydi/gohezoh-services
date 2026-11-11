@@ -424,6 +424,7 @@ beforeEach(() => {
     if (table === 'fulfillment_order_items') return {data:mockState.warehouseLines,error:null}
     if (table === 'inventory_items') return {data:mockState.warehouseItems,error:null}
     if (table === 'service_requests') return { data: mockState.customerRequests, error: null }
+    if (table === 'bike_item_catalogue') return { data: [{ code: 'textbook', category: 'Documents', label: 'Textbook', length_cm: 29, width_cm: 23, height_cm: 6, estimated_weight_kg: 1.2, measurement: 'unit' }], error: null }
     if (table === 'services') return { data: mockState.services, error: null }
     if (table === 'coverage_locations') return { data: mockState.coverageLocations, error: null }
     if (table === 'coverage_corridors') return { data: mockState.coverageCorridors, error: null }
@@ -854,19 +855,15 @@ describe('partner assignment and delivery screens', () => {
     await user.click(screen.getByRole('button', { name: 'Next: parcel' }))
     expect(screen.getByRole('region', { name: 'Parcel step' })).toBeVisible()
     fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Books' } })
-    const quantity = screen.getByLabelText('Items for this destination') as HTMLSelectElement
+    const quantity = screen.getByLabelText('Matching units for this destination') as HTMLSelectElement
     expect(quantity.options).toHaveLength(50)
     expect(quantity.options[quantity.options.length - 1].value).toBe('50')
     await user.selectOptions(quantity, '2')
-    await user.selectOptions(screen.getByLabelText(/Weight/), '1.3')
-    await user.selectOptions(screen.getByLabelText(/Length/), '30')
-    await user.selectOptions(screen.getByLabelText(/Width/), '20')
-    await user.selectOptions(screen.getByLabelText(/Height/), '10')
+    await user.selectOptions(await screen.findByLabelText('Item type'), 'textbook')
     expect(streetInput).toHaveValue('1 Lagos Road')
     expect(document.querySelector('.pickup-location .pin-correction')).toBeInTheDocument()
     expect(deliveryStreet).toHaveValue('1 Lagos Road')
-    fireEvent.change(screen.getByLabelText(/Declared worth/), { target: { value: '25000' } })
-    fireEvent.change(screen.getByLabelText(/Price paid/), { target: { value: '18000' } })
+    fireEvent.change(screen.getByLabelText(/Worth per unit/), { target: { value: '25000' } })
     const parcelPhoto = new File(['parcel photo'], 'parcel.png', { type: 'image/png' })
     await user.upload(screen.getByLabelText('Photo of goods'), parcelPhoto)
     expect((screen.getByLabelText('Photo of goods') as HTMLInputElement).files?.[0]).toEqual(parcelPhoto)
@@ -875,7 +872,7 @@ describe('partner assignment and delivery screens', () => {
     await waitFor(() => expect(mockState.upload).toHaveBeenCalledWith(expect.stringMatching(/\.png$/), parcelPhoto, { contentType: 'image/png', upsert: false }))
     await waitFor(() => expect(mockState.inserts).toContainEqual(expect.objectContaining({
       table:'service_requests',
-      data:expect.objectContaining({parcel_summary:'Books',pickup_address:'1 Lagos Road',pickup_latitude:6.45,pickup_longitude:3.4,pickup_location_source:'search',delivery_latitude:6.45,delivery_longitude:3.4,parcel_photo_path:expect.stringMatching(/\.png$/),parcel_items:[{description:'Books',quantity:2,weight_kg:1.3,length_cm:30,width_cm:20,height_cm:10,declared_value:25000,price:18000}]})
+      data:expect.objectContaining({parcel_summary:'Books',pickup_address:'1 Lagos Road',pickup_latitude:6.45,pickup_longitude:3.4,pickup_location_source:'search',delivery_latitude:6.45,delivery_longitude:3.4,parcel_photo_path:expect.stringMatching(/\.png$/),parcel_items:[{description:'Books',quantity:2,catalog_code:'textbook',declared_value:25000}]})
     })))
   })
 
@@ -909,12 +906,10 @@ describe('partner assignment and delivery screens', () => {
     await screen.findByRole('heading', { name: 'Your parcels' })
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: /Send items/ }))
-    await user.selectOptions(screen.getByLabelText(/Weight per item/), '5')
-    await user.selectOptions(screen.getByLabelText(/Length/), '99')
-    await user.selectOptions(screen.getByLabelText(/Width/), '60')
-    await user.selectOptions(screen.getByLabelText(/Height/), '70.5')
-    await user.selectOptions(screen.getByLabelText('Items for this destination'), '2')
-    expect(await screen.findByText(/exceeds the total weight and packed size capacity/i)).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByLabelText('Item type').querySelector('option[value="textbook"]')).not.toBeNull())
+    await user.selectOptions(screen.getByLabelText('Item type'), 'textbook')
+    await user.selectOptions(screen.getByLabelText('Matching units for this destination'), '10')
+    expect(await screen.findByText(/need more space than one bike box/i)).toBeInTheDocument()
   })
 
   it('shows customer delivery notifications and marks only the selected notification as read', async () => {

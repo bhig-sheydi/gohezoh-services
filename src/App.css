@@ -443,3 +443,5 @@
 .ride-alert-copy span { font-size: .9rem; }
 :root[data-theme='dark'] .ride-alert-needed { border-color: #e9a55a; background: #3c2917; color: #ffe8c6; }
 .ride-alert-control small { color: var(--text-muted, #7a2732); }
+.bike-item-picker { display: grid; gap: .6rem; }
+.bike-item-picker .parcel-capacity-help { margin: 0; font-size: .9rem; }

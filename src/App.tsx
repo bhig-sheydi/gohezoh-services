@@ -7,9 +7,8 @@ import PickupLocation from './PickupLocation'
 import DeliveryPoint from './DeliveryPoint'
 import { routeLabel } from './lib/route-label'
 import WarehouseConsole from './WarehouseConsole'
-import { ParcelMeasureFields, ParcelWeightField } from './ParcelLimitFields'
-import { assessParcelCapacity } from './lib/parcel-capacity'
-import { weightInKilograms } from './lib/weight'
+import BikeItemPicker, { type BikeItem } from './BikeItemPicker'
+import { bikeItemEstimate, MAX_GOODS_VALUE_NGN } from './lib/bike-item-space'
 import AdminConsole from './AdminConsole'
 import StaffAccessPanel from './StaffAccessPanel'
 import { BDOMarketersPanel } from './BDOMarketersPanel'
@@ -40,7 +39,7 @@ import AccountDeletionPanel from './AccountDeletionPanel'
 import CustomerPaymentReceipt from './CustomerPaymentReceipt'
 import ParcelPalsPanel, { type ParcelDestination, type ParcelPalContact } from './ParcelPalsPanel'
 import CustomerSavedParcels, { type SavedParcel } from './CustomerSavedParcels'
-import { PARCEL_LIMITS, PARCEL_MAX_QUANTITY } from './lib/parcel-limits'
+import { PARCEL_MAX_QUANTITY } from './lib/parcel-limits'
 import './App.css'
 import './dark.css'
 import './customer-delivery-cards.css'
@@ -289,20 +288,15 @@ function App() {
     }
     if (!form.get('recipient_location_confirmed')) { setError('Confirm the recipient has agreed to this delivery location before you submit.'); return }
     setBusy(true); setError(''); setNotice('')
-    let weightKg: number | null
-    try { weightKg = weightInKilograms(form.get('parcel_weight'), String(form.get('parcel_weight_unit'))) }
-    catch (error) { setError((error as Error).message); setBusy(false); return }
-    if (weightKg !== null && weightKg > PARCEL_LIMITS.weightKg) { setError(`Parcel weight must not exceed ${PARCEL_LIMITS.weightKg} kg.`); setBusy(false); return }
     const parcelQuantity = Number(form.get('parcel_quantity'))
-    const parcelDimensions = {
-      length: Number(form.get('parcel_length_cm')),
-      width: Number(form.get('parcel_width_cm')),
-      height: Number(form.get('parcel_height_cm')),
-      weight: weightKg ?? 0,
+    const declaredValue = Number(form.get('parcel_declared_value'))
+    if (!form.get('catalog_code') || !Number.isInteger(parcelQuantity) || parcelQuantity < 1 || parcelQuantity > PARCEL_MAX_QUANTITY) {
+      setError('Choose an item type and a valid number of units.')
+      setBusy(false)
+      return
     }
-    const capacity = assessParcelCapacity(parcelQuantity, parcelDimensions)
-    if (!Number.isInteger(parcelQuantity) || parcelQuantity < 1 || parcelQuantity > PARCEL_MAX_QUANTITY || !capacity.ready || !capacity.fitsWeight || !capacity.fitsDimensions) {
-      setError(!capacity.fitsWeight ? 'The selected item count exceeds the total weight capacity. Reduce the count or per-item weight.' : 'The selected item count does not fit within the shipment size limits. Reduce the count or per-item size.')
+    if (!Number.isFinite(declaredValue) || declaredValue < 0 || declaredValue * parcelQuantity > MAX_GOODS_VALUE_NGN) {
+      setError('The total declared worth of goods must not exceed ₦70,000.')
       setBusy(false)
       return
     }
@@ -313,11 +307,12 @@ function App() {
     const parcelItem: Record<string, string | number | null> = {
       description: String(form.get('parcel_description')).trim(),
       quantity: Number(form.get('parcel_quantity')),
-      weight_kg: weightKg,
+      catalog_code: String(form.get('catalog_code')),
     }
+    if (form.get('parcel_pages')) parcelItem.pages = Number(form.get('parcel_pages'))
     const savedParcelId = String(form.get('saved_parcel_id') ?? '')
     if (/^[0-9a-fA-F-]{36}$/.test(savedParcelId)) parcelItem.saved_parcel_id = savedParcelId
-    for (const [formName, parcelName] of [['parcel_length_cm','length_cm'],['parcel_width_cm','width_cm'],['parcel_height_cm','height_cm'],['parcel_declared_value','declared_value'],['parcel_price','price']] as const) {
+    for (const [formName, parcelName] of [['parcel_declared_value','declared_value'],['parcel_price','price']] as const) {
       const value = String(form.get(formName) ?? '').trim()
       if (value) parcelItem[parcelName] = Number(value)
     }
@@ -1199,6 +1194,7 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
   const [deliveryStep, setDeliveryStep] = useState(0)
   const [deliveryStepError, setDeliveryStepError] = useState('')
   const [selectedParcel, setSelectedParcel] = useState<SavedParcel | null>(null)
+  const [selectedBikeItem, setSelectedBikeItem] = useState<BikeItem | null>(null)
   const [selectedPal, setSelectedPal] = useState<{ contact: ParcelPalContact; destination: ParcelDestination } | null>(null)
   const [showDeliveryInfoEditor, setShowDeliveryInfoEditor] = useState(false)
   const [capacityWarning, setCapacityWarning] = useState<{ message: string; exceeded: boolean } | null>(null)
@@ -1219,18 +1215,12 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
   function checkParcelCapacity(event: ChangeEvent<HTMLFormElement>) {
     const form = new FormData(event.currentTarget)
     const quantity = Number(form.get('parcel_quantity'))
-    const capacity = assessParcelCapacity(quantity, {
-      length: Number(form.get('parcel_length_cm')),
-      width: Number(form.get('parcel_width_cm')),
-      height: Number(form.get('parcel_height_cm')),
-      weight: Number(form.get('parcel_weight')),
-    })
-    if (!capacity.ready) {
-      setCapacityWarning(quantity > 1 ? { message: 'Choose per-item size and weight to check this item count.', exceeded: false } : null)
-      return
-    }
-    const exceeded = [!capacity.fitsWeight && 'total weight', !capacity.fitsDimensions && 'packed size'].filter(Boolean)
-    setCapacityWarning(exceeded.length ? { message: `This item count exceeds the ${exceeded.join(' and ')} capacity. Reduce the count or per-item size/weight.`, exceeded: true } : null)
+    if (!selectedBikeItem) { setCapacityWarning(null); return }
+    const estimate = bikeItemEstimate(selectedBikeItem, quantity, Number(form.get('parcel_pages') || 1))
+    const value = Number(form.get('parcel_declared_value') || 0)
+    const exceeded = !estimate.fits || value * quantity > MAX_GOODS_VALUE_NGN
+    setCapacityWarning(exceeded ? { message: value * quantity > MAX_GOODS_VALUE_NGN
+      ? 'Total declared worth must be ₦70,000 or less.' : 'These items need more space than one bike box. Reduce the number of units.', exceeded: true } : null)
   }
   function advanceDeliveryStep(event: MouseEvent<HTMLButtonElement>) {
     const section = event.currentTarget.closest<HTMLElement>('.delivery-wizard-step')
@@ -1266,14 +1256,14 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
         <button className="customer-launch-card" type="button" onClick={() => openFrame('updates')}><span className="customer-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9m-8 12h4"/></svg></span><strong>Updates</strong><small>{notifications.filter((item) => !item.read_at).length ? `${notifications.filter((item) => !item.read_at).length} new` : 'Messages about your parcels'}</small></button>
         <button className="customer-launch-card" type="button" onClick={() => openFrame('tracking')}><span className="customer-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M4 19V5m0 14h16"/><path d="m7 15 4-4 3 2 5-6"/><path d="M15 7h4v4"/></svg></span><strong>Tracking</strong><small>{requests.length ? hasOlderRequests ? "Recent deliveries" : `${requests.length} deliveries` : 'Your deliveries'}</small></button>
       </nav>
-      <CustomerSavedParcels supabase={supabase} userId={userId} onError={onError} onNotice={onNotice} onUse={(parcel) => { setSelectedParcel(parcel); setCapacityWarning(null); setDeliveryStep(0); setDeliveryStepError(''); setActiveFrame('send') }} />
+      <CustomerSavedParcels supabase={supabase} userId={userId} onError={onError} onNotice={onNotice} onUse={(parcel) => { setSelectedParcel(parcel); setSelectedBikeItem(null); setCapacityWarning(null); setDeliveryStep(0); setDeliveryStepError(''); setActiveFrame('send') }} />
       <CustomerReferralPanel supabase={supabase} onError={onError} onNotice={onNotice} />
     </>}
     {activeFrame !== 'home' && <button className="text-button customer-back-button" type="button" onClick={returnHome}>â† Back to customer home</button>}
     {activeFrame === 'send' && <section className="form-card request-card customer-app-frame" aria-labelledby="delivery-details-heading">
       <p className="eyebrow">NEW DELIVERY</p><h2 id="delivery-details-heading">Delivery details</h2>
       <ol className="delivery-wizard-progress" aria-label="Delivery steps">{['Pickup', 'Drop-off', 'Parcel'].map((name, index) => <li key={name} className={index === deliveryStep ? 'current' : index < deliveryStep ? 'complete' : ''} aria-current={index === deliveryStep ? 'step' : undefined}><span>{index < deliveryStep ? '✓' : index + 1}</span>{name}</li>)}</ol>
-      <form key={`${selectedParcel?.id ?? 'new-parcel'}-${selectedPal?.contact.code ?? 'no-pal'}-${selectedPal?.destination.slot ?? 0}`} className="form-grid" onSubmit={onSubmit} onChange={checkParcelCapacity} onReset={() => { setDeliveryStep(0); setDeliveryStepError(''); setServiceId(''); setOriginId(''); setDestinationId(''); setSelectedParcel(null); setSelectedPal(null); setCapacityWarning(null) }}>
+      <form key={`${selectedParcel?.id ?? 'new-parcel'}-${selectedPal?.contact.code ?? 'no-pal'}-${selectedPal?.destination.slot ?? 0}`} className="form-grid" onSubmit={onSubmit} onChange={checkParcelCapacity} onReset={() => { setDeliveryStep(0); setDeliveryStepError(''); setServiceId(''); setOriginId(''); setDestinationId(''); setSelectedParcel(null); setSelectedBikeItem(null); setSelectedPal(null); setCapacityWarning(null) }}>
         {selectedParcel && <input type="hidden" name="saved_parcel_id" value={selectedParcel.id} />}
         {selectedParcel && <input type="hidden" name="saved_parcel_photo_path" value={selectedParcel.photo_path} />}
         <section className="delivery-wizard-step" data-delivery-step="0" hidden={deliveryStep !== 0} aria-label="Pickup step">
@@ -1297,13 +1287,14 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
         <div className="delivery-wizard-actions"><button className="secondary-button" type="button" onClick={() => { setDeliveryStepError(''); setDeliveryStep(0) }}>Back</button><button className="primary-button" type="button" onClick={advanceDeliveryStep}>Next: parcel</button></div>
         </section>
         <section className="delivery-wizard-step" data-delivery-step="2" hidden={deliveryStep !== 2} aria-label="Parcel step">
-        <div className="form-divider">PARCEL</div><p className="parcel-capacity-help">Enter size and weight per item. We check the selected count against shipment capacity.</p>
+        <div className="form-divider">PARCEL</div><p className="parcel-capacity-help">Choose the closest item type. Packed size is estimated automatically; the rider checks the actual parcel at pickup.</p>
         {selectedParcel && <div className="selected-saved-parcel"><img src={selectedParcel.photo_url} alt="" /><span><strong>{selectedParcel.item_name}</strong><small>Saved item details filled in</small></span><button className="text-button" type="button" onClick={() => { setSelectedParcel(null); setDeliveryStep(0); setDeliveryStepError('') }}>Clear</button></div>}
-        <div className="field-row"><Field label="Description" name="parcel_description" placeholder="Household items" required defaultValue={selectedParcel?.description} /><label className="field"><span>Items for this destination</span><select name="parcel_quantity" required defaultValue="1">{Array.from({ length: PARCEL_MAX_QUANTITY }, (_, index) => index + 1).map((quantity) => <option key={quantity} value={quantity}>{quantity}</option>)}</select></label><ParcelWeightField name="parcel_weight" defaultValue={selectedParcel?.weight_kg} /></div>
-        <ParcelMeasureFields names={{ length: 'parcel_length_cm', width: 'parcel_width_cm', height: 'parcel_height_cm' }} defaults={{ length: selectedParcel?.length_cm, width: selectedParcel?.width_cm, height: selectedParcel?.height_cm }} />
+        <BikeItemPicker supabase={supabase} defaultCode={selectedParcel?.catalog_code} defaultPages={selectedParcel?.pages} onSelected={(item) => { setSelectedBikeItem(item); setCapacityWarning(null) }} />
+        <div className="field-row"><Field label="Description" name="parcel_description" placeholder="Describe the exact item" required defaultValue={selectedParcel?.description} /><label className="field"><span>Matching units for this destination</span><select name="parcel_quantity" required defaultValue="1">{Array.from({ length: PARCEL_MAX_QUANTITY }, (_, index) => index + 1).map((quantity) => <option key={quantity} value={quantity}>{quantity}</option>)}</select></label></div>
         <label className="field"><span>Photo of goods</span><input name="parcel_photo" type="file" accept="image/jpeg,image/png,image/webp" required={!selectedParcel} />{selectedParcel && <small>Using the saved photo. Choose another to replace it for this delivery.</small>}</label>
         {capacityWarning && <p className={`parcel-capacity-warning ${capacityWarning.exceeded ? 'parcel-capacity-exceeded' : 'parcel-capacity-prompt'}`} role={capacityWarning.exceeded ? 'alert' : 'status'} aria-live={capacityWarning.exceeded ? 'assertive' : 'polite'}>{capacityWarning.message}</p>}
-        <div className="field-row"><Field label="Declared worth (â‚¦)" name="parcel_declared_value" type="number" min="0" step="0.01" defaultValue={selectedParcel?.declared_value} /><Field label="Price paid (â‚¦)" name="parcel_price" type="number" min="0" step="0.01" defaultValue={selectedParcel?.price} /></div>
+        <label className="field"><span>Worth per unit (₦) · total must be ₦70,000 or less</span><input name="parcel_declared_value" type="number" min="0" max="70000" step="0.01" required defaultValue={selectedParcel?.declared_value} /></label>
+        <label className="field"><span>Price paid per unit (₦, optional)</span><input name="parcel_price" type="number" min="0" max="70000" step="0.01" defaultValue={selectedParcel?.price} /></label>
         <details className="customer-optional"><summary>Special instructions</summary><label className="field"><span>Notes for delivery</span><textarea name="special_instructions" rows={2} /></label></details>
         <div className="delivery-wizard-actions"><button className="secondary-button" type="button" onClick={() => { setDeliveryStepError(''); setDeliveryStep(1) }}>Back</button><button className="primary-button" disabled={busy || services.length === 0 || enabledCorridors.length === 0 || capacityWarning?.exceeded}>{busy ? 'Submitting...' : services.length ? 'Request delivery' : 'No service available'}</button></div>
         </section>

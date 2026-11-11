@@ -28,7 +28,7 @@ Deno.serve(async (request) => {
     .eq('id', requestId).single()
   if (readError || !routeRequest || routeRequest.created_by !== identity.user.id) return reply({ error: 'Request unavailable' }, 403)
   if (routeRequest.pickup_city !== routeRequest.delivery_city) return reply({ error: 'Automatic bike pricing is for local deliveries only' }, 422)
-  const priceColumns = 'customer_price_ngn,distance_metres,duration_seconds,estimated_fuel_litres,company_share_ngn,platform_share_ngn'
+  const priceColumns = 'customer_price_ngn,distance_metres,duration_seconds,estimated_fuel_litres,company_share_ngn,platform_share_ngn,space_surcharge_ngn'
   const readPrice = async () => {
     const { data, error } = await admin.from('bike_route_prices').select(priceColumns)
       .eq('request_id', requestId).maybeSingle()
