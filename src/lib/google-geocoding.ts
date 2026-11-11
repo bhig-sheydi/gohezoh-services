@@ -90,7 +90,11 @@ export async function googleAutocomplete(text: string, session: GoogleAutocomple
         const types = place.types ?? placePrediction.types ?? []
         const primaryType = types.includes('route') ? 'route' : types.includes('locality') ? 'locality' :
           types.includes('sublocality') ? 'sublocality' : types.includes('street_address') ? 'street_address' : undefined
-        return suggestion(fromPlace({ ...place, displayName: address, primaryType, id: placePrediction.placeId }))
+        return suggestion(fromPlace({
+          location: place.location, formattedAddress: place.formattedAddress,
+          addressComponents: place.addressComponents, displayName: address,
+          primaryType, id: placePrediction.placeId,
+        }))
       } }]
   })
 }

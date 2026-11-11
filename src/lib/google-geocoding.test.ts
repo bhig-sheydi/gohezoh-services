@@ -37,6 +37,25 @@ describe('Google demo address adapter', () => {
       evidence: { latitude: 4.8821755, longitude: 7.0098946, source: 'search' } })
     expect(searchByText).not.toHaveBeenCalled()
   })
+  it('reads location fields from a Google Place instance after fetching details', async () => {
+    class GooglePlaceInstance {
+      get location() { return location(4.8821755, 7.0098946) }
+      get formattedAddress() { return 'Orji Woko Close, Port Harcourt, Nigeria' }
+      get addressComponents() { return [{ longText: 'Port Harcourt', types: ['locality'] }, { longText: 'Rivers', types: ['administrative_area_level_1'] }] }
+      get types() { return ['street_address'] }
+      async fetchFields() { return undefined }
+    }
+    vi.mocked(loadGoogleMaps).mockResolvedValue({ importLibrary: async () => ({
+      AutocompleteSessionToken: class {}, AutocompleteSuggestion: { fetchAutocompleteSuggestions: async () => ({ suggestions: [{ placePrediction: {
+        placeId: 'orji-woko', mainText: { text: 'Orji Woko Close' }, text: { text: 'Orji Woko Close' },
+        toPlace: () => new GooglePlaceInstance(),
+      } }] }) },
+    }) } as never)
+    const [option] = await googleAutocomplete('Orji Woko Close', newGoogleAutocompleteSession())
+    const result = await option.select()
+    expect(result).toMatchObject({ address: 'Orji Woko Close', city: 'Port Harcourt',
+      evidence: { latitude: 4.8821755, longitude: 7.0098946 } })
+  })
   it('does not return stale autocomplete results after the caller aborts', async () => {
     let finish!: (value: unknown) => void
     const fetchAutocompleteSuggestions = vi.fn(() => new Promise((resolve) => { finish = resolve }))

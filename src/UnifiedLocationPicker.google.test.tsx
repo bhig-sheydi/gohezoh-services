@@ -140,21 +140,21 @@ it('reverse geocodes a phone point when the nearest saved place is beyond 15 met
   expect(document.querySelector('[name=pickup_latitude]')).toHaveValue('4.88227')
 })
 
-it('resolves a named Nigerian place only after the customer selects its autocomplete prediction', async () => {
+it.each(['pickup', 'delivery'] as const)('resolves a named Nigerian %s place only after selection', async (kind) => {
   const select = vi.fn(async () => ({ address: 'Divine Benevolent Care Organisation', city: 'Port Harcourt', state: 'Rivers',
     latitude: 4.8821755, longitude: 7.0098946, specificity: 'area', resultType: 'amenity', confidence: null, distanceMetres: null,
     evidence: { latitude: 4.8821755, longitude: 7.0098946, accuracyMetres: null, capturedAt: 1000, source: 'search' }, qualityNote: '' }))
   vi.mocked(googleAutocomplete).mockResolvedValue([{ address: 'Divine Benevolent Care Organisation', detail: 'Eliozu, Port Harcourt, Nigeria',
     placeId: 'divine-benevolent-care', select }] as never)
-  render(<form><select name="pickup_city" defaultValue="Port Harcourt"><option>Port Harcourt</option></select>
-    <UnifiedLocationPicker kind="pickup" supabase={{} as SupabaseClient} /></form>)
-  await userEvent.setup().type(screen.getByRole('searchbox', { name: 'Pickup place search' }), 'Divine Benevolent')
-  expect(document.querySelector('[name=pickup_latitude]')).toBeNull()
+  render(<form><select name={`${kind}_city`} defaultValue="Port Harcourt"><option>Port Harcourt</option></select>
+    <UnifiedLocationPicker kind={kind} supabase={{} as SupabaseClient} /></form>)
+  await userEvent.setup().type(screen.getByRole('searchbox', { name: kind === 'pickup' ? 'Pickup place search' : 'Drop-off place search' }), 'Divine Benevolent')
+  expect(document.querySelector(`[name=${kind}_latitude]`)).toBeNull()
   await userEvent.setup().click(await screen.findByRole('button', { name: 'Search more places' }))
   expect(await screen.findByText('Google Maps')).toBeVisible()
   await userEvent.setup().click(await screen.findByRole('button', { name: /Divine Benevolent Care Organisation/ }))
   expect(select).toHaveBeenCalledOnce()
-  expect(document.querySelector('[name=pickup_latitude]')).toHaveValue('4.8821755')
-  expect(document.querySelector('[name=pickup_longitude]')).toHaveValue('7.0098946')
+  expect(document.querySelector(`[name=${kind}_latitude]`)).toHaveValue('4.8821755')
+  expect(document.querySelector(`[name=${kind}_longitude]`)).toHaveValue('7.0098946')
   expect(suggestAddresses).not.toHaveBeenCalled()
 })
