@@ -153,9 +153,9 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
   }
   async function retryBikePrice(requestId: string) {
     setBusy(requestId)
-    const { data, error } = await supabase.functions.invoke('bike-route-price', { body: { requestId } })
+    const { error } = await supabase.functions.invoke('bike-route-price', { body: { requestId } })
     if (error) onError('Road pricing is unavailable. Please try again shortly.')
-    else { onNotice(`Bike price ready: ${money(Number(data.customer_price_ngn))}.`); await load() }
+    else { await load() }
     setBusy('')
   }
   async function copyAccount(accountNumber: string) {
@@ -192,47 +192,48 @@ export function CustomerQuotePanel({ supabase, requestIds, pendingRequestIds = [
       if (!active && hold.status !== 'review' && now >= terminalNoticeDeadline(hold, paymentReceivedAtByRequest[requestId])) return null
       const displayStatus = hold.status === 'paid' ? 'paid' : active ? 'pending' : hold.status === 'review' ? 'review' : 'expired'
       return <section className={`customer-payment-card customer-payment-${displayStatus}`} key={requestId} aria-label="Delivery payment" role="status">
-        <div className="customer-payment-heading"><img src="/favicon.svg" alt="Kwik-Parsel logo" /><p className="eyebrow">KWIK-PARSEL · DELIVERY PAYMENT</p></div>
-        <h3>{hold.status === 'paid' ? 'Payment confirmed' : active ? `Pay ${money(Number(hold.amount_ngn))}` : hold.status === 'review' ? 'Payment needs review' : 'Booking expired'}</h3>
+        <div className="customer-payment-heading"><img src="/favicon.svg" alt="Kwik-Parsel logo" /><p className="eyebrow">DELIVERY PAYMENT</p></div>
+        <h3>{hold.status === 'paid' ? 'Payment confirmed' : active ? 'Pay now' : hold.status === 'review' ? 'Payment needs review' : 'Booking expired'}</h3>
+        {active && <div className="customer-price-display"><span>Price</span><strong>{money(Number(hold.amount_ngn))}</strong></div>}
         {hold.test_mode && <p className="customer-payment-test-warning">TEST MODE — this account does not accept real payment. Do not send money.</p>}
         {active && <><strong className="customer-payment-timer">{Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')} left</strong>
           {hold.account_number && hold.bank_name ? <div className="customer-payment-account"><span>{hold.bank_name}</span><strong>{hold.account_number}</strong><button type="button" onClick={() => void copyAccount(hold.account_number!)}>Copy account</button>{copyMessage && <small role="status">{copyMessage}</small>}</div> : <><p>Preparing your temporary bank account…</p><button type="button" disabled={busy === requestId} onClick={() => void retryAccount(requestId)}>Check account status</button></>}
-          <p>Transfer the exact amount now. Your rider waits until payment is confirmed.</p>
-          {hold.provider === 'paystack' && <small>Cancel before parcel pickup: ₦1,000 is kept; the rest is refunded. ₦300 of the charge compensates the rider through their company.</small>}</>}
-        {hold.status === 'paid' && <p>Payment confirmed. Keep your phone nearby while your company rider is confirmed.</p>}
-        {hold.status === 'review' && <p>A payment arrived after the booking window or needs review. Please contact support; do not pay again yet.</p>}
-        {(hold.status === 'expired' || (!active && hold.status !== 'paid' && hold.status !== 'review')) && <p>The rider is no longer reserved. Please book another delivery. If you transferred money, contact support before paying again.</p>}
+          <p>Transfer the exact amount to confirm.</p>
+          {hold.provider === 'paystack' && <small>Cancel before pickup: ₦1,000 fee; the rest is refunded.</small>}</>}
+        {hold.status === 'paid' && <p>Keep your phone nearby for your rider.</p>}
+        {hold.status === 'review' && <p>Contact support before paying again.</p>}
+        {(hold.status === 'expired' || (!active && hold.status !== 'paid' && hold.status !== 'review')) && <p>Book again. Already paid? Contact support.</p>}
       </section>
     }
     if (quote) return <div className="customer-quote-card" key={requestId}><strong>{quote.customer_price_ngn == null ? 'Quote under review' : `Delivery quote: ${money(Number(quote.customer_price_ngn))}`}</strong><small>{quote.expires_at ? `Accept by ${date(quote.expires_at)} · ` : ''}{quote.status.replaceAll('_', ' ')}</small>{quote.status === 'sent' && quote.customer_price_ngn != null && <button className="primary-button" disabled={busy === requestId} onClick={() => void accept(requestId)}>{busy === requestId ? 'Accepting...' : 'Accept quote'}</button>}</div>
-    if (bidWindow?.status === 'no_bids' && pendingIds.has(requestId)) return <section className="customer-bid-panel" key={requestId} role="status">{bikePrice && <p><strong>Bike delivery price: {money(bikePrice.customer_price_ngn)}</strong> · {(bikePrice.distance_metres / 1000).toFixed(1)} km · about {Math.ceil(bikePrice.duration_seconds / 60)} min on a direct trip</p>}<div className="customer-bid-wait"><div className="customer-bid-radar" aria-hidden="true"><span /><span /><span /><i /></div><div className="customer-bid-wait-copy"><h3>Searching for a rider</h3><p>We will keep checking for a rider whose route fits your delivery.</p><div className="customer-bid-progress customer-bid-progress-search" aria-label="Searching for a matching rider"><span /></div><small>Searching automatically</small></div></div></section>
+    if (bidWindow?.status === 'no_bids' && pendingIds.has(requestId)) return <section className="customer-bid-panel" key={requestId} role="status">{bikePrice && <div className="customer-price-display"><span>Price</span><strong>{money(bikePrice.customer_price_ngn)}</strong></div>}<div className="customer-bid-wait"><div className="customer-bid-radar" aria-hidden="true"><span /><span /><span /><i /></div><div className="customer-bid-wait-copy"><h3>Searching for a rider</h3><div className="customer-bid-progress customer-bid-progress-search" aria-label="Searching for a matching rider"><span /></div></div></div></section>
     if (bidWindow?.status === 'no_bids') return <p className="customer-bid-empty" key={requestId}>No companies bid this time. Try matching again.</p>
-    if (bidWindow?.status === 'matching') return <section className="customer-bid-panel" key={requestId} role="status">{priceRetry && <button type="button" className="secondary-button" disabled={busy === requestId} onClick={() => void retryBikePrice(requestId)}>Get bike price</button>}<div className="customer-bid-wait"><div className="customer-bid-radar" aria-hidden="true"><span /><span /><span /><i /></div><div className="customer-bid-wait-copy"><h3>Finding interested riders</h3><p>Checking riders near your pickup and those already heading your way.</p><div className="customer-bid-progress customer-bid-progress-search" aria-label="Matching riders"><span /></div></div></div></section>
+    if (bidWindow?.status === 'matching') return <section className="customer-bid-panel" key={requestId} role="status">{bikePrice && <div className="customer-price-display"><span>Price</span><strong>{money(bikePrice.customer_price_ngn)}</strong></div>}{priceRetry && <button type="button" className="secondary-button" disabled={busy === requestId} onClick={() => void retryBikePrice(requestId)}>Get bike price</button>}<div className="customer-bid-wait"><div className="customer-bid-radar" aria-hidden="true"><span /><span /><span /><i /></div><div className="customer-bid-wait-copy"><h3>Finding a rider</h3><div className="customer-bid-progress customer-bid-progress-search" aria-label="Matching riders"><span /></div></div></div></section>
     if (bidWindow) {
       const remaining = Math.max(0, Math.ceil((new Date(bidWindow.deadline_at).getTime() - now) / 1000))
       const waiting = remaining > 0 && !(bikePrice && (offers[requestId]?.length ?? 0) > 0)
       const bids = offers[requestId] ?? []
       return <section className="customer-bid-panel" key={requestId} aria-label="Interested companies">
-        {bikePrice && <p><strong>Bike delivery price: {money(bikePrice.customer_price_ngn)}</strong> · {(bikePrice.distance_metres / 1000).toFixed(1)} km · about {Math.ceil(bikePrice.duration_seconds / 60)} min without detours.{bikePrice.space_surcharge_ngn > 0 && ` Includes ${money(bikePrice.space_surcharge_ngn)} for packed space.`} Company acceptance is needed before payment.</p>}
+        {bikePrice && <div className="customer-price-display"><span>Price</span><strong>{money(bikePrice.customer_price_ngn)}</strong></div>}
         {priceRetry && <button type="button" className="secondary-button" disabled={busy === requestId} onClick={() => void retryBikePrice(requestId)}>Get bike price</button>}
         {waiting ? <div className="customer-bid-wait" role="status">
           <div className="customer-bid-radar" aria-hidden="true"><span /><span /><span /><i /></div>
-          <div className="customer-bid-wait-copy"><p className="eyebrow">MATCHING YOUR DELIVERY</p><h3>Finding interested riders</h3>
-            {remaining > 60 ? <><p>{bikePrice ? 'Companies are reviewing your fixed-price motorcycle offer.' : 'Companies are taking turns to bid on your delivery.'}</p><div className="customer-bid-progress customer-bid-progress-search" aria-label="Company offers queued"><span /></div><small>Last company window closes in about {Math.ceil(remaining / 60)} minutes</small></>
-              : <><p>Companies have {remaining} seconds to respond.</p><div className="customer-bid-progress" role="progressbar" aria-label="Company response window" aria-valuemin={0} aria-valuemax={60} aria-valuenow={Math.max(0, 60 - remaining)}><span style={{ width: `${Math.min(100, Math.max(0, (60 - remaining) / 60 * 100))}%` }} /></div><small>{remaining}s left in this response window</small></>}</div>
+          <div className="customer-bid-wait-copy"><h3>Finding a rider</h3>
+            {remaining > 60 ? <><div className="customer-bid-progress customer-bid-progress-search" aria-label="Company offers queued"><span /></div><small>About {Math.ceil(remaining / 60)} min left</small></>
+              : <><div className="customer-bid-progress" role="progressbar" aria-label="Company response window" aria-valuemin={0} aria-valuemax={60} aria-valuenow={Math.max(0, 60 - remaining)}><span style={{ width: `${Math.min(100, Math.max(0, (60 - remaining) / 60 * 100))}%` }} /></div><small>{remaining}s left</small></>}</div>
         </div> : bids.length ? <><header className="customer-bid-heading"><p className="eyebrow">YOUR DELIVERY OPTIONS</p><h3>You have {bids.length} interested {bids.length === 1 ? 'company' : 'companies'}</h3></header>
           <div className="customer-bid-grid">{bids.map((bid) => <article className="customer-bid-offer" key={bid.bid_id}>
             <div className="customer-bid-rider">{bid.rider_photo_url ? <img src={bid.rider_photo_url} alt={`${bid.rider_name ?? 'Rider'} profile`} /> : <div className="customer-bid-no-photo" aria-label="No rider photo">Photo unavailable</div>}
               <div><strong>{bid.partner_name}</strong><span>{bid.rider_name ?? 'Rider to be assigned'}</span></div></div>
-            <strong className="customer-bid-price">{money(Number(bid.bid_amount_ngn))}</strong><small>{bikePrice ? 'Fixed motorcycle price. Pay once you choose this company.' : 'Company bid. For local delivery, this is your final price; interstate pricing follows approval.'}</small>
+            <strong className="customer-bid-price">{money(Number(bid.bid_amount_ngn))}</strong>
             <div className="customer-bid-contacts"><span>Rider: {bid.rider_phone ?? 'Number not supplied'}</span><span>Company: {bid.partner_phone ?? 'Number not supplied'}</span></div>
             <button type="button" className="primary-button" disabled={busy === requestId} onClick={() => void choose(requestId, bid.bid_id)}>{busy === requestId ? 'Selecting...' : 'Choose this company'}</button>
           </article>)}</div>
           <p className="customer-bid-safety">Check the rider’s face against their profile photo at pickup. If the photo is unclear or does not match, do not hand over your parcel; contact the company.</p>
-        </> : <div className="customer-bid-wait" role="status"><div className="customer-bid-radar" aria-hidden="true"><span /><span /><span /><i /></div><div><h3>Checking company bids</h3><p>We’re collecting the bids placed before the window closed.</p></div></div>}
+        </> : <div className="customer-bid-wait" role="status"><div className="customer-bid-radar" aria-hidden="true"><span /><span /><span /><i /></div><div><h3>Checking rider offers</h3></div></div>}
       </section>
     }
-    if (pendingIds.has(requestId)) return <section className="customer-bid-panel" key={requestId} role="status"><div className="customer-bid-wait"><div className="customer-bid-radar" aria-hidden="true"><span /><span /><span /><i /></div><div className="customer-bid-wait-copy"><h3>Searching for a rider</h3><p>We will keep checking for a rider whose route fits your delivery.</p><div className="customer-bid-progress customer-bid-progress-search" aria-label="Searching for a matching rider"><span /></div><small>Searching automatically</small></div></div></section>
+    if (pendingIds.has(requestId)) return <section className="customer-bid-panel" key={requestId} role="status">{bikePrice && <div className="customer-price-display"><span>Price</span><strong>{money(bikePrice.customer_price_ngn)}</strong></div>}<div className="customer-bid-wait"><div className="customer-bid-radar" aria-hidden="true"><span /><span /><span /><i /></div><div className="customer-bid-wait-copy"><h3>Searching for a rider</h3><div className="customer-bid-progress customer-bid-progress-search" aria-label="Searching for a matching rider"><span /></div></div></div></section>
     return null
   })}</>
 }

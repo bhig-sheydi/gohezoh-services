@@ -1,4 +1,6 @@
 .customer-bid-panel{padding:24px;border:1px solid var(--line,#c7d8cc);border-radius:22px;background:linear-gradient(145deg,color-mix(in srgb,var(--paper,#fff) 90%,#b9e9ca),var(--paper,#fff));box-shadow:0 16px 42px rgba(17,55,35,.08);color:var(--ink,#19392a)}
+.customer-price-display{display:grid;gap:3px;width:max-content;max-width:100%;margin-bottom:16px;padding:13px 18px;border-radius:15px;background:color-mix(in srgb,var(--ink,#19392a) 8%,var(--paper,#fff));color:var(--ink,#19392a)}
+.customer-price-display span{font-size:13px;font-weight:750}.customer-price-display strong{font-size:clamp(28px,6vw,42px);line-height:1.1;letter-spacing:-.03em}
 .customer-bid-wait{display:flex;align-items:center;gap:28px;min-height:200px}
 .customer-bid-wait-copy{flex:1;min-width:0}.customer-bid-wait h3,.customer-bid-heading h3{font-size:clamp(22px,3vw,30px);line-height:1.15;margin:5px 0 9px}.customer-bid-wait p{margin:0 0 18px}.customer-bid-wait small{display:block;margin-top:8px}
 .customer-bid-radar{position:relative;width:128px;height:128px;flex:none;display:grid;place-items:center;border-radius:50%;background:radial-gradient(circle,#37a56f 0 8px,transparent 9px),radial-gradient(circle,transparent 29px,#7fc5a0 30px 31px,transparent 32px);overflow:hidden}
