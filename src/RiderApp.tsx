@@ -235,6 +235,27 @@ export default function RiderApp() {
     setBusy(false)
   }
 
+  async function uploadIndependentPhoto(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!session) return
+    const file = (event.currentTarget.elements.namedItem('photo') as HTMLInputElement | null)?.files?.[0]
+    if (!file) return
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5_242_880) {
+      setError('Choose a JPG, PNG, or WebP photo under 5 MB.'); return
+    }
+    setBusy(true); setError('')
+    const extension = file.type === 'image/png' ? 'png' : file.type === 'image/webp' ? 'webp' : 'jpg'
+    const path = `independent/${session.user.id}/${crypto.randomUUID()}.${extension}`
+    const uploaded = await supabase.storage.from('rider-evidence').upload(path, file, { contentType: file.type })
+    if (uploaded.error) setError(uploaded.error.message)
+    else {
+      const { error: saveError } = await supabase.rpc('set_own_independent_rider_photo', { p_photo_path: path })
+      if (saveError) setError(saveError.message)
+      else setNotice('Your rider photo is saved. Customers can now identify you at pickup.')
+    }
+    setBusy(false)
+  }
+
   async function advance(job: RiderJob, status: string) {
     if (busy) return
     setBusy(true); setError(''); setNotice('')
@@ -320,6 +341,7 @@ export default function RiderApp() {
       <RideAlerts supabase={supabase} userId={session.user.id} kind="rider" />
       <div className="dashboard-heading"><div><p className="eyebrow">YOUR RIDES</p><h1>{session.user.user_metadata?.full_name ?? 'Rider'}</h1><p>{companyName}</p></div><button className="secondary-button" onClick={() => void load()}>Refresh jobs</button></div>
       <RiderAvailability supabase={supabase} />
+      {session.user.user_metadata?.account_kind === 'independent_rider' && <form className="form-card form-grid" onSubmit={(event) => void uploadIndependentPhoto(event)}><label className="field"><span>Your rider photo</span><input name="photo" type="file" accept="image/jpeg,image/png,image/webp" required /></label><button className="secondary-button" disabled={busy}>Save photo</button></form>}
       {session.user.user_metadata?.account_kind === 'independent_rider' && <section className="form-card" aria-label="Direct delivery offers"><h2>Delivery offers</h2>{independentOffers.length === 0 ? <p>No matching offers right now.</p> : independentOffers.map((offer) => <article className="partner-job-card" key={offer.request_id}><strong>{offer.request_number}</strong><p>{offer.pickup_address} → {offer.delivery_address}</p><p>{offer.parcel_summary}</p><strong>Price: ₦{offer.customer_price_ngn.toLocaleString()} · Company share: ₦{Number(offer.company_share_ngn).toLocaleString()}</strong><p>Offer closes {new Date(offer.deadline_at).toLocaleTimeString('en-NG')}</p><div className="field-row"><button className="primary-button" disabled={busy} onClick={() => void respondIndependent(offer,true)}>Accept delivery</button><button className="secondary-button" disabled={busy} onClick={() => void respondIndependent(offer,false)}>Decline</button></div></article>)}</section>}
       <RiderNextStop stop={nextStop} jobs={jobs} />
       {selectedPickups.length > 0 && <section aria-label="Selected pickups"><h2>Upcoming pickups</h2><div className="partner-assignment-list">{selectedPickups.map((pickup) => <article className="form-card partner-job-card" key={pickup.request_id}>
