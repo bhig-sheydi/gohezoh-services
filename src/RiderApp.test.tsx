@@ -264,3 +264,50 @@ describe('company rider sign-in', () => {
     expect(mocks.rpc).not.toHaveBeenCalledWith('rider_update_job_status', { p_job_id: 'job-1', p_new_status: 'delivered' })
   })
 })
+
+describe('independent rider access', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.history.replaceState({}, '', '/rider')
+    mocks.getSession.mockResolvedValue({ data: { session: { user: {
+      id: 'independent-1', user_metadata: { account_kind: 'independent_rider', phone: '08012345678' },
+    } } } } as never)
+  })
+
+  it('lets a confirmed rider choose an active company without KYC fields', async () => {
+    mocks.rpc.mockImplementation(async (name: string) => {
+      if (name === 'my_rider_dashboard_snapshot') return { data: dashboard({ has_role: false, session_active: false }), error: null }
+      if (name === 'list_independent_rider_companies') return { data: [{ id: 'company-1', name: 'Test Logistics' }], error: null }
+      return { data: null, error: null }
+    })
+    render(<RiderApp />)
+    expect(await screen.findByRole('heading', { name: 'Choose your logistics company' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Test Logistics' })).toBeInTheDocument()
+    expect(screen.queryByText(/NIN|licence/i)).not.toBeInTheDocument()
+    fireEvent.change(screen.getByRole('combobox', { name: 'Company' }), { target: { value: 'company-1' } })
+    fireEvent.submit(screen.getByRole('button', { name: 'Join company' }).closest('form')!)
+    await waitFor(() => expect(mocks.rpc).toHaveBeenCalledWith('register_independent_rider', {
+      p_partner_id: 'company-1', p_phone: '08012345678',
+    }))
+    expect(mocks.signOut).not.toHaveBeenCalled()
+  })
+
+  it('shows only its matched direct offer and accepts it at the fixed price', async () => {
+    mocks.rpc.mockImplementation(async (name: string) => {
+      if (name === 'my_rider_dashboard_snapshot') return { data: dashboard(), error: null }
+      if (name === 'my_independent_rider_offers') return { data: [{
+        request_id: 'request-1', request_number: 'REQ-1', pickup_address: 'Eliozu',
+        delivery_address: 'Trans Amadi', parcel_summary: 'Books', customer_price_ngn: 2100,
+        company_share_ngn: 1575, deadline_at: new Date(Date.now() + 60_000).toISOString(),
+      }], error: null }
+      return { data: true, error: null }
+    })
+    render(<RiderApp />)
+    expect(await screen.findByText('REQ-1')).toBeInTheDocument()
+    expect(screen.getByText(/Price: ₦2,100/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Accept delivery' }))
+    await waitFor(() => expect(mocks.rpc).toHaveBeenCalledWith('respond_independent_rider_offer', {
+      p_request_id: 'request-1', p_accept: true,
+    }))
+  })
+})

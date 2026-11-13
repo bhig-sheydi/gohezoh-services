@@ -412,6 +412,10 @@ public final class MainActivity extends Activity {
     private void positionMessage(String data) {
         try {
             JSONObject message = new JSONObject(data);
+            if ("position:settings".equals(message.optString("type"))) {
+                startActivity(new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS));
+                return;
+            }
             if (!"position:request".equals(message.optString("type"))) return;
             String id = message.optString("requestId");
             if (id.length() > 80 || id.isEmpty()) return;
@@ -426,6 +430,20 @@ public final class MainActivity extends Activity {
         boolean gps = manager.isProviderEnabled(LocationManager.GPS_PROVIDER);
         boolean network = manager.isProviderEnabled(LocationManager.NETWORK_PROVIDER);
         if (!gps && !network) { sendPositionError(id, "unavailable"); return; }
+        Location recent = null;
+        try {
+            if (gps && checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED)
+                recent = manager.getLastKnownLocation(LocationManager.GPS_PROVIDER);
+            if (network && hasLocationPermission()) {
+                Location networkFix = manager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER);
+                if (recent == null || networkFix != null && networkFix.getAccuracy() < recent.getAccuracy()) recent = networkFix;
+            }
+        } catch (SecurityException ignored) { /* Ask for a fresh reading below. */ }
+        if (recent != null && recent.hasAccuracy() && recent.getAccuracy() <= 100
+            && Math.abs(System.currentTimeMillis() - recent.getTime()) <= 60000) {
+            sendPosition(id, recent);
+            return;
+        }
         AtomicBoolean done = new AtomicBoolean(false);
         Handler handler = new Handler(Looper.getMainLooper());
         Location[] best = { null };

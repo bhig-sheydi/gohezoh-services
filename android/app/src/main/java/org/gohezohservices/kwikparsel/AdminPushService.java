@@ -17,7 +17,7 @@ public final class AdminPushService extends FirebaseMessagingService {
         String id = data.get("event_id");
         String type = data.get("type");
         try { UUID.fromString(id); } catch (Exception invalid) { return; }
-        if ("company_invitation".equals(type) || "company_reassignment_offer".equals(type) || "rider_assignment".equals(type) || "customer_match".equals(type) || "rider_missed".equals(type)) {
+        if ("company_invitation".equals(type) || "company_reassignment_offer".equals(type) || "rider_assignment".equals(type) || "independent_offer".equals(type) || "customer_match".equals(type) || "rider_missed".equals(type)) {
             String registeredUser = getSharedPreferences("ride_push", MODE_PRIVATE).getString("user_id", "");
             if (registeredUser.equals(data.get("user_id"))) {
                 if ("rider_assignment".equals(type)) {

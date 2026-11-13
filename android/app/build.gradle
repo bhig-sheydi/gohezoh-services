@@ -22,8 +22,8 @@ android {
         applicationId 'org.gohezohservices.kwikparsel'
         minSdk 26
         targetSdk 36
-        versionCode 18
-        versionName '1.0.17'
+        versionCode 19
+        versionName '1.0.18'
         buildConfigField 'String', 'SUPABASE_API_KEY', '"' + apiKey.replace('\\', '\\\\').replace('"', '\\"') + '"'
     }
     buildFeatures { buildConfig true }

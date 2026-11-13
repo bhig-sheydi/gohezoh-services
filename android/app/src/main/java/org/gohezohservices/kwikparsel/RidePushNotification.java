@@ -63,6 +63,8 @@ final class RidePushNotification {
                 title = "Paid pickup needs a rider"; body = "Open your company dashboard to accept this fixed-price job within one minute."; path = "/"; break;
             case "rider_assignment":
                 title = "New ride assigned"; body = "Open your rider dashboard for pickup details."; path = "/rider"; break;
+            case "independent_offer":
+                title = "New delivery offer"; body = "Open your rider dashboard to accept or decline this delivery."; path = "/rider"; break;
             case "customer_match":
                 title = "A rider is available"; body = "Open your deliveries to choose a company."; path = "/"; break;
             case "rider_missed":
