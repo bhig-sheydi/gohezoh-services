@@ -114,9 +114,13 @@ public final class MainActivity extends Activity {
             @Override public void onPermissionRequest(PermissionRequest request) {
                 runOnUiThread(() -> {
                     if (web == null || web.getUrl() == null || !allowed(Uri.parse(web.getUrl()))
-                        || !allowed(request.getOrigin())) { request.deny(); return; }
+                        || !cameraOriginAllowed(request.getOrigin())) { request.deny(); return; }
                     String[] resources = request.getResources();
-                    if (resources.length != 1 || !PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resources[0])) {
+                    boolean wantsCamera = false;
+                    for (String resource : resources) {
+                        if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)) wantsCamera = true;
+                    }
+                    if (!wantsCamera) {
                         request.deny(); return;
                     }
                     if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
@@ -225,6 +229,15 @@ public final class MainActivity extends Activity {
     private boolean allowed(Uri uri) {
         return uri != null && "https".equals(uri.getScheme()) && "gohezoh-services.vercel.app".equals(uri.getHost())
             && (uri.getPort() == -1 || uri.getPort() == 443);
+    }
+
+    private boolean cameraOriginAllowed(Uri uri) {
+        if (uri == null || !"https".equals(uri.getScheme()) || (uri.getPort() != -1 && uri.getPort() != 443))
+            return false;
+        String host = uri.getHost();
+        return "gohezoh-services.vercel.app".equals(host)
+            || "widget.dojah.io".equals(host)
+            || "identity.dojah.io".equals(host);
     }
 
     private String initialUrl(Intent intent) {
