@@ -156,6 +156,14 @@
 .customer-dashboard .dashboard-heading { align-items:center; margin-bottom:22px; }
 .customer-dashboard .dashboard-heading h1 { margin:8px 0 5px; font-size:clamp(38px,4vw,50px); }
 .customer-dashboard .dashboard-heading .section-intro { font-size:16px; line-height:1.4; }
+.customer-dashboard .customer-welcome-card { position:relative; overflow:hidden; padding:28px 32px; border:1px solid #dce8d7; border-radius:22px; background:linear-gradient(115deg,#fffefa 0%,#f4f9e9 100%); box-shadow:0 12px 32px rgba(23,59,52,.06); }
+.customer-dashboard .customer-welcome-card::after { position:absolute; right:-65px; bottom:-130px; width:240px; height:240px; border:1px solid rgba(103,140,64,.14); border-radius:50%; content:''; pointer-events:none; }
+.customer-dashboard .customer-welcome-card .eyebrow { position:relative; z-index:1; margin:0; color:#617e43; font-size:11px; letter-spacing:.14em; }
+.customer-dashboard .customer-welcome-card h1 { position:relative; z-index:1; max-width:100%; margin:12px 0 0; font-size:clamp(30px,3.7vw,46px); font-weight:630; letter-spacing:-.055em; line-height:1.12; overflow-wrap:anywhere; }
+:root[data-theme='dark'] .customer-dashboard .customer-welcome-card { border-color:#355646; background:linear-gradient(115deg,#1c3328 0%,#263d2c 100%); box-shadow:0 12px 32px rgba(0,0,0,.15); }
+:root[data-theme='dark'] .customer-dashboard .customer-welcome-card .eyebrow { color:#b8d68a; }
+:root[data-theme='dark'] .customer-dashboard .customer-welcome-card::after { border-color:rgba(184,214,138,.16); }
+@media(max-width:680px) { .customer-shell .customer-dashboard .customer-welcome-card { padding:22px 20px; border-radius:18px; }.customer-shell .customer-dashboard .customer-welcome-card .eyebrow { display:block; }.customer-shell .customer-dashboard .customer-welcome-card h1 { font-size:clamp(27px,7vw,34px); line-height:1.16; } }
 .customer-dashboard .dashboard-grid { grid-template-columns:minmax(0,1.15fr) minmax(300px,.85fr); gap:20px; }
 .customer-dashboard .form-card,.customer-dashboard .history-panel { border-radius:16px; box-shadow:none; }
 .customer-dashboard .request-card h2,.customer-dashboard .history-heading h2 { font-size:25px; }

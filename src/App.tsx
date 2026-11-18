@@ -1236,9 +1236,8 @@ function Dashboard({ supabase, userId, customerName, onError, onNotice, customer
     setDeliveryStepError(''); setDeliveryStep((step) => Math.min(step + 1, 2))
   }
   return <main className="dashboard customer-dashboard">
-    <div className="dashboard-heading">
+    <div className={`dashboard-heading${activeFrame === 'home' ? ' customer-welcome-card' : ''}`}>
       <div><p className="eyebrow">CUSTOMER PORTAL</p><h1>{activeFrame === 'home' ? `${greeting}, ${customerName}` : activeFrame === 'send' ? 'Send items' : activeFrame === 'updates' ? 'Updates' : 'Your deliveries'}</h1>{activeFrame !== 'home' && <p className="section-intro">{customer.company_name}</p>}</div>
-      <span className={`profile-status status-${customer.status}`}>{customer.status}</span>
     </div>
     {pendingConfirmation && <button className="customer-confirmation-alert" type="button" onClick={() => { setExpandedRequestId(pendingConfirmation.id); setActiveFrame('tracking') }}>
       <strong>Confirm parcel arrival</strong><span>{pendingConfirmation.request_number}: your rider has asked you to verify delivery.</span><span>Review this parcel</span>
