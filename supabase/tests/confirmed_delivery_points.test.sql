@@ -1,4 +1,4 @@
-begin;
+﻿begin;
 do $$
 declare
   v_user uuid:=gen_random_uuid();v_customer uuid:=gen_random_uuid();v_service uuid;
@@ -11,8 +11,6 @@ begin
   insert into public.customers(id,company_name,contact_person,phone,created_by)
     values(v_customer,'Pin test','Pin Customer','08000000001',v_user);
   insert into public.customer_users(customer_id,user_id) values(v_customer,v_user);
-  insert into public.customer_parcel_destinations(user_id,slot,label,address,city,state,latitude,longitude,location_source)
-    values(v_user,1,'Work','1 Test Road','Lagos','Lagos',6.45,3.4,'map');
   insert into public.service_requests(id,customer_id,service_id,created_by,pickup_address,pickup_city,
     pickup_latitude,pickup_longitude,pickup_location_source,pickup_captured_at,sender_name,sender_phone,
     delivery_address,delivery_city,delivery_latitude,delivery_longitude,delivery_location_source,delivery_captured_at,

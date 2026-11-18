@@ -37,7 +37,6 @@ import ParcelIdentifiers, { type ParcelIdentifier } from './ParcelIdentifiers'
 import CustomerRiderTracking from './CustomerRiderTracking'
 import AccountDeletionPanel from './AccountDeletionPanel'
 import CustomerPaymentReceipt from './CustomerPaymentReceipt'
-import ParcelPalsPanel, { type ParcelDestination, type ParcelPalContact } from './ParcelPalsPanel'
 import CustomerSavedParcels, { type SavedParcel } from './CustomerSavedParcels'
 import { PARCEL_MAX_QUANTITY } from './lib/parcel-limits'
 import './App.css'
@@ -340,7 +339,6 @@ function App() {
       pickup_location_source: form.get('pickup_location_source') || null,
       shared_pickup_label: String(form.get('pickup_customer_query') || '').trim() || null,
       pickup_pin_moved_by_user: form.get('pickup_user_moved_pin') === 'yes',
-      pickup_saved_slot: form.get('pickup_saved_slot') ? Number(form.get('pickup_saved_slot')) : null,
       pickup_captured_at: form.get('pickup_captured_at') || null,
       pickup_city: String(form.get('pickup_city')),
       pickup_state: String(form.get('pickup_state') || '') || null,
@@ -1195,8 +1193,6 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
   const [deliveryStepError, setDeliveryStepError] = useState('')
   const [selectedParcel, setSelectedParcel] = useState<SavedParcel | null>(null)
   const [selectedBikeItem, setSelectedBikeItem] = useState<BikeItem | null>(null)
-  const [selectedPal, setSelectedPal] = useState<{ contact: ParcelPalContact; destination: ParcelDestination } | null>(null)
-  const [showDeliveryInfoEditor, setShowDeliveryInfoEditor] = useState(false)
   const [capacityWarning, setCapacityWarning] = useState<{ message: string; exceeded: boolean } | null>(null)
   const serviceCode = services.find((service) => service.id === serviceId)?.code
   const enabledCorridors = coverageCorridors.filter((corridor) => corridor.service_code === serviceCode && coverageLocations.some((location) => location.id === corridor.origin_id) && coverageLocations.some((location) => location.id === corridor.destination_id))
@@ -1204,14 +1200,6 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
   const destinations = coverageLocations.filter((location) => enabledCorridors.some((corridor) => corridor.origin_id === originId && corridor.destination_id === location.id))
   const openFrame = (frame: 'send'|'updates'|'tracking') => { if (frame === 'send') { setPickupTimeMin(new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 16)); setDeliveryStep(0); setDeliveryStepError('') } setActiveFrame(frame) }
   const returnHome = () => setActiveFrame('home')
-  function openDeliveryInfo() {
-    setShowDeliveryInfoEditor(true)
-    window.setTimeout(() => {
-      const heading = document.getElementById('parcel-pal-destinations-heading')
-      heading?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
-      heading?.focus()
-    }, 0)
-  }
   function checkParcelCapacity(event: ChangeEvent<HTMLFormElement>) {
     const form = new FormData(event.currentTarget)
     const quantity = Number(form.get('parcel_quantity'))
@@ -1240,7 +1228,6 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
     setDeliveryStepError(''); setDeliveryStep((step) => Math.min(step + 1, 2))
   }
   return <main className="dashboard customer-dashboard">
-    {activeFrame === 'home' && <ParcelPalsPanel supabase={supabase} userId={userId} onError={onError} onNotice={onNotice} isEditingDestinations={showDeliveryInfoEditor} onCloseDestinationEditor={() => setShowDeliveryInfoEditor(false)} onUseDestination={(contact, destination) => { setSelectedPal({ contact, destination }); setDestinationId(''); setCapacityWarning(null); setDeliveryStep(0); setDeliveryStepError(''); setActiveFrame('send') }} />}
     <div className="dashboard-heading">
       <div><p className="eyebrow">CUSTOMER PORTAL</p><h1>{activeFrame === 'home' ? 'Your parcels' : activeFrame === 'send' ? 'Send items' : activeFrame === 'updates' ? 'Updates' : 'Your deliveries'}</h1><p className="section-intro">{customer.company_name}</p></div>
       <span className={`profile-status status-${customer.status}`}>{customer.status}</span>
@@ -1252,7 +1239,6 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
       {requests[0] && ['submitted', 'under_review'].includes(requests[0].status) && <section className="customer-app-frame" aria-label="Latest delivery update"><p className="eyebrow">LATEST DELIVERY · {requests[0].request_number}</p><CustomerQuotePanel supabase={supabase} requestIds={[requests[0].id]} pendingRequestIds={['waiting', 'bidding'].includes(requests[0].dispatch_match_status ?? '') ? [requests[0].id] : []} localRequestIds={requests[0].pickup_city === requests[0].delivery_city ? [requests[0].id] : []} paymentReceivedAtByRequest={paymentReceivedAtByRequest} onError={onError} onNotice={onNotice} onRefresh={onRefresh} /></section>}
       <nav className="customer-launch-grid" aria-label="Customer navigation">
         <button className="customer-launch-card" type="button" onClick={() => openFrame('send')}><span className="customer-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5v-9Z"/><path d="m3.5 7.7 8.5 4.4 8.5-4.4M12 12v9M7.5 5.2l9 4.6"/></svg></span><strong>Send items</strong><small>Book a pickup and delivery</small></button>
-        <button className="customer-launch-card" type="button" onClick={openDeliveryInfo}><span className="customer-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M20 10c0 5-8 12-8 12S4 15 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.5"/></svg></span><strong>Edit my delivery info</strong><small>Work, home and other addresses</small></button>
         <button className="customer-launch-card" type="button" onClick={() => openFrame('updates')}><span className="customer-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9m-8 12h4"/></svg></span><strong>Updates</strong><small>{notifications.filter((item) => !item.read_at).length ? `${notifications.filter((item) => !item.read_at).length} new` : 'Messages about your parcels'}</small></button>
         <button className="customer-launch-card" type="button" onClick={() => openFrame('tracking')}><span className="customer-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M4 19V5m0 14h16"/><path d="m7 15 4-4 3 2 5-6"/><path d="M15 7h4v4"/></svg></span><strong>Tracking</strong><small>{requests.length ? hasOlderRequests ? "Recent deliveries" : `${requests.length} deliveries` : 'Your deliveries'}</small></button>
       </nav>
@@ -1263,7 +1249,7 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
     {activeFrame === 'send' && <section className="form-card request-card customer-app-frame" aria-labelledby="delivery-details-heading">
       <p className="eyebrow">NEW DELIVERY</p><h2 id="delivery-details-heading">Delivery details</h2>
       <ol className="delivery-wizard-progress" aria-label="Delivery steps">{['Pickup', 'Drop-off', 'Parcel'].map((name, index) => <li key={name} className={index === deliveryStep ? 'current' : index < deliveryStep ? 'complete' : ''} aria-current={index === deliveryStep ? 'step' : undefined}><span>{index < deliveryStep ? '✓' : index + 1}</span>{name}</li>)}</ol>
-      <form key={`${selectedParcel?.id ?? 'new-parcel'}-${selectedPal?.contact.code ?? 'no-pal'}-${selectedPal?.destination.slot ?? 0}`} className="form-grid" onSubmit={onSubmit} onChange={checkParcelCapacity} onReset={() => { setDeliveryStep(0); setDeliveryStepError(''); setServiceId(''); setOriginId(''); setDestinationId(''); setSelectedParcel(null); setSelectedBikeItem(null); setSelectedPal(null); setCapacityWarning(null) }}>
+      <form key={selectedParcel?.id ?? 'new-parcel'} className="form-grid" onSubmit={onSubmit} onChange={checkParcelCapacity} onReset={() => { setDeliveryStep(0); setDeliveryStepError(''); setServiceId(''); setOriginId(''); setDestinationId(''); setSelectedParcel(null); setSelectedBikeItem(null); setCapacityWarning(null) }}>
         {selectedParcel && <input type="hidden" name="saved_parcel_id" value={selectedParcel.id} />}
         {selectedParcel && <input type="hidden" name="saved_parcel_photo_path" value={selectedParcel.photo_path} />}
         <section className="delivery-wizard-step" data-delivery-step="0" hidden={deliveryStep !== 0} aria-label="Pickup step">
@@ -1271,17 +1257,16 @@ function Dashboard({ supabase, userId, onError, onNotice, customer, services, co
         <div className="form-divider">PICKUP</div>
         <div className="field-row"><Field label="Pickup contact" name="sender_name" required /><Field label="Pickup phone" name="sender_phone" type="tel" required /></div>
         <div className="field-row"><label className="field"><span>Pickup city</span><select name="pickup_city" required value={originId ? coverageLocations.find((location) => location.id === originId)?.name ?? '' : ''} onChange={(event) => { setOriginId(coverageLocations.find((location) => location.name === event.target.value)?.id ?? ''); setDestinationId('') }}><option value="">Select city</option>{origins.map((location) => <option key={location.id} value={location.name}>{location.name}</option>)}</select></label><input type="hidden" name="pickup_state" value={coverageLocations.find((location) => location.id === originId)?.state ?? ''} /><Field label="Pickup time" name="preferred_pickup_at" type="datetime-local" min={pickupTimeMin} /></div>
-        <PickupLocation supabase={supabase} userId={userId} onCitySelected={(city) => { setOriginId(coverageLocations.find((location) => location.name.toLowerCase() === city.toLowerCase())?.id ?? ''); setDestinationId('') }} />
+        <PickupLocation supabase={supabase} />
         {deliveryStepError && deliveryStep === 0 && <p className="delivery-step-error" role="alert">{deliveryStepError}</p>}
         <div className="delivery-wizard-actions"><button className="primary-button" type="button" onClick={advanceDeliveryStep}>Next: drop-off</button></div>
         </section>
         <section className="delivery-wizard-step" data-delivery-step="1" hidden={deliveryStep !== 1} aria-label="Drop-off step">
         <div className="form-divider">DELIVER TO</div>
-        {selectedPal && <div className="selected-saved-parcel"><span><strong>Parcel Pal: {selectedPal.contact.full_name || selectedPal.contact.code}</strong><small>{selectedPal.destination.label} location selected. Confirm it with the recipient below.</small></span><button className="text-button" type="button" onClick={() => { setSelectedPal(null); setDeliveryStep(0); setDeliveryStepError('') }}>Clear</button></div>}
-        <div className="field-row"><Field label="Recipient name" name="recipient_name" defaultValue={selectedPal?.contact.full_name ?? ''} required /><Field label="Recipient phone" name="recipient_phone" type="tel" defaultValue={selectedPal?.contact.phone ?? ''} required /></div>
-        <Field label="Second phone (optional)" name="recipient_phone_secondary" type="tel" defaultValue={selectedPal?.destination.secondary_phone ?? ''} />
-        <div className="field-row"><label className="field"><span>Delivery city</span><select name="delivery_city" required value={destinationId ? coverageLocations.find((location) => location.id === destinationId)?.name ?? selectedPal?.destination.city ?? '' : selectedPal?.destination.city ?? ''} onChange={(event) => setDestinationId(destinations.find((location) => location.name === event.target.value)?.id ?? '')}><option value="">Select city</option>{selectedPal && !destinations.some((location) => location.name === selectedPal.destination.city) && <option value={selectedPal.destination.city}>{selectedPal.destination.city} (Parcel Pal location)</option>}{destinations.map((location) => <option key={location.id} value={location.name}>{location.name}</option>)}</select></label><input type="hidden" name="delivery_state" value={coverageLocations.find((location) => location.id === destinationId)?.state ?? selectedPal?.destination.state ?? ''} /></div>
-        <DeliveryPoint supabase={supabase} destination={selectedPal?.destination} userId={userId} onCitySelected={(city) => setDestinationId(destinations.find((location) => location.name.toLowerCase() === city.toLowerCase())?.id ?? '')} />
+        <div className="field-row"><Field label="Recipient name" name="recipient_name" required /><Field label="Recipient phone" name="recipient_phone" type="tel" required /></div>
+        <Field label="Second phone (optional)" name="recipient_phone_secondary" type="tel" />
+        <div className="field-row"><label className="field"><span>Delivery city</span><select name="delivery_city" required value={destinationId ? coverageLocations.find((location) => location.id === destinationId)?.name ?? '' : ''} onChange={(event) => setDestinationId(destinations.find((location) => location.name === event.target.value)?.id ?? '')}><option value="">Select city</option>{destinations.map((location) => <option key={location.id} value={location.name}>{location.name}</option>)}</select></label><input type="hidden" name="delivery_state" value={coverageLocations.find((location) => location.id === destinationId)?.state ?? ''} /></div>
+        <DeliveryPoint supabase={supabase} />
         <label className="recipient-location-confirm"><input type="checkbox" name="recipient_location_confirmed" value="yes" required /><span>I confirmed this delivery location with the recipient.</span></label>
         {deliveryStepError && deliveryStep === 1 && <p className="delivery-step-error" role="alert">{deliveryStepError}</p>}
         <div className="delivery-wizard-actions"><button className="secondary-button" type="button" onClick={() => { setDeliveryStepError(''); setDeliveryStep(0) }}>Back</button><button className="primary-button" type="button" onClick={advanceDeliveryStep}>Next: parcel</button></div>

@@ -221,12 +221,9 @@ describe('account access', () => {
     mockState.session = { user: { id: 'customer-user', email: 'ada@example.test', user_metadata: { full_name: 'Ada Customer', phone: '08012345678' } } }
     render(<App />)
     expect(await screen.findByRole('heading', { name: 'Your parcels' })).toBeInTheDocument()
-    expect(await screen.findByText('123456')).toBeInTheDocument()
     expect(mockState.rpc).toHaveBeenCalledWith('ensure_customer_profile')
-    const user = userEvent.setup()
-    await user.click(await screen.findByRole('button', { name: /Edit my delivery info/ }))
-    const heading = screen.getByRole('heading', { name: 'Delivery addresses' })
-    expect(document.activeElement).toBe(heading)
+    expect(screen.queryByText('PARCEL PALS')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Send items/ })).toBeInTheDocument()
   })
 
   it('explains when signup matched an existing account and no email was sent', async () => {
@@ -965,7 +962,7 @@ describe('partner assignment and delivery screens', () => {
     const user = userEvent.setup()
     render(<App />)
     expect(await screen.findByRole('heading', { name: 'Your parcels' })).toBeInTheDocument()
-    expect(screen.getByRole('region', { name: 'Your number' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Your number' })).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Items to send' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Updates/ }))
     expect(await screen.findByRole('heading', { name: 'Messages about your parcels' })).toBeInTheDocument()

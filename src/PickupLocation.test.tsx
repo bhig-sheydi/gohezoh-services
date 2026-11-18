@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+﻿import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -24,7 +24,7 @@ beforeEach(() => { vi.clearAllMocks(); vi.mocked(suggestAddresses).mockResolvedV
 describe('one-field pickup location', () => {
   it('shows one place search, then stores the selected mapped point', async () => {
     const user = userEvent.setup()
-    render(<form><select name="pickup_city" defaultValue="Port Harcourt"><option>Port Harcourt</option></select><PickupLocation supabase={client()} userId="user-1" onCitySelected={vi.fn()} /></form>)
+    render(<form><select name="pickup_city" defaultValue="Port Harcourt"><option>Port Harcourt</option></select><PickupLocation supabase={client()} /></form>)
     const input = screen.getByRole('searchbox', { name: 'Pickup place search' })
     expect(input).toHaveAttribute('placeholder', 'Search the closest known place to you in Port Harcourt')
     expect(screen.queryByRole('textbox', { name: 'Street name' })).toBeNull()
@@ -37,14 +37,11 @@ describe('one-field pickup location', () => {
     await user.clear(input)
     expect(document.querySelector('[name=pickup_latitude]')).toBeNull()
   })
-  it('uses phone coordinates to narrow Find location, while preserving a saved address option', async () => {
-    const saved = { slot: 1, label: 'Work', address: '12 Market Road', city: 'Port Harcourt', state: 'Rivers', latitude: 4.8, longitude: 7.0, location_source: 'browser', location_accuracy_metres: 18 }
+  it('uses phone coordinates to narrow Find location', async () => {
     const user = userEvent.setup()
     vi.mocked(requestAddressPosition).mockResolvedValue({ latitude: 4.866, longitude: 7.022, accuracyMetres: 20, capturedAt: 1000, source: 'browser' } as never)
     vi.mocked(suggestNearby).mockResolvedValue([match] as never)
-    render(<form><select name="pickup_city" defaultValue="Port Harcourt"><option>Port Harcourt</option></select><PickupLocation supabase={client([saved])} userId="user-1" onCitySelected={vi.fn()} /></form>)
-    await user.selectOptions(await screen.findByLabelText('My pickup addresses'), '1')
-    expect(document.querySelector('[name=pickup_latitude]')).toHaveValue('4.8')
+    render(<form><select name="pickup_city" defaultValue="Port Harcourt"><option>Port Harcourt</option></select><PickupLocation supabase={client()} /></form>)
     const input = screen.getByRole('searchbox', { name: 'Pickup place search' })
     await user.clear(input); await user.type(input, 'Eliozu')
     await user.click(screen.getByRole('button', { name: 'Find location' }))
@@ -52,16 +49,10 @@ describe('one-field pickup location', () => {
     expect(await screen.findByText(/Matched near your phone/)).toBeInTheDocument()
     expect(document.querySelector('[name=pickup_latitude]')).toHaveValue('4.8661')
   })
-  it('does not treat a legacy saved address without coordinates as a selected pickup point', async () => {
-    render(<form><select name="pickup_city" defaultValue="Port Harcourt"><option>Port Harcourt</option></select><PickupLocation supabase={client([{ slot: 1, label: 'Work', address: 'Old address', city: 'Port Harcourt', state: 'Rivers', latitude: null, longitude: null }])} userId="user-1" onCitySelected={vi.fn()} /></form>)
-    await userEvent.setup().selectOptions(await screen.findByLabelText('My pickup addresses'), '1')
-    expect(screen.getByRole('alert')).toHaveTextContent('no map point')
-    expect(document.querySelector('[name=pickup_latitude]')).toBeNull()
-  })
   it('allows confirming a coarse pickup GPS point with an accuracy warning', async () => {
     vi.mocked(requestAddressPosition).mockResolvedValue({ latitude: 4.882269, longitude: 7.0096482, accuracyMetres: 350, capturedAt: Date.now(), source: 'native' })
     vi.mocked(identifyCurrentLocation).mockResolvedValue({ label: 'Rumuodumaya', landmarkDistanceMetres: null, matchedAddress: null })
-    render(<form><select name="pickup_city" defaultValue="Port Harcourt"><option>Port Harcourt</option></select><PickupLocation supabase={client()} userId="user-1" onCitySelected={vi.fn()} /></form>)
+    render(<form><select name="pickup_city" defaultValue="Port Harcourt"><option>Port Harcourt</option></select><PickupLocation supabase={client()} /></form>)
     await userEvent.setup().click(screen.getByRole('button', { name: /use GPS/ }))
     expect(await screen.findByText(/GPS accuracy is about 350 m/)).toBeInTheDocument()
     await userEvent.setup().click(screen.getByLabelText('This is the pickup location.'))
