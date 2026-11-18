@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export type BikeItem = { code: string; category: string; label: string; length_cm: number; width_cm: number; height_cm: number; estimated_weight_kg: number; measurement: 'unit' | 'pages' }
@@ -12,16 +12,22 @@ export default function BikeItemPicker({ supabase, defaultCode, defaultPages, on
   const [code, setCode] = useState(defaultCode ?? '')
   const [pages, setPages] = useState(defaultPages ?? 1)
   const [error, setError] = useState('')
+  const onSelectedRef = useRef(onSelected)
+  useEffect(() => { onSelectedRef.current = onSelected }, [onSelected])
   useEffect(() => {
     let active = true
     void supabase.from('bike_item_catalogue').select('code,category,label,length_cm,width_cm,height_cm,estimated_weight_kg,measurement')
       .order('category').order('label').then(({ data, error: loadError }) => {
         if (!active) return
         if (loadError) setError('Could not load item choices. Please try again.')
-        else setItems((data ?? []) as BikeItem[])
+        else {
+          const loaded = (data ?? []) as BikeItem[]
+          setItems(loaded)
+          if (defaultCode) onSelectedRef.current?.(loaded.find((item) => item.code === defaultCode) ?? null)
+        }
       })
     return () => { active = false }
-  }, [supabase])
+  }, [supabase, defaultCode])
   const selected = items.find((item) => item.code === code) ?? null
   const matches = useMemo(() => items.filter((item) =>
     `${item.category} ${item.label}`.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 80), [items, query])

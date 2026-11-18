@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState, type ChangeEvent, type FormEvent, type MouseEvent } from 'react'
+import { useCallback, useEffect, useId, useRef, useState, type ChangeEvent, type FormEvent, type MouseEvent } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { getSupabaseClient } from './lib/supabase'
 import { disableNativeAdminPush, getNativeAdminPushDeviceId,
@@ -37,7 +37,6 @@ import ParcelIdentifiers, { type ParcelIdentifier } from './ParcelIdentifiers'
 import CustomerRiderTracking from './CustomerRiderTracking'
 import AccountDeletionPanel from './AccountDeletionPanel'
 import CustomerPaymentReceipt from './CustomerPaymentReceipt'
-import CustomerSavedParcels, { type SavedParcel } from './CustomerSavedParcels'
 import { PARCEL_MAX_QUANTITY } from './lib/parcel-limits'
 import './App.css'
 import './dark.css'
@@ -53,6 +52,23 @@ type DeliveryRequest = {
   pickup_address?: string | null
   delivery_city: string
   delivery_address?: string | null
+  service_id?: string
+  pickup_state?: string | null
+  delivery_state?: string | null
+  pickup_latitude?: number | null
+  pickup_longitude?: number | null
+  delivery_latitude?: number | null
+  delivery_longitude?: number | null
+  pickup_accuracy_metres?: number | null
+  delivery_accuracy_metres?: number | null
+  sender_name?: string | null
+  sender_phone?: string | null
+  recipient_phone?: string | null
+  recipient_phone_secondary?: string | null
+  parcel_summary?: string | null
+  parcel_items?: Array<{ description?: string; quantity?: number; catalog_code?: string; pages?: number; declared_value?: number; price?: number }>
+  parcel_photo_path?: string | null
+  special_instructions?: string | null
   recipient_name: string
   created_at: string
   order_number?: string
@@ -201,7 +217,7 @@ function App() {
     }
     const [{ data: customerData, error: customerError }, { data: requestData, error: requestError }, { data: serviceData }, { data: notificationData, error: notificationError }, { data: locationData, error: locationError }, { data: corridorData, error: corridorError }] = await Promise.all([
       supabase.from('customers').select('id, company_name, status').eq('id', membership.customer_id).single(),
-      supabase.from('service_requests').select('id, request_number, status, dispatch_match_status, pickup_address, pickup_city, delivery_address, delivery_city, recipient_name, created_at').eq('customer_id', membership.customer_id).order('created_at', { ascending: false }).limit(customerHistoryLimit + 1),
+      supabase.from('service_requests').select('id, request_number, status, dispatch_match_status, service_id, pickup_address, pickup_city, pickup_state, pickup_latitude, pickup_longitude, pickup_accuracy_metres, sender_name, sender_phone, delivery_address, delivery_city, delivery_state, delivery_latitude, delivery_longitude, delivery_accuracy_metres, recipient_name, recipient_phone, recipient_phone_secondary, parcel_summary, parcel_items, parcel_photo_path, special_instructions, created_at').eq('customer_id', membership.customer_id).order('created_at', { ascending: false }).limit(customerHistoryLimit + 1),
       supabase.from('services').select('id, code, name, description').eq('is_active', true).in('code', ['SRV-0001', 'SRV-0002']).order('name'),
       supabase.from('notifications').select('id, job_id, event_type, title, body, created_at, read_at, payload').eq('user_id', session.user.id).order('created_at', { ascending: false }).limit(30),
       supabase.from('coverage_locations').select('id, name, state, is_enabled').eq('is_enabled', true).order('name'),
@@ -309,14 +325,12 @@ function App() {
       catalog_code: String(form.get('catalog_code')),
     }
     if (form.get('parcel_pages')) parcelItem.pages = Number(form.get('parcel_pages'))
-    const savedParcelId = String(form.get('saved_parcel_id') ?? '')
-    if (/^[0-9a-fA-F-]{36}$/.test(savedParcelId)) parcelItem.saved_parcel_id = savedParcelId
     for (const [formName, parcelName] of [['parcel_declared_value','declared_value'],['parcel_price','price']] as const) {
       const value = String(form.get(formName) ?? '').trim()
       if (value) parcelItem[parcelName] = Number(value)
     }
     const parcelPhoto = (formElement.elements.namedItem('parcel_photo') as HTMLInputElement | null)?.files?.[0]
-    const savedPhotoPath = savedParcelId ? String(form.get('saved_parcel_photo_path') ?? '') : ''
+    const savedPhotoPath = String(form.get('reused_parcel_photo_path') ?? '')
     if (!parcelPhoto?.size && !savedPhotoPath) { setError('Add a photo of the goods before requesting delivery.'); setBusy(false); return }
     let parcelPhotoPath: string | null = savedPhotoPath || null
     if (parcelPhoto && parcelPhoto.size > 0) {
@@ -372,7 +386,7 @@ function App() {
         const priced = await supabase.functions.invoke('bike-route-price', { body: { requestId: createdRequest.id } })
         if (priced.error) setNotice('Delivery request saved. Road price is still being calculated; refresh shortly.')
         else setNotice(`Delivery request saved. Estimated bike price: ₦${Number(priced.data?.customer_price_ngn).toLocaleString('en-NG')}. A company must accept before payment.`)
-      } else setNotice('Delivery request submitted. Your item is saved in Items to send.')
+      } else setNotice('Delivery request submitted.')
       formElement.reset(); await loadCustomer(); window.dispatchEvent(new Event('customer-request-submitted'))
     }
     setBusy(false)
@@ -1159,7 +1173,7 @@ function CustomerDeliveryCard({ request, confirmationStatus, expanded, onToggle,
   </article>
 }
 
-function Dashboard({ supabase, userId, customerName, onError, onNotice, customer, services, coverageLocations, coverageCorridors, requests, notifications, busy, onSubmit, onMarkRead, onRefresh, hasOlderRequests, onLoadOlder }: { supabase: ReturnType<typeof getSupabaseClient>; userId: string; customerName: string; onError: (message: string) => void; onNotice: (message: string) => void; customer: Customer; services: Service[]; coverageLocations: CoverageLocation[]; coverageCorridors: CoverageCorridor[]; requests: DeliveryRequest[]; notifications: CustomerNotification[]; busy: boolean; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onMarkRead: (notification: CustomerNotification) => void; onRefresh: () => void; hasOlderRequests: boolean; onLoadOlder: () => void }) {
+function Dashboard({ supabase, customerName, onError, onNotice, customer, services, coverageLocations, coverageCorridors, requests, notifications, busy, onSubmit, onMarkRead, onRefresh, hasOlderRequests, onLoadOlder }: { supabase: ReturnType<typeof getSupabaseClient>; userId: string; customerName: string; onError: (message: string) => void; onNotice: (message: string) => void; customer: Customer; services: Service[]; coverageLocations: CoverageLocation[]; coverageCorridors: CoverageCorridor[]; requests: DeliveryRequest[]; notifications: CustomerNotification[]; busy: boolean; onSubmit: (event: FormEvent<HTMLFormElement>) => void; onMarkRead: (notification: CustomerNotification) => void; onRefresh: () => Promise<void>; hasOlderRequests: boolean; onLoadOlder: () => void }) {
   const [localHour, setLocalHour] = useState(() => new Date().getHours())
   useEffect(() => {
     const updateHour = () => setLocalHour(new Date().getHours())
@@ -1171,7 +1185,7 @@ function Dashboard({ supabase, userId, customerName, onError, onNotice, customer
   const [serviceId, setServiceId] = useState('')
   const [originId, setOriginId] = useState('')
   const [destinationId, setDestinationId] = useState('')
-  const [activeFrame, setActiveFrame] = useState<'home'|'send'|'updates'|'tracking'>('home')
+  const [activeFrame, setActiveFrame] = useState<'home'|'send'|'saved'|'updates'|'tracking'>('home')
   const [pickupTimeMin, setPickupTimeMin] = useState(() => new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 16))
   const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null)
   const [confirmationStatuses, setConfirmationStatuses] = useState<Record<string, string>>({})
@@ -1199,15 +1213,36 @@ function Dashboard({ supabase, userId, customerName, onError, onNotice, customer
   }, [])
   const [deliveryStep, setDeliveryStep] = useState(0)
   const [deliveryStepError, setDeliveryStepError] = useState('')
-  const [selectedParcel, setSelectedParcel] = useState<SavedParcel | null>(null)
+  const [selectedTemplate, setSelectedTemplate] = useState<DeliveryRequest | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const touchStart = useRef<{ x: number; y: number } | null>(null)
   const [selectedBikeItem, setSelectedBikeItem] = useState<BikeItem | null>(null)
   const [capacityWarning, setCapacityWarning] = useState<{ message: string; exceeded: boolean } | null>(null)
   const serviceCode = services.find((service) => service.id === serviceId)?.code
   const enabledCorridors = coverageCorridors.filter((corridor) => corridor.service_code === serviceCode && coverageLocations.some((location) => location.id === corridor.origin_id) && coverageLocations.some((location) => location.id === corridor.destination_id))
   const origins = coverageLocations.filter((location) => enabledCorridors.some((corridor) => corridor.origin_id === location.id))
   const destinations = coverageLocations.filter((location) => enabledCorridors.some((corridor) => corridor.origin_id === originId && corridor.destination_id === location.id))
-  const openFrame = (frame: 'send'|'updates'|'tracking') => { if (frame === 'send') { setPickupTimeMin(new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 16)); setDeliveryStep(0); setDeliveryStepError('') } setActiveFrame(frame) }
+  const openFrame = (frame: 'send'|'saved'|'updates'|'tracking') => { if (frame === 'send') { setSelectedTemplate(null); setPickupTimeMin(new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 16)); setDeliveryStep(0); setDeliveryStepError('') } setActiveFrame(frame) }
   const returnHome = () => setActiveFrame('home')
+  function reuseDelivery(request: DeliveryRequest) {
+    setSelectedTemplate(request)
+    setSelectedBikeItem(null)
+    setCapacityWarning(null)
+    setDeliveryStep(0)
+    setDeliveryStepError('')
+    setPickupTimeMin(() => new Date(Date.now() - new Date().getTimezoneOffset() * 60_000).toISOString().slice(0, 16))
+    setServiceId(request.service_id ?? '')
+    const origin = coverageLocations.find((location) => location.name === request.pickup_city && (!request.pickup_state || location.state === request.pickup_state))
+    const destination = coverageLocations.find((location) => location.name === request.delivery_city && (!request.delivery_state || location.state === request.delivery_state))
+    setOriginId(origin?.id ?? '')
+    setDestinationId(destination?.id ?? '')
+    setActiveFrame('send')
+  }
+  async function pullRefresh() {
+    if (refreshing || busy) return
+    setRefreshing(true)
+    try { await onRefresh() } finally { setRefreshing(false) }
+  }
   function checkParcelCapacity(event: ChangeEvent<HTMLFormElement>) {
     const form = new FormData(event.currentTarget)
     const quantity = Number(form.get('parcel_quantity'))
@@ -1235,9 +1270,10 @@ function Dashboard({ supabase, userId, customerName, onError, onNotice, customer
     }
     setDeliveryStepError(''); setDeliveryStep((step) => Math.min(step + 1, 2))
   }
-  return <main className="dashboard customer-dashboard">
+  return <main className="dashboard customer-dashboard" onTouchStart={(event) => { if (window.scrollY <= 5) touchStart.current = { x: event.touches[0].clientX, y: event.touches[0].clientY }; else touchStart.current = null }} onTouchEnd={(event) => { const start = touchStart.current; touchStart.current = null; if (!start) return; const dx = event.changedTouches[0].clientX - start.x; const dy = event.changedTouches[0].clientY - start.y; if (dy > 100 && Math.abs(dx) < 60 && window.scrollY <= 5) void pullRefresh() }}>
+    {refreshing && <div className="customer-pull-refresh" role="status">Refreshing deliveries…</div>}
     <div className={`dashboard-heading${activeFrame === 'home' ? ' customer-welcome-card' : ''}`}>
-      <div><p className="eyebrow">CUSTOMER PORTAL</p><h1>{activeFrame === 'home' ? `${greeting}, ${customerName}` : activeFrame === 'send' ? 'Send items' : activeFrame === 'updates' ? 'Updates' : 'Your deliveries'}</h1>{activeFrame !== 'home' && <p className="section-intro">{customer.company_name}</p>}</div>
+      <div><p className="eyebrow">CUSTOMER PORTAL</p><h1>{activeFrame === 'home' ? `${greeting}, ${customerName}` : activeFrame === 'send' ? 'Send items' : activeFrame === 'saved' ? 'Past parcels' : activeFrame === 'updates' ? 'Updates' : 'Your deliveries'}</h1>{activeFrame !== 'home' && <p className="section-intro">{customer.company_name}</p>}</div>
     </div>
     {pendingConfirmation && <button className="customer-confirmation-alert" type="button" onClick={() => { setExpandedRequestId(pendingConfirmation.id); setActiveFrame('tracking') }}>
       <strong>Confirm parcel arrival</strong><span>{pendingConfirmation.request_number}: your rider has asked you to verify delivery.</span><span>Review this parcel</span>
@@ -1246,48 +1282,48 @@ function Dashboard({ supabase, userId, customerName, onError, onNotice, customer
       {requests[0] && ['submitted', 'under_review'].includes(requests[0].status) && <section className="customer-app-frame" aria-label="Latest delivery update"><p className="eyebrow">LATEST DELIVERY · {requests[0].request_number}</p><CustomerQuotePanel supabase={supabase} requestIds={[requests[0].id]} pendingRequestIds={['waiting', 'bidding'].includes(requests[0].dispatch_match_status ?? '') ? [requests[0].id] : []} localRequestIds={requests[0].pickup_city === requests[0].delivery_city ? [requests[0].id] : []} paymentReceivedAtByRequest={paymentReceivedAtByRequest} onError={onError} onNotice={onNotice} onRefresh={onRefresh} /></section>}
       <nav className="customer-launch-grid" aria-label="Customer navigation">
         <button className="customer-launch-card" type="button" onClick={() => openFrame('send')}><span className="customer-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5v-9Z"/><path d="m3.5 7.7 8.5 4.4 8.5-4.4M12 12v9M7.5 5.2l9 4.6"/></svg></span><strong>Send items</strong><small>Book a pickup and delivery</small></button>
+        <button className="customer-launch-card" type="button" onClick={() => openFrame('saved')}><span className="customer-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M4 5h12l4 4v10H4zM16 5v4h4M7 13h10M7 16h7"/></svg></span><strong>Past parcels</strong><small>Reuse a previous delivery</small></button>
         <button className="customer-launch-card" type="button" onClick={() => openFrame('updates')}><span className="customer-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9m-8 12h4"/></svg></span><strong>Updates</strong><small>{notifications.filter((item) => !item.read_at).length ? `${notifications.filter((item) => !item.read_at).length} new` : 'Messages about your parcels'}</small></button>
         <button className="customer-launch-card" type="button" onClick={() => openFrame('tracking')}><span className="customer-launch-icon" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M4 19V5m0 14h16"/><path d="m7 15 4-4 3 2 5-6"/><path d="M15 7h4v4"/></svg></span><strong>Tracking</strong><small>{requests.length ? hasOlderRequests ? "Recent deliveries" : `${requests.length} deliveries` : 'Your deliveries'}</small></button>
       </nav>
-      <CustomerSavedParcels supabase={supabase} userId={userId} onError={onError} onNotice={onNotice} onUse={(parcel) => { setSelectedParcel(parcel); setSelectedBikeItem(null); setCapacityWarning(null); setDeliveryStep(0); setDeliveryStepError(''); setActiveFrame('send') }} />
       <CustomerReferralPanel supabase={supabase} onError={onError} onNotice={onNotice} />
     </>}
+    {activeFrame === 'saved' && <section className="history-panel customer-app-frame past-parcels-panel" aria-labelledby="past-parcels-heading"><div className="history-heading"><div><p className="eyebrow">REUSE A DELIVERY</p><h2 id="past-parcels-heading">Past parcels</h2></div><span className="request-count">{requests.length}</span></div>{requests.length === 0 ? <p className="notification-empty">Your past deliveries will appear here.</p> : <div className="past-parcels-grid">{requests.map((request) => <article className="past-parcel-card" key={request.id}><small>{request.request_number} · {new Intl.DateTimeFormat('en-NG',{ dateStyle:'medium' }).format(new Date(request.created_at))}</small><strong>{request.parcel_summary || request.parcel_items?.[0]?.description || 'Parcel'}</strong><span>{request.pickup_address || request.pickup_city} → {request.delivery_address || request.delivery_city}</span><span>To {request.recipient_name}</span><button className="secondary-button" type="button" onClick={() => reuseDelivery(request)}>Reuse and edit</button></article>)}</div>}{hasOlderRequests && <button className="secondary-button" type="button" onClick={onLoadOlder}>Load older parcels</button>}</section>}
     {activeFrame !== 'home' && <button className="text-button customer-back-button" type="button" onClick={returnHome}>← Back to customer home</button>}
     {activeFrame === 'send' && <section className="form-card request-card customer-app-frame" aria-labelledby="delivery-details-heading">
       <p className="eyebrow">NEW DELIVERY</p><h2 id="delivery-details-heading">Delivery details</h2>
       <ol className="delivery-wizard-progress" aria-label="Delivery steps">{['Pickup', 'Drop-off', 'Parcel'].map((name, index) => <li key={name} className={index === deliveryStep ? 'current' : index < deliveryStep ? 'complete' : ''} aria-current={index === deliveryStep ? 'step' : undefined}><span>{index < deliveryStep ? '✓' : index + 1}</span>{name}</li>)}</ol>
-      <form key={selectedParcel?.id ?? 'new-parcel'} className="form-grid" onSubmit={onSubmit} onChange={checkParcelCapacity} onReset={() => { setDeliveryStep(0); setDeliveryStepError(''); setServiceId(''); setOriginId(''); setDestinationId(''); setSelectedParcel(null); setSelectedBikeItem(null); setCapacityWarning(null) }}>
-        {selectedParcel && <input type="hidden" name="saved_parcel_id" value={selectedParcel.id} />}
-        {selectedParcel && <input type="hidden" name="saved_parcel_photo_path" value={selectedParcel.photo_path} />}
+      <form key={selectedTemplate?.id ?? 'new-parcel'} className="form-grid" onSubmit={onSubmit} onChange={checkParcelCapacity} onReset={() => { setDeliveryStep(0); setDeliveryStepError(''); setServiceId(''); setOriginId(''); setDestinationId(''); setSelectedTemplate(null); setSelectedBikeItem(null); setCapacityWarning(null) }}>
+        {selectedTemplate?.parcel_photo_path && <input type="hidden" name="reused_parcel_photo_path" value={selectedTemplate.parcel_photo_path} />}
         <section className="delivery-wizard-step" data-delivery-step="0" hidden={deliveryStep !== 0} aria-label="Pickup step">
         <label className="field"><span>Service</span><select name="service_id" required value={serviceId} onChange={(event) => { setServiceId(event.target.value); setOriginId(''); setDestinationId('') }}><option value="" disabled>Select service</option>{services.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}</select></label>
         <div className="form-divider">PICKUP</div>
-        <div className="field-row"><Field label="Pickup contact" name="sender_name" required /><Field label="Pickup phone" name="sender_phone" type="tel" required /></div>
+        <div className="field-row"><Field label="Pickup contact" name="sender_name" required defaultValue={selectedTemplate?.sender_name ?? ''} /><Field label="Pickup phone" name="sender_phone" type="tel" required defaultValue={selectedTemplate?.sender_phone ?? ''} /></div>
         <div className="field-row"><label className="field"><span>Pickup city</span><select name="pickup_city" required value={originId ? coverageLocations.find((location) => location.id === originId)?.name ?? '' : ''} onChange={(event) => { setOriginId(coverageLocations.find((location) => location.name === event.target.value)?.id ?? ''); setDestinationId('') }}><option value="">Select city</option>{origins.map((location) => <option key={location.id} value={location.name}>{location.name}</option>)}</select></label><input type="hidden" name="pickup_state" value={coverageLocations.find((location) => location.id === originId)?.state ?? ''} /><Field label="Pickup time" name="preferred_pickup_at" type="datetime-local" min={pickupTimeMin} /></div>
-        <PickupLocation supabase={supabase} />
+        <PickupLocation supabase={supabase} initial={selectedTemplate?.pickup_address && selectedTemplate.pickup_latitude != null && selectedTemplate.pickup_longitude != null ? { address:selectedTemplate.pickup_address, latitude:selectedTemplate.pickup_latitude, longitude:selectedTemplate.pickup_longitude, accuracyMetres:selectedTemplate.pickup_accuracy_metres } : null} />
         {deliveryStepError && deliveryStep === 0 && <p className="delivery-step-error" role="alert">{deliveryStepError}</p>}
         <div className="delivery-wizard-actions"><button className="primary-button" type="button" onClick={advanceDeliveryStep}>Next: drop-off</button></div>
         </section>
         <section className="delivery-wizard-step" data-delivery-step="1" hidden={deliveryStep !== 1} aria-label="Drop-off step">
         <div className="form-divider">DELIVER TO</div>
-        <div className="field-row"><Field label="Recipient name" name="recipient_name" required /><Field label="Recipient phone" name="recipient_phone" type="tel" required /></div>
-        <Field label="Second phone (optional)" name="recipient_phone_secondary" type="tel" />
+        <div className="field-row"><Field label="Recipient name" name="recipient_name" required defaultValue={selectedTemplate?.recipient_name ?? ''} /><Field label="Recipient phone" name="recipient_phone" type="tel" required defaultValue={selectedTemplate?.recipient_phone ?? ''} /></div>
+        <Field label="Second phone (optional)" name="recipient_phone_secondary" type="tel" defaultValue={selectedTemplate?.recipient_phone_secondary ?? ''} />
         <div className="field-row"><label className="field"><span>Delivery city</span><select name="delivery_city" required value={destinationId ? coverageLocations.find((location) => location.id === destinationId)?.name ?? '' : ''} onChange={(event) => setDestinationId(destinations.find((location) => location.name === event.target.value)?.id ?? '')}><option value="">Select city</option>{destinations.map((location) => <option key={location.id} value={location.name}>{location.name}</option>)}</select></label><input type="hidden" name="delivery_state" value={coverageLocations.find((location) => location.id === destinationId)?.state ?? ''} /></div>
-        <DeliveryPoint supabase={supabase} />
+        <DeliveryPoint supabase={supabase} initial={selectedTemplate?.delivery_address && selectedTemplate.delivery_latitude != null && selectedTemplate.delivery_longitude != null ? { address:selectedTemplate.delivery_address, latitude:selectedTemplate.delivery_latitude, longitude:selectedTemplate.delivery_longitude, accuracyMetres:selectedTemplate.delivery_accuracy_metres } : null} />
         <label className="recipient-location-confirm"><input type="checkbox" name="recipient_location_confirmed" value="yes" required /><span>I confirmed this delivery location with the recipient.</span></label>
         {deliveryStepError && deliveryStep === 1 && <p className="delivery-step-error" role="alert">{deliveryStepError}</p>}
         <div className="delivery-wizard-actions"><button className="secondary-button" type="button" onClick={() => { setDeliveryStepError(''); setDeliveryStep(0) }}>Back</button><button className="primary-button" type="button" onClick={advanceDeliveryStep}>Next: parcel</button></div>
         </section>
         <section className="delivery-wizard-step" data-delivery-step="2" hidden={deliveryStep !== 2} aria-label="Parcel step">
         <div className="form-divider">PARCEL</div><p className="parcel-capacity-help">Choose the closest item type. Packed size is estimated automatically; the rider checks the actual parcel at pickup.</p>
-        {selectedParcel && <div className="selected-saved-parcel"><img src={selectedParcel.photo_url} alt="" /><span><strong>{selectedParcel.item_name}</strong><small>Saved item details filled in</small></span><button className="text-button" type="button" onClick={() => { setSelectedParcel(null); setDeliveryStep(0); setDeliveryStepError('') }}>Clear</button></div>}
-        <BikeItemPicker supabase={supabase} defaultCode={selectedParcel?.catalog_code} defaultPages={selectedParcel?.pages} onSelected={(item) => { setSelectedBikeItem(item); setCapacityWarning(null) }} />
-        <div className="field-row"><Field label="Description" name="parcel_description" placeholder="Describe the exact item" required defaultValue={selectedParcel?.description} /><label className="field"><span>Matching units for this destination</span><select name="parcel_quantity" required defaultValue="1">{Array.from({ length: PARCEL_MAX_QUANTITY }, (_, index) => index + 1).map((quantity) => <option key={quantity} value={quantity}>{quantity}</option>)}</select></label></div>
-        <label className="field"><span>Photo of goods</span><input name="parcel_photo" type="file" accept="image/jpeg,image/png,image/webp" required={!selectedParcel} />{selectedParcel && <small>Using the saved photo. Choose another to replace it for this delivery.</small>}</label>
+        {selectedTemplate && <p className="selected-past-parcel">Using {selectedTemplate.request_number}. Review and change any detail before sending.</p>}
+        <BikeItemPicker key={selectedTemplate?.id ?? 'new-item'} supabase={supabase} defaultCode={selectedTemplate?.parcel_items?.[0]?.catalog_code} defaultPages={selectedTemplate?.parcel_items?.[0]?.pages} onSelected={(item) => { setSelectedBikeItem(item); setCapacityWarning(null) }} />
+        <div className="field-row"><Field label="Description" name="parcel_description" placeholder="Describe the exact item" required defaultValue={selectedTemplate?.parcel_items?.[0]?.description ?? selectedTemplate?.parcel_summary ?? ''} /><label className="field"><span>Matching units for this destination</span><select name="parcel_quantity" required defaultValue={selectedTemplate?.parcel_items?.[0]?.quantity ?? 1}>{Array.from({ length: PARCEL_MAX_QUANTITY }, (_, index) => index + 1).map((quantity) => <option key={quantity} value={quantity}>{quantity}</option>)}</select></label></div>
+        <label className="field"><span>Photo of goods</span><input name="parcel_photo" type="file" accept="image/jpeg,image/png,image/webp" required={!selectedTemplate?.parcel_photo_path} />{selectedTemplate?.parcel_photo_path && <small>Previous photo selected. Choose another to replace it for this delivery.</small>}</label>
         {capacityWarning && <p className={`parcel-capacity-warning ${capacityWarning.exceeded ? 'parcel-capacity-exceeded' : 'parcel-capacity-prompt'}`} role={capacityWarning.exceeded ? 'alert' : 'status'} aria-live={capacityWarning.exceeded ? 'assertive' : 'polite'}>{capacityWarning.message}</p>}
-        <label className="field"><span>Worth per unit (₦) · total must be ₦70,000 or less</span><input name="parcel_declared_value" type="number" min="0" max="70000" step="0.01" required defaultValue={selectedParcel?.declared_value} /></label>
-        <label className="field"><span>Price paid per unit (₦, optional)</span><input name="parcel_price" type="number" min="0" max="70000" step="0.01" defaultValue={selectedParcel?.price} /></label>
-        <details className="customer-optional"><summary>Special instructions</summary><label className="field"><span>Notes for delivery</span><textarea name="special_instructions" rows={2} /></label></details>
+        <label className="field"><span>Worth per unit (₦) · total must be ₦70,000 or less</span><input name="parcel_declared_value" type="number" min="0" max="70000" step="0.01" required defaultValue={selectedTemplate?.parcel_items?.[0]?.declared_value} /></label>
+        <label className="field"><span>Price paid per unit (₦, optional)</span><input name="parcel_price" type="number" min="0" max="70000" step="0.01" defaultValue={selectedTemplate?.parcel_items?.[0]?.price} /></label>
+        <details className="customer-optional"><summary>Special instructions</summary><label className="field"><span>Notes for delivery</span><textarea name="special_instructions" rows={2} defaultValue={selectedTemplate?.special_instructions ?? ''} /></label></details>
         <div className="delivery-wizard-actions"><button className="secondary-button" type="button" onClick={() => { setDeliveryStepError(''); setDeliveryStep(1) }}>Back</button><button className="primary-button" disabled={busy || services.length === 0 || enabledCorridors.length === 0 || capacityWarning?.exceeded}>{busy ? 'Submitting...' : services.length ? 'Request delivery' : 'No service available'}</button></div>
         </section>
       </form>

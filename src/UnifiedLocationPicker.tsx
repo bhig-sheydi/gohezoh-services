@@ -9,15 +9,16 @@ import PinCorrection from './PinCorrection'
 
 type Point = { latitude: number; longitude: number }
 type Kind = 'pickup' | 'delivery'
+export type ReusableLocation = { address: string; latitude: number; longitude: number; accuracyMetres?: number | null }
 
-export default function UnifiedLocationPicker({ kind, supabase }: {
-  kind: Kind; supabase: SupabaseClient
+export default function UnifiedLocationPicker({ kind, supabase, initial }: {
+  kind: Kind; supabase: SupabaseClient; initial?: ReusableLocation | null
 }) {
   const [city, setCity] = useState('')
-  const [query, setQuery] = useState('')
-  const [address, setAddress] = useState('')
-  const [fix, setFix] = useState<LocationEvidence | null>(null)
-  const [point, setPoint] = useState<Point | null>(null)
+  const [query, setQuery] = useState(initial?.address ?? '')
+  const [address, setAddress] = useState(initial?.address ?? '')
+  const [fix, setFix] = useState<LocationEvidence | null>(() => initial ? { latitude: initial.latitude, longitude: initial.longitude, accuracyMetres: initial.accuracyMetres ?? null, capturedAt: Date.now(), source: 'saved' } : null)
+  const [point, setPoint] = useState<Point | null>(initial ? { latitude: initial.latitude, longitude: initial.longitude } : null)
   const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([])
   const [googleOptions, setGoogleOptions] = useState<GoogleAutocompleteOption[]>([])
   const [providerOnly, setProviderOnly] = useState(false)

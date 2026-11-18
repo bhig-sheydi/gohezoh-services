@@ -963,12 +963,57 @@ describe('partner assignment and delivery screens', () => {
     render(<App />)
     expect(await screen.findByRole('heading', { name: /^Good (morning|afternoon|evening), / })).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: 'Your number' })).not.toBeInTheDocument()
-    expect(screen.getByRole('region', { name: 'Items to send' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Items to send' })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /Past parcels/ }))
+    expect(await screen.findByRole('heading', { name: 'Past parcels', level: 2 })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /customer home/ }))
     await user.click(screen.getByRole('button', { name: /Updates/ }))
     expect(await screen.findByRole('heading', { name: 'Messages about your parcels' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /customer home/ }))
     await user.click(screen.getByRole('button', { name: /Tracking/ }))
     expect(await screen.findByRole('heading', { name: 'Your deliveries', level: 2 })).toBeInTheDocument()
+  })
+
+  it('reuses a past parcel with editable recipient and confirmed coordinates', async () => {
+    mockState.roles = ['customer']
+    mockState.customerRequests = [{
+      id: 'request-old', request_number: 'REQ-0042', status: 'converted', service_id: 'service-1',
+      pickup_city: 'Lagos', pickup_state: 'Lagos', pickup_address: '1 Lagos Road', pickup_latitude: 6.45, pickup_longitude: 3.4,
+      sender_name: 'Ada', sender_phone: '08012345678', delivery_city: 'Lagos', delivery_state: 'Lagos',
+      delivery_address: '10 Marina Road', delivery_latitude: 6.46, delivery_longitude: 3.41,
+      recipient_name: 'Chidi', recipient_phone: '08087654321', parcel_summary: 'Books',
+      parcel_items: [{ description: 'Books', quantity: 2, catalog_code: 'textbook', declared_value: 25000 }],
+      parcel_photo_path: 'user-1/old-photo.png', created_at: '2026-10-20T10:00:00Z',
+    }]
+    mockState.services = [{ id: 'service-1', code: 'SRV-0001', name: 'Local Delivery', description: '' }]
+    mockState.coverageLocations = [{ id: 'lagos', name: 'Lagos', state: 'Lagos', is_enabled: true }]
+    mockState.coverageCorridors = [{ id: 'lagos-local', origin_id: 'lagos', destination_id: 'lagos', service_code: 'SRV-0001', is_enabled: true }]
+    const user = userEvent.setup()
+    render(<App />)
+    await user.click(await screen.findByRole('button', { name: /Past parcels/ }))
+    await user.click(await screen.findByRole('button', { name: 'Reuse and edit' }))
+    expect(screen.getByLabelText('Pickup contact')).toHaveValue('Ada')
+    expect(screen.getByLabelText('Pickup place search')).toHaveValue('1 Lagos Road')
+    expect(screen.getByLabelText('Recipient name')).toHaveValue('Chidi')
+    expect(screen.getByLabelText('Drop-off place search')).toHaveValue('10 Marina Road')
+    expect(screen.getByLabelText('Recipient phone')).toHaveValue('08087654321')
+    expect(document.querySelector('input[name="parcel_photo"]')).not.toBeRequired()
+    expect(screen.getByLabelText('This is the pickup location.')).not.toBeChecked()
+    await user.clear(screen.getByLabelText('Recipient name'))
+    await user.type(screen.getByLabelText('Recipient name'), 'New recipient')
+    expect(screen.getByLabelText('Recipient name')).toHaveValue('New recipient')
+  })
+
+  it('refreshes customer data on a downward pull without leaving the current screen', async () => {
+    mockState.roles = ['customer']
+    render(<App />)
+    await screen.findByRole('heading', { name: /^Good (morning|afternoon|evening), / })
+    const before = mockState.query.mock.calls.filter(([table]) => table === 'service_requests').length
+    const dashboard = document.querySelector('.customer-dashboard')!
+    fireEvent.touchStart(dashboard, { touches: [{ clientX: 20, clientY: 30 }] })
+    fireEvent.touchEnd(dashboard, { changedTouches: [{ clientX: 22, clientY: 170 }] })
+    await waitFor(() => expect(mockState.query.mock.calls.filter(([table]) => table === 'service_requests').length).toBeGreaterThan(before))
+    expect(screen.getByRole('heading', { name: /^Good (morning|afternoon|evening), / })).toBeInTheDocument()
   })
 
   it('groups deliveries by date and expands only one card at a time', async () => {
