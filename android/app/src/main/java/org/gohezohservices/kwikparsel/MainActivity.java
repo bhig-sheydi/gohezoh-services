@@ -19,6 +19,7 @@ import android.os.Looper;
 import android.os.Build;
 import android.os.Message;
 import android.webkit.ValueCallback;
+import android.webkit.GeolocationPermissions;
 import android.webkit.PermissionRequest;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -55,6 +56,7 @@ public final class MainActivity extends Activity {
     private static final int CAMERA_PERMISSION = 44;
     private static final int ADMIN_NOTIFICATION_PERMISSION = 45;
     private static final int RIDE_NOTIFICATION_PERMISSION = 46;
+    private static final int DOJAH_LOCATION_PERMISSION = 47;
     private WebView web;
     private FrameLayout splash;
     private ObjectAnimator splashAnimator;
@@ -62,6 +64,8 @@ public final class MainActivity extends Activity {
     private String pendingPositionId;
     private ValueCallback<Uri[]> selectedFiles;
     private PermissionRequest pendingCameraRequest;
+    private GeolocationPermissions.Callback pendingDojahLocationCallback;
+    private String pendingDojahLocationOrigin;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -117,17 +121,39 @@ public final class MainActivity extends Activity {
                         || !cameraOriginAllowed(request.getOrigin())) { request.deny(); return; }
                     String[] resources = request.getResources();
                     boolean wantsCamera = false;
+                    boolean wantsMicrophone = false;
                     for (String resource : resources) {
                         if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)) wantsCamera = true;
+                        if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)) wantsMicrophone = true;
                     }
-                    if (!wantsCamera) {
+                    if (!wantsCamera && !wantsMicrophone) {
                         request.deny(); return;
                     }
-                    if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                        request.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
+                    boolean cameraGranted = !wantsCamera || checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
+                    boolean audioGranted = !wantsMicrophone || checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED;
+                    if (cameraGranted && audioGranted) {
+                        grantRequestedMedia(request);
                     } else {
                         pendingCameraRequest = request;
-                        requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION);
+                        java.util.ArrayList<String> missing = new java.util.ArrayList<>();
+                        if (!cameraGranted) missing.add(Manifest.permission.CAMERA);
+                        if (!audioGranted) missing.add(Manifest.permission.RECORD_AUDIO);
+                        requestPermissions(missing.toArray(new String[0]), CAMERA_PERMISSION);
+                    }
+                });
+            }
+            @Override public void onGeolocationPermissionsShowPrompt(String origin, GeolocationPermissions.Callback callback) {
+                runOnUiThread(() -> {
+                    Uri uri = Uri.parse(origin);
+                    if (web == null || web.getUrl() == null || !allowed(Uri.parse(web.getUrl()))
+                        || !cameraOriginAllowed(uri)) { callback.invoke(origin, false, false); return; }
+                    if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                        || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                        callback.invoke(origin, true, false);
+                    } else {
+                        pendingDojahLocationCallback = callback;
+                        pendingDojahLocationOrigin = origin;
+                        requestPermissions(new String[]{Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION}, DOJAH_LOCATION_PERMISSION);
                     }
                 });
             }
@@ -238,6 +264,18 @@ public final class MainActivity extends Activity {
         return "gohezoh-services.vercel.app".equals(host)
             || "widget.dojah.io".equals(host)
             || "identity.dojah.io".equals(host);
+    }
+
+    private void grantRequestedMedia(PermissionRequest request) {
+        java.util.ArrayList<String> granted = new java.util.ArrayList<>();
+        for (String resource : request.getResources()) {
+            if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(resource)
+                && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) granted.add(resource);
+            if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(resource)
+                && checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) granted.add(resource);
+        }
+        if (granted.isEmpty()) request.deny();
+        else request.grant(granted.toArray(new String[0]));
     }
 
     private String initialUrl(Intent intent) {
@@ -609,10 +647,18 @@ public final class MainActivity extends Activity {
         super.onRequestPermissionsResult(requestCode, permissions, results);
         if (requestCode == CAMERA_PERMISSION) {
             if (pendingCameraRequest != null) {
-                if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
-                    pendingCameraRequest.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
-                else pendingCameraRequest.deny();
+                grantRequestedMedia(pendingCameraRequest);
                 pendingCameraRequest = null;
+            }
+            return;
+        }
+        if (requestCode == DOJAH_LOCATION_PERMISSION) {
+            if (pendingDojahLocationCallback != null) {
+                boolean granted = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                    || checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED;
+                pendingDojahLocationCallback.invoke(pendingDojahLocationOrigin, granted, false);
+                pendingDojahLocationCallback = null;
+                pendingDojahLocationOrigin = null;
             }
             return;
         }
