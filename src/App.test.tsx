@@ -220,7 +220,7 @@ describe('account access', () => {
     mockState.noCustomerMembership = true
     mockState.session = { user: { id: 'customer-user', email: 'ada@example.test', user_metadata: { full_name: 'Ada Customer', phone: '08012345678' } } }
     render(<App />)
-    expect(await screen.findByRole('heading', { name: 'Your parcels' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /^Good (morning|afternoon|evening), Ada Customer$/ })).toBeInTheDocument()
     expect(mockState.rpc).toHaveBeenCalledWith('ensure_customer_profile')
     expect(screen.queryByText('PARCEL PALS')).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Send items/ })).toBeInTheDocument()
@@ -884,7 +884,7 @@ describe('partner assignment and delivery screens', () => {
   it('preserves an in-progress delivery form when account roles refresh on focus', async () => {
     mockState.roles = ['customer']
     render(<App />)
-    await screen.findByRole('heading', { name: 'Your parcels' })
+    await screen.findByRole('heading', { name: /^Good (morning|afternoon|evening), / })
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: /Send items/ }))
     const description = screen.getByLabelText('Pickup contact') as HTMLInputElement
@@ -900,7 +900,7 @@ describe('partner assignment and delivery screens', () => {
   it('warns immediately when selected item count exceeds packed shipment capacity', async () => {
     mockState.roles = ['customer']
     render(<App />)
-    await screen.findByRole('heading', { name: 'Your parcels' })
+    await screen.findByRole('heading', { name: /^Good (morning|afternoon|evening), / })
     const user = userEvent.setup()
     await user.click(screen.getByRole('button', { name: /Send items/ }))
     await waitFor(() => expect(screen.getByLabelText('Item type').querySelector('option[value="textbook"]')).not.toBeNull())
@@ -961,7 +961,7 @@ describe('partner assignment and delivery screens', () => {
     mockState.roles = ['customer']
     const user = userEvent.setup()
     render(<App />)
-    expect(await screen.findByRole('heading', { name: 'Your parcels' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: /^Good (morning|afternoon|evening), / })).toBeInTheDocument()
     expect(screen.queryByRole('region', { name: 'Your number' })).not.toBeInTheDocument()
     expect(screen.getByRole('region', { name: 'Items to send' })).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: /Updates/ }))
