@@ -9,12 +9,13 @@ const mocks = vi.hoisted(() => ({
   proof: vi.fn(async () => ({ publicKey: { kty: 'EC', crv: 'P-256', x: 'x', y: 'y' } })),
   rpc: vi.fn(),
   from: vi.fn(),
+  invoke: vi.fn(async () => ({ data: { account: null, testMode: true }, error: null })),
 }))
 vi.mock('./lib/supabase', () => {
   const client = { auth: {
     getSession: mocks.getSession, setSession: mocks.setSession, signOut: mocks.signOut,
     onAuthStateChange: () => ({ data: { subscription: { unsubscribe: vi.fn() } } }),
-  }, rpc: mocks.rpc, from: mocks.from }
+  }, rpc: mocks.rpc, from: mocks.from, functions: { invoke: mocks.invoke } }
   return { getSupabaseClient: () => client }
 })
 vi.mock('./lib/rider-device', () => ({ riderDeviceProof: mocks.proof }))
@@ -274,21 +275,17 @@ describe('independent rider access', () => {
     } } } } as never)
   })
 
-  it('lets a confirmed rider choose an active company without KYC fields', async () => {
+  it('sends an independent rider to verification without a company selector or self-approval', async () => {
     mocks.rpc.mockImplementation(async (name: string) => {
       if (name === 'my_rider_dashboard_snapshot') return { data: dashboard({ has_role: false, session_active: false }), error: null }
-      if (name === 'list_independent_rider_companies') return { data: [{ id: 'company-1', name: 'Test Logistics' }], error: null }
+      if (name === 'my_independent_rider_verification') return { data: [], error: null }
       return { data: null, error: null }
     })
     render(<RiderApp />)
-    expect(await screen.findByRole('heading', { name: 'Choose your logistics company' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'Test Logistics' })).toBeInTheDocument()
-    expect(screen.queryByText(/NIN|licence/i)).not.toBeInTheDocument()
-    fireEvent.change(screen.getByRole('combobox', { name: 'Company' }), { target: { value: 'company-1' } })
-    fireEvent.submit(screen.getByRole('button', { name: 'Join company' }).closest('form')!)
-    await waitFor(() => expect(mocks.rpc).toHaveBeenCalledWith('register_independent_rider', {
-      p_partner_id: 'company-1', p_phone: '08012345678',
-    }))
+    expect(await screen.findByRole('heading', { name: 'Verify your rider identity' })).toBeInTheDocument()
+    expect(screen.getByText(/NIN, live face and address checks/)).toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'Company' })).not.toBeInTheDocument()
+    expect(mocks.rpc).not.toHaveBeenCalledWith('register_independent_rider', expect.anything())
     expect(mocks.signOut).not.toHaveBeenCalled()
   })
 

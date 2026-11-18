@@ -74,7 +74,7 @@ Deno.serve(async (request) => {
         const { data: expected, error: expectedError } = await admin.rpc('get_partner_withdrawal_transfer_attempt', { p_withdrawal_id: withdrawal.id })
         if (expectedError) throw expectedError
         if (!transferMatches(transfer, { ...expected, amount_ngn: Number(expected.transfer_amount_ngn), reference }))
-          throw new Error('Company transfer mismatch')
+          throw new Error('Payout transfer mismatch')
         warnPaystackFeeMismatch(transfer, Number(expected.transfer_fee_ngn))
         const { error } = await admin.rpc('finish_partner_withdrawal_transfer', { p_withdrawal_id: withdrawal.id,
           p_provider_transfer_id: transfer.id, p_reference: expected.reference, p_provider_reference: reference,

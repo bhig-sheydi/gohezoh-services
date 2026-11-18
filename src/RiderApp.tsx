@@ -8,6 +8,8 @@ import { routeLabel } from './lib/route-label'
 import RiderAvailability from './RiderAvailability'
 import { stopNativeRiderTracking } from './lib/native-rider'
 import RiderNextStop, { type RiderRouteStop } from './RiderNextStop'
+import IndependentRiderPayoutPanel from './IndependentRiderPayoutPanel'
+import IndependentRiderVerification from './IndependentRiderVerification'
 import './App.css'
 import './dark.css'
 
@@ -74,7 +76,6 @@ export default function RiderApp() {
   const [selectedPickups, setSelectedPickups] = useState<SelectedPickup[]>([])
   const [nextStop, setNextStop] = useState<RiderRouteStop | null>(null)
   const [companyName, setCompanyName] = useState('Company rider')
-  const [companies, setCompanies] = useState<Array<{ id: string; name: string }>>([])
   const [independentOffers, setIndependentOffers] = useState<IndependentOffer[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -148,13 +149,6 @@ export default function RiderApp() {
   }, [session, supabase, clearDashboard])
   useEffect(() => { const timer = window.setTimeout(() => { void load() }, 0); return () => window.clearTimeout(timer) }, [load])
   useEffect(() => {
-    if (session?.user.user_metadata?.account_kind !== 'independent_rider' || rider) return
-    void supabase.rpc('list_independent_rider_companies').then(({ data, error }) => {
-      if (error) setError(error.message)
-      else setCompanies(Array.isArray(data) ? data as Array<{ id: string; name: string }> : [])
-    })
-  }, [session, rider, supabase])
-  useEffect(() => {
     if (!session?.user || !rider) return
     const refresh = () => { if (document.visibilityState === 'visible') void load() }
     const timer = window.setInterval(refresh, 10000)
@@ -210,18 +204,6 @@ export default function RiderApp() {
       email: String(form.get('email') ?? '').trim(), password: String(form.get('password') ?? ''),
     })
     if (authError) setError(authError.message)
-    setBusy(false)
-  }
-
-  async function registerIndependent(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const form = new FormData(event.currentTarget)
-    setBusy(true); setError('')
-    const { error: registrationError } = await supabase.rpc('register_independent_rider', {
-      p_partner_id: String(form.get('partner_id') ?? ''), p_phone: String(form.get('phone') ?? '').trim(),
-    })
-    if (registrationError) setError(registrationError.message)
-    else { setNotice('Your rider workspace is ready.'); await load() }
     setBusy(false)
   }
 
@@ -337,12 +319,13 @@ export default function RiderApp() {
         <button className="primary-button" disabled={busy}>{busy ? 'Signing in...' : 'Sign in'}</button></form>}
       {!token() && !company() && <><p className="form-footnote">Independent rider? Sign in with your email below.</p>
       <form className="form-grid" onSubmit={(event) => void signInIndependent(event)}><label className="field"><span>Email</span><input name="email" type="email" required /></label><label className="field"><span>Password</span><input name="password" type="password" required /></label><button className="secondary-button" disabled={busy}>Sign in with email</button></form></>}
-    </section> : rider === null ? <div className="loading">Checking rider access...</div> : !rider && session.user.user_metadata?.account_kind === 'independent_rider' ? <section className="form-card narrow"><h1>Choose your logistics company</h1><p>Use the company you ride under. Your offers and deliveries stay linked to that company.</p><form className="form-grid" onSubmit={(event) => void registerIndependent(event)}><label className="field"><span>Company</span><select name="partner_id" required defaultValue=""><option value="" disabled>Select company</option>{companies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className="field"><span>Your phone number</span><input name="phone" type="tel" defaultValue={session.user.user_metadata?.phone ?? ''} required /></label><button className="primary-button" disabled={busy || companies.length === 0}>{busy ? 'Joining...' : 'Join company'}</button></form></section> : !rider ? <section className="form-card narrow"><h1>Rider access only</h1><p>Sign out of your current account to use a company rider link.</p></section> : <section className="rider-workspace">
+    </section> : rider === null ? <div className="loading">Checking rider access...</div> : !rider && session.user.user_metadata?.account_kind === 'independent_rider' ? <IndependentRiderVerification supabase={supabase} phone={String(session.user.user_metadata?.phone ?? '')} onVerified={load} /> : !rider ? <section className="form-card narrow"><h1>Rider access only</h1><p>Sign out of your current account to use a company rider link.</p></section> : <section className="rider-workspace">
       <RideAlerts supabase={supabase} userId={session.user.id} kind="rider" />
       <div className="dashboard-heading"><div><p className="eyebrow">YOUR RIDES</p><h1>{session.user.user_metadata?.full_name ?? 'Rider'}</h1><p>{companyName}</p></div><button className="secondary-button" onClick={() => void load()}>Refresh jobs</button></div>
       <RiderAvailability supabase={supabase} />
+      {session.user.user_metadata?.account_kind === 'independent_rider' && <IndependentRiderPayoutPanel supabase={supabase} />}
       {session.user.user_metadata?.account_kind === 'independent_rider' && <form className="form-card form-grid" onSubmit={(event) => void uploadIndependentPhoto(event)}><label className="field"><span>Your rider photo</span><input name="photo" type="file" accept="image/jpeg,image/png,image/webp" required /></label><button className="secondary-button" disabled={busy}>Save photo</button></form>}
-      {session.user.user_metadata?.account_kind === 'independent_rider' && <section className="form-card" aria-label="Direct delivery offers"><h2>Delivery offers</h2>{independentOffers.length === 0 ? <p>No matching offers right now.</p> : independentOffers.map((offer) => <article className="partner-job-card" key={offer.request_id}><strong>{offer.request_number}</strong><p>{offer.pickup_address} → {offer.delivery_address}</p><p>{offer.parcel_summary}</p><strong>Price: ₦{offer.customer_price_ngn.toLocaleString()} · Company share: ₦{Number(offer.company_share_ngn).toLocaleString()}</strong><p>Offer closes {new Date(offer.deadline_at).toLocaleTimeString('en-NG')}</p><div className="field-row"><button className="primary-button" disabled={busy} onClick={() => void respondIndependent(offer,true)}>Accept delivery</button><button className="secondary-button" disabled={busy} onClick={() => void respondIndependent(offer,false)}>Decline</button></div></article>)}</section>}
+      {session.user.user_metadata?.account_kind === 'independent_rider' && <section className="form-card" aria-label="Direct delivery offers"><h2>Delivery offers</h2>{independentOffers.length === 0 ? <p>No matching offers right now.</p> : independentOffers.map((offer) => <article className="partner-job-card" key={offer.request_id}><strong>{offer.request_number}</strong><p>{offer.pickup_address} → {offer.delivery_address}</p><p>{offer.parcel_summary}</p><strong>Price: ₦{offer.customer_price_ngn.toLocaleString()} · Rider share: ₦{Number(offer.company_share_ngn).toLocaleString()}</strong><p>Offer closes {new Date(offer.deadline_at).toLocaleTimeString('en-NG')}</p><div className="field-row"><button className="primary-button" disabled={busy} onClick={() => void respondIndependent(offer,true)}>Accept delivery</button><button className="secondary-button" disabled={busy} onClick={() => void respondIndependent(offer,false)}>Decline</button></div></article>)}</section>}
       <RiderNextStop stop={nextStop} jobs={jobs} />
       {selectedPickups.length > 0 && <section aria-label="Selected pickups"><h2>Upcoming pickups</h2><div className="partner-assignment-list">{selectedPickups.map((pickup) => <article className="form-card partner-job-card" key={pickup.request_id}>
         <p className="eyebrow">{pickup.request_number} · {pickup.company_name}</p><h3>Company bid selected</h3>

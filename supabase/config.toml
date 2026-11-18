@@ -441,11 +441,18 @@ verify_jwt = false
 [functions.paystack-payout]
 verify_jwt = false
 
+[functions.paystack-rider-payout]
+verify_jwt = false
+
 [functions.paystack-referral-payout]
 verify_jwt = false
 
 [functions.paystack-webhook]
 # Paystack signs each request with HMAC-SHA512; there is no Supabase JWT.
+verify_jwt = false
+
+[functions.dojah-rider-webhook]
+# Dojah signs the raw webhook body with HMAC-SHA256.
 verify_jwt = false
 
 [functions.route-planner]
