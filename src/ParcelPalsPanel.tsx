@@ -153,7 +153,7 @@ export default function ParcelPalsPanel({ supabase, userId, onError, onNotice, o
     const { error } = await supabase.rpc('respond_to_parcel_pal_request', { p_code: request.code, p_accept: accept })
     if (error) onError(error.message)
     else {
-      onNotice(accept ? 'Parcel Pal request accepted. You can now see each otherâ€™s shared contact details.' : 'Parcel Pal request declined.')
+      onNotice(accept ? "Parcel Pal request accepted. You can now see each other's shared contact details." : 'Parcel Pal request declined.')
       setSearchResult(null)
       await refresh()
     }
@@ -168,12 +168,12 @@ export default function ParcelPalsPanel({ supabase, userId, onError, onNotice, o
           {avatarUrl && !avatarFailed ? <img src={avatarUrl} alt="Your profile picture" onError={() => setAvatarFailed(true)} /> : <span aria-hidden="true">{avatarPath ? '!' : '+'}</span>}
         </button>
         <input ref={photoInput} className="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" aria-label="Choose a profile picture" onChange={(event) => void uploadProfilePhoto(event)} />
-        <span>YOUR PARCEL PAL NUMBER</span><strong aria-label="Your Parcel Pal number">{code || '------'}</strong><button type="button" className="secondary-button" disabled={!code} onClick={() => void copyMyCode()}>Copy number</button><small className="parcel-pal-photo-state" aria-live="polite">{avatarUrl && !avatarFailed ? 'Profile picture set Â· tap to change' : avatarPath ? 'Picture unavailable Â· tap to replace' : 'Add a profile picture'}</small>
+        <span>YOUR PARCEL PAL NUMBER</span><strong aria-label="Your Parcel Pal number">{code || '------'}</strong><button type="button" className="secondary-button" disabled={!code} onClick={() => void copyMyCode()}>Copy number</button><small className="parcel-pal-photo-state" aria-live="polite">{avatarUrl && !avatarFailed ? 'Profile picture set · tap to change' : avatarPath ? 'Picture unavailable · tap to replace' : 'Add a profile picture'}</small>
       </div>
     </div>
     {showPhotoReminder && <div className="parcel-pal-photo-reminder" role="dialog" aria-modal="true" aria-labelledby="parcel-pal-photo-title"><div className="parcel-pal-photo-prompt"><span className="parcel-pal-photo-prompt-icon" aria-hidden="true">+</span><h3 id="parcel-pal-photo-title">Add a profile picture</h3><p>Use your business logo or a clear photo of your face.</p><button type="button" className="primary-button" disabled={photoBusy} onClick={() => photoInput.current?.click()}>{photoBusy ? 'Saving...' : 'Choose picture'}</button><button type="button" className="text-button" onClick={() => setShowPhotoReminder(false)}>Don't remind me again</button></div></div>}
     <button className="text-button parcel-pal-refresh" type="button" aria-label="Refresh Parcel Pals" onClick={() => void refresh()}>Refresh</button>
-    <p className="parcel-pal-privacy"><span aria-hidden="true">â—†</span> Contact details appear after acceptance.</p>
+    <p className="parcel-pal-privacy"><span aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2 4 5v6c0 5 3.4 8.5 8 11 4.6-2.5 8-6 8-11V5l-8-3Z"/><path d="M9 12l2 2 4-4"/></svg></span> Contact details appear after acceptance.</p>
     {isEditingDestinations && <DeliveryLocationsEditor key={userId} supabase={supabase} userId={userId} destinations={destinations} onSaved={refresh} onClose={onCloseDestinationEditor} onError={onError} onNotice={onNotice} />}
     <form className="parcel-pal-search" onSubmit={search}>
       <label className="field"><span>Find a Parcel Pal</span><input aria-label="Search by Parcel Pal number" type="text" inputMode="numeric" autoComplete="off" maxLength={6} pattern="[0-9]{6}" value={searchCode} onChange={(event) => { setSearchCode(event.target.value.replace(/\D/g, '').slice(0, 6)); setSearchResult(null) }} placeholder="6-digit number" /></label>

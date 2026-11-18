@@ -5,6 +5,7 @@ import App from './App.tsx'
 import RiderApp from './RiderApp.tsx'
 import { CompanyStaffLogin } from './CompanyStaffApp.tsx'
 import GoogleLocationSmoke from './GoogleLocationSmoke.tsx'
+import './brand.css'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

@@ -4,8 +4,13 @@ import android.Manifest;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.animation.ObjectAnimator;
+import android.animation.ValueAnimator;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
+import android.graphics.Color;
+import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.provider.Settings;
 import android.os.Bundle;
@@ -20,6 +25,13 @@ import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.WebResourceError;
+import android.view.Gravity;
+import android.view.View;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.TextView;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
@@ -44,6 +56,8 @@ public final class MainActivity extends Activity {
     private static final int ADMIN_NOTIFICATION_PERMISSION = 45;
     private static final int RIDE_NOTIFICATION_PERMISSION = 46;
     private WebView web;
+    private FrameLayout splash;
+    private ObjectAnimator splashAnimator;
     private String pendingTrackingToken;
     private String pendingPositionId;
     private ValueCallback<Uri[]> selectedFiles;
@@ -52,7 +66,10 @@ public final class MainActivity extends Activity {
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         web = new WebView(this);
-        setContentView(web);
+        FrameLayout root = new FrameLayout(this);
+        root.addView(web, new FrameLayout.LayoutParams(-1, -1));
+        showBrandSplash(root);
+        setContentView(root);
         if (Build.VERSION.SDK_INT >= 33) {
             getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
                 OnBackInvokedDispatcher.PRIORITY_DEFAULT, () -> {
@@ -66,6 +83,7 @@ public final class MainActivity extends Activity {
         try { AdminAlarmScheduler.restoreAfterSystemEvent(this); }
         catch (RuntimeException ignored) { /* Opening the app must still work if Android delays alarms. */ }
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            hideBrandSplash();
             web.loadData("<h2>Update Android System WebView</h2><p>This app needs a newer Android System WebView for secure phone tracking.</p>", "text/html", "UTF-8");
             return;
         }
@@ -78,6 +96,12 @@ public final class MainActivity extends Activity {
         settings.setSupportMultipleWindows(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_NEVER_ALLOW);
         web.setWebViewClient(new WebViewClient() {
+            @Override public void onPageCommitVisible(WebView view, String url) {
+                new Handler(Looper.getMainLooper()).postDelayed(() -> hideBrandSplash(), 120);
+            }
+            @Override public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                if (request.isForMainFrame()) hideBrandSplash();
+            }
             @Override public boolean shouldOverrideUrlLoading(WebView view, WebResourceRequest request) {
                 if (!request.isForMainFrame()) return false;
                 if (allowed(request.getUrl())) return false;
@@ -136,6 +160,66 @@ public final class MainActivity extends Activity {
                 runOnUiThread(() -> positionMessage(message.getData()));
             });
         web.loadUrl(initialUrl(getIntent()));
+    }
+
+    private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
+
+    private void showBrandSplash(FrameLayout root) {
+        boolean dark = (getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK)
+            == Configuration.UI_MODE_NIGHT_YES;
+        splash = new FrameLayout(this);
+        splash.setBackgroundColor(Color.parseColor(dark ? "#101A19" : "#F4F6EF"));
+        LinearLayout stack = new LinearLayout(this);
+        stack.setOrientation(LinearLayout.VERTICAL);
+        stack.setGravity(Gravity.CENTER);
+        ImageView mark = new ImageView(this);
+        mark.setImageResource(R.mipmap.ic_launcher);
+        stack.addView(mark, new LinearLayout.LayoutParams(dp(92), dp(92)));
+        TextView name = new TextView(this);
+        name.setText("KWIK-PARSEL");
+        name.setTextSize(22);
+        name.setTypeface(null, android.graphics.Typeface.BOLD);
+        name.setLetterSpacing(.12f);
+        name.setTextColor(Color.parseColor(dark ? "#E9F2EA" : "#173B34"));
+        LinearLayout.LayoutParams nameParams = new LinearLayout.LayoutParams(-2, -2);
+        nameParams.topMargin = dp(20);
+        stack.addView(name, nameParams);
+        TextView byline = new TextView(this);
+        byline.setText("BY GOHEZO INTEGRATED SERVICES");
+        byline.setTextSize(10);
+        byline.setLetterSpacing(.1f);
+        byline.setTextColor(Color.parseColor(dark ? "#B2C3B7" : "#68786F"));
+        stack.addView(byline, new LinearLayout.LayoutParams(-2, -2));
+        FrameLayout track = new FrameLayout(this);
+        GradientDrawable trackShape = new GradientDrawable();
+        trackShape.setColor(Color.parseColor(dark ? "#334C40" : "#D4DFC8"));
+        trackShape.setCornerRadius(dp(6));
+        track.setBackground(trackShape);
+        track.setClipChildren(true);
+        LinearLayout.LayoutParams trackParams = new LinearLayout.LayoutParams(dp(180), dp(5));
+        trackParams.topMargin = dp(24);
+        stack.addView(track, trackParams);
+        View segment = new View(this);
+        GradientDrawable segmentShape = new GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
+            new int[]{Color.parseColor("#87A746"), Color.parseColor("#D6EF72"), Color.parseColor("#173B34")});
+        segmentShape.setCornerRadius(dp(6));
+        segment.setBackground(segmentShape);
+        track.addView(segment, new FrameLayout.LayoutParams(dp(72), dp(5)));
+        splashAnimator = ObjectAnimator.ofFloat(segment, "translationX", -dp(72), dp(180));
+        splashAnimator.setDuration(1250);
+        splashAnimator.setRepeatCount(ValueAnimator.INFINITE);
+        splashAnimator.setRepeatMode(ValueAnimator.REVERSE);
+        splashAnimator.start();
+        splash.addView(stack, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
+        root.addView(splash, new FrameLayout.LayoutParams(-1, -1));
+    }
+
+    private void hideBrandSplash() {
+        if (splash == null) return;
+        if (splashAnimator != null) splashAnimator.cancel();
+        FrameLayout parent = (FrameLayout) splash.getParent();
+        if (parent != null) parent.removeView(splash);
+        splash = null;
     }
 
     private boolean allowed(Uri uri) {
