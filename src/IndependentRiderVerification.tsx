@@ -31,6 +31,7 @@ export default function IndependentRiderVerification({ supabase, phone, onVerifi
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [savedPhone, setSavedPhone] = useState(phone)
+  const [browserVerificationUrl, setBrowserVerificationUrl] = useState('')
 
   const refresh = useCallback(async () => {
     const { data, error: checkError } = await supabase.rpc('my_independent_rider_verification')
@@ -51,6 +52,15 @@ export default function IndependentRiderVerification({ supabase, phone, onVerifi
     try {
       const { data: reference, error: beginError } = await supabase.rpc('begin_independent_rider_verification', { p_phone: savedPhone.trim() })
       if (beginError) throw beginError
+      if (typeof window.KwikParselNative?.postMessage === 'function') {
+        const url = new URL('https://identity.dojah.io/')
+        url.searchParams.set('widget_id', config.widgetId)
+        url.searchParams.set('reference_id', String(reference))
+        setBrowserVerificationUrl(url.toString())
+        setStatus('pending')
+        window.location.assign(url.toString())
+        return
+      }
       await loadWidget()
       if (!window.Connect) throw new Error('Dojah verification is unavailable')
       const widget = new window.Connect({
@@ -72,6 +82,7 @@ export default function IndependentRiderVerification({ supabase, phone, onVerifi
       <button className="primary-button" disabled={busy || status === 'verified'}>{busy ? 'Opening verification...' : status === 'failed' ? 'Try verification again' : status === 'pending' ? 'Continue verification' : 'Start verification'}</button>
     </form>
     {status === 'pending' && <p role="status">Verification pending. Delivery access opens after Dojah confirms all three checks.</p>}
+    {browserVerificationUrl && <a className="secondary-button" href={browserVerificationUrl}>Open verification in browser</a>}
     {error && <p role="alert">{error}</p>}
     <button className="secondary-button" type="button" onClick={() => void refresh()}>Check verification status</button>
   </section>
